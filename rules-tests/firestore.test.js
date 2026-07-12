@@ -16,10 +16,29 @@ test.before(async () => {
     await setDoc(doc(db, 'users/owner-a'), {role: 'academyOwner', academyId: 'academy-a', permissions: [], suspended: false});
     await setDoc(doc(db, 'users/owner-b'), {role: 'academyOwner', academyId: 'academy-b', permissions: [], suspended: false});
     await setDoc(doc(db, 'users/player'), {role: 'player', permissions: [], suspended: false});
+    await setDoc(doc(db, 'users/staff-a'), {role: 'academyStaff', academyId: 'academy-a', permissions: [], suspended: false});
     await setDoc(doc(db, 'courts/court-a'), {academyId: 'academy-a', name: 'A'});
     await setDoc(doc(db, 'courts/court-b'), {academyId: 'academy-b', name: 'B'});
     await setDoc(doc(db, 'bookings/booking-b'), {academyId: 'academy-b', userId: 'player', status: 'confirmed'});
+    await setDoc(doc(db, 'matches/match-a'), {players: ['player'], status: 'open'});
+    await setDoc(doc(db, 'matches/match-a/messages/message-a'), {userId: 'player', body: 'hello'});
+    await setDoc(doc(db, 'users/player/pointsLedger/entry-a'), {delta: 40});
   });
+});
+
+test('academy owner can read own staff but not another academy owner', async () => {
+  const db = env.authenticatedContext('owner-a').firestore();
+  await assertSucceeds(getDoc(doc(db, 'users/staff-a')));
+  await assertFails(getDoc(doc(db, 'users/owner-b')));
+});
+
+test('match chat and points ledger stay private to participants and owner', async () => {
+  const playerDb = env.authenticatedContext('player').firestore();
+  const outsiderDb = env.authenticatedContext('owner-a').firestore();
+  await assertSucceeds(getDoc(doc(playerDb, 'matches/match-a/messages/message-a')));
+  await assertFails(getDoc(doc(outsiderDb, 'matches/match-a/messages/message-a')));
+  await assertSucceeds(getDoc(doc(playerDb, 'users/player/pointsLedger/entry-a')));
+  await assertFails(getDoc(doc(outsiderDb, 'users/player/pointsLedger/entry-a')));
 });
 test.after(async () => env?.cleanup());
 

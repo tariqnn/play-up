@@ -1,5 +1,13 @@
 # UAT changelog
 
+## 2026-07-13 functional cycle
+
+- Replaced static rewards with transactional points, ledgers, redemption codes and duplicate protection.
+- Added cash-pending bookings, cash collection, booking invite links, owner notifications and audited transitions.
+- Replaced simulated matchmaking and in-memory chat with live, membership-protected Firestore workflows.
+- Added live academy dashboards, academy profile editing, staff provisioning and operational booking controls.
+- Added biometric session unlock, mobile deep links, adaptive platform configuration and admin website CRUD.
+
 - Added explicit super admin, platform admin, academy owner, academy staff and player access model.
 - Enforced academy tenant ownership and blocked client privilege escalation.
 - Added transaction-backed booking slot locks and domain transition validation.

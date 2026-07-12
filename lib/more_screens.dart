@@ -1569,12 +1569,14 @@ class _EventCard extends StatelessWidget {
 class OfferDetailsScreen extends StatelessWidget {
   const OfferDetailsScreen({
     super.key,
+    required this.offerId,
     required this.title,
     required this.partner,
     required this.points,
     required this.colors,
   });
 
+  final String offerId;
   final String title;
   final String partner;
   final String points;
@@ -1661,14 +1663,11 @@ class OfferDetailsScreen extends StatelessWidget {
               style: TextStyle(color: AppColors.muted, height: 1.5),
             ),
             const SizedBox(height: 24),
-            PrimaryButton(
-              label: 'Redeem for $points points',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) =>
-                      RedeemQrScreen(title: title, partner: partner),
-                ),
-              ),
+            _RedeemOfferButton(
+              offerId: offerId,
+              title: title,
+              partner: partner,
+              points: points,
             ),
           ],
         ),
@@ -1677,16 +1676,70 @@ class OfferDetailsScreen extends StatelessWidget {
   }
 }
 
+class _RedeemOfferButton extends StatefulWidget {
+  const _RedeemOfferButton({
+    required this.offerId,
+    required this.title,
+    required this.partner,
+    required this.points,
+  });
+  final String offerId;
+  final String title;
+  final String partner;
+  final String points;
+  @override
+  State<_RedeemOfferButton> createState() => _RedeemOfferButtonState();
+}
+
+class _RedeemOfferButtonState extends State<_RedeemOfferButton> {
+  bool busy = false;
+  Future<void> redeem() async {
+    if (busy) return;
+    setState(() => busy = true);
+    try {
+      final result = await AppRepository.instance.redeemOffer(widget.offerId);
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => RedeemQrScreen(
+            title: widget.title,
+            partner: widget.partner,
+            code: result['code'].toString(),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PrimaryButton(
+    label: busy ? 'Redeeming...' : 'Redeem for ${widget.points} points',
+    onPressed: redeem,
+  );
+}
+
 class RedeemQrScreen extends StatelessWidget {
-  const RedeemQrScreen({super.key, required this.title, required this.partner});
+  const RedeemQrScreen({
+    super.key,
+    required this.title,
+    required this.partner,
+    required this.code,
+  });
 
   final String title;
   final String partner;
+  final String code;
 
   @override
   Widget build(BuildContext context) {
-    final code =
-        'PU-${title.hashCode.toUnsigned(20).toRadixString(36).toUpperCase()}';
     return Scaffold(
       body: AppScrollPage(
         child: Column(
@@ -1857,7 +1910,8 @@ class WalletScreen extends StatelessWidget {
                         .doc(uid)
                         .snapshots(),
               builder: (context, snapshot) {
-                final points = snapshot.data?.data()?['points'] ?? 3250;
+                final points =
+                    (snapshot.data?.data()?['points'] as num?)?.toInt() ?? 0;
                 return CardBox(
                   color: AppColors.dark,
                   borderColor: AppColors.dark,
@@ -1881,7 +1935,7 @@ class WalletScreen extends StatelessWidget {
                             ),
                           ),
                           const Text(
-                            'Worth AED 325',
+                            'Available for eligible rewards',
                             style: TextStyle(color: AppColors.gold),
                           ),
                         ],
@@ -1934,38 +1988,59 @@ class WalletScreen extends StatelessWidget {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 12),
-            for (final item in const [
-              ('Completed match', '+40', true),
-              ('Redeemed offer', '-500', false),
-              ('Weekly challenge', '+120', true),
-              ('Invited a friend', '+60', true),
-            ])
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: CardBox(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          item.$1,
-                          style: const TextStyle(fontWeight: FontWeight.w800),
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: AppRepository.instance.pointsLedger(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final rows = snapshot.data?.docs ?? const [];
+                if (rows.isEmpty) {
+                  return const CardBox(
+                    child: Text(
+                      'Your earned and redeemed points will appear here.',
+                    ),
+                  );
+                }
+                return Column(
+                  children: rows.map((doc) {
+                    final item = doc.data();
+                    final delta = (item['delta'] as num? ?? 0).toInt();
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: CardBox(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                item['description']?.toString() ??
+                                    'Points activity',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              '${delta >= 0 ? '+' : ''}$delta',
+                              style: TextStyle(
+                                color: delta >= 0
+                                    ? AppColors.green
+                                    : AppColors.danger,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      Text(
-                        item.$2,
-                        style: TextStyle(
-                          color: item.$3 ? AppColors.green : AppColors.danger,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+                    );
+                  }).toList(),
+                );
+              },
+            ),
           ],
         ),
       ),

@@ -32,11 +32,17 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow create: if signedIn() && validPlayerCreate(userId);
-      allow read: if active() && (request.auth.uid == userId || permission('users.manage'));
+      allow read: if signedIn() && (request.auth.uid == userId || permission('users.manage')
+        || (role('academyOwner') && resource.data.academyId == me().data.academyId));
       allow update: if active() && (
         (request.auth.uid == userId && immutableIdentity()) || permission('users.manage')
       );
       allow delete: if superAdmin();
+
+      match /pointsLedger/{entryId} {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow write: if false;
+      }
     }
 
     match /academies/{academyId} {
@@ -88,6 +94,22 @@ service cloud.firestore {
       allow read: if active();
       allow create, update: if false;
       allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if active() && request.auth.uid in get(/databases/$(database)/documents/matches/$(matchId)).data.players;
+        allow write: if false;
+      }
+    }
+
+    match /bookingInvites/{inviteId} {
+      allow read, write: if false;
+    }
+
+    match /redemptions/{redemptionId} {
+      allow read: if active() && (resource.data.userId == request.auth.uid
+        || permission('platform.manage')
+        || (academyUser() && resource.data.academyId == me().data.academyId));
+      allow write: if false;
     }
 
     match /promotions/{promotionId} {

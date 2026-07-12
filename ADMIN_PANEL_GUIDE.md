@@ -1,6 +1,6 @@
 # Admin website guide
 
-The platform administration surface is a dedicated React + TypeScript website in `admin-web/`; it is not rendered by Flutter. It provides a desktop sidebar, responsive mobile drawer, live dashboard totals, searchable wide data tables, role-gated sign-in, academies, courts, bookings, users, matchmaking, reviews, audit logs and settings.
+The platform administration surface is a dedicated React + TypeScript website in `admin-web/`; it is not rendered by Flutter. It provides a desktop sidebar, responsive mobile drawer, live dashboard totals, searchable tables, role-gated sign-in, create/edit/delete forms, and audited booking confirmation, cancellation and cash-collection actions. Modules cover academies, courts, bookings, users, matchmaking, reviews, audit logs and settings.
 
 Run it with `npm --prefix admin-web install` and `npm --prefix admin-web run dev`. Build with `npm --prefix admin-web run build`. Deploy independently with `firebase deploy --config firebase.admin.json --only hosting` after selecting the intended admin Hosting site.
 

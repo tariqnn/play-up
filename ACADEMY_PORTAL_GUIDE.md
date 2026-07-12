@@ -4,4 +4,4 @@ Academy owners/staff require an immutable `academyId`. Settings exposes Academy 
 
 Academy staff receive only required `academy.*` permissions. Never pass an academy ID from UI directly into an unscoped query.
 
-Court management, booking/check-in/completion, and academy analytics resolve the academy from the authenticated immutable user profile. Booking transitions go through Cloud Functions and create audit entries.
+Court management, academy profile/contact editing, staff provisioning, booking confirmation/check-in/completion/cancellation, cash collection, and academy analytics resolve the academy from the authenticated immutable user profile. Booking and staff mutations go through Cloud Functions and create audit entries.

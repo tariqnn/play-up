@@ -22,13 +22,14 @@ const users = [
 (async () => {
   for (const [email, displayName, role, permissions, academyId] of users) {
     let user; try { user = await auth.getUserByEmail(email); } catch { user = await auth.createUser({email, displayName, password, emailVerified: true}); }
-    await db.collection('users').doc(user.uid).set({uid: user.uid, email, displayName, role, permissions, academyId, suspended: false, mustChangePassword: true, updatedAt: FieldValue.serverTimestamp()}, {merge: true});
+    await db.collection('users').doc(user.uid).set({uid: user.uid, email, displayName, role, permissions, academyId, suspended: false, mustChangePassword: true, points: role === 'player' ? 2000 : 0, xp: 0, level: 1, updatedAt: FieldValue.serverTimestamp()}, {merge: true});
   }
   const batch = db.batch();
   batch.set(db.collection('academies').doc('uat-academy-a'), {name: 'UAT North Academy', status: 'active', currency: 'AED'});
   batch.set(db.collection('academies').doc('uat-academy-b'), {name: 'UAT South Academy', status: 'active', currency: 'AED'});
   batch.set(db.collection('courts').doc('uat-court-a1'), {academyId: 'uat-academy-a', name: 'North Padel 1', sport: 'Padel', active: true, basePriceMinor: 18000, currency: 'AED', openingHour: 6, closingHour: 23, blockedPeriods: [], maintenancePeriods: []});
   batch.set(db.collection('courts').doc('uat-court-b1'), {academyId: 'uat-academy-b', name: 'South Basketball 1', sport: 'Basketball', active: true, basePriceMinor: 21000, currency: 'AED', openingHour: 6, closingHour: 23, blockedPeriods: [], maintenancePeriods: []});
+  batch.set(db.collection('offers').doc('uat-offer-a'), {academyId: 'uat-academy-a', title: 'UAT Free Racket Rental', partner: 'UAT North Academy', points: 500, active: true, gradient: 'green', sort: 1});
   await batch.commit();
   console.log(`Seeded ${users.length} UAT users, 2 academies and 2 courts in ${projectId}.`);
 })().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:app_links/app_links.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -14,6 +15,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:intl/intl.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'firebase_options.dart';
 import 'catalog.dart';
@@ -60,6 +65,7 @@ Future<void> main() async {
     ),
   );
   runApp(const PlayUpApp());
+  unawaited(DeepLinkService.start());
   if (!useEmulators) unawaited(_configureMessaging());
 }
 
@@ -239,6 +245,7 @@ class PlayUpApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      scaffoldMessengerKey: appMessengerKey,
       title: 'PlayUp',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
@@ -252,9 +259,231 @@ class PlayUpApp extends StatelessWidget {
           surface: AppColors.surface,
         ),
       ),
-      home: const AuthGate(),
+      home: const BiometricGate(child: AuthGate()),
     );
   }
+}
+
+final appMessengerKey = GlobalKey<ScaffoldMessengerState>();
+
+class DeepLinkService {
+  static const _pendingKey = 'pending_booking_invite';
+  static final _links = AppLinks();
+  static Future<void> start() async {
+    final initial = await _links.getInitialLink();
+    if (initial != null) await _handle(initial);
+    _links.uriLinkStream.listen(_handle);
+  }
+
+  static Future<void> _handle(Uri uri) async {
+    final parts = uri.pathSegments;
+    String? token;
+    if (uri.scheme == 'playup' && uri.host == 'booking' && parts.isNotEmpty) {
+      token = parts.last;
+    }
+    if (parts.length >= 3 && parts[0] == 'join' && parts[1] == 'booking') {
+      token = parts[2];
+    }
+    if (token == null || token.isEmpty) return;
+    if (FirebaseAuth.instance.currentUser == null) {
+      await (await SharedPreferences.getInstance()).setString(
+        _pendingKey,
+        token,
+      );
+      return;
+    }
+    await _join(token);
+  }
+
+  static Future<void> consumePending() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString(_pendingKey);
+    if (token == null) return;
+    await prefs.remove(_pendingKey);
+    await _join(token);
+  }
+
+  static Future<void> _join(String token) async {
+    try {
+      await FirebaseFunctions.instanceFor(
+        region: 'me-central1',
+      ).httpsCallable('joinBookingInvite').call({'token': token});
+      appMessengerKey.currentState?.showSnackBar(
+        const SnackBar(content: Text('You joined the booking.')),
+      );
+    } catch (error) {
+      appMessengerKey.currentState?.showSnackBar(
+        SnackBar(content: Text(error.toString())),
+      );
+    }
+  }
+}
+
+class BiometricService {
+  static const _key = 'biometric_unlock_enabled';
+  static final _auth = LocalAuthentication();
+  static Future<bool> isEnabled() async =>
+      (await SharedPreferences.getInstance()).getBool(_key) ?? false;
+  static Future<bool> isAvailable() async {
+    try {
+      return await _auth.isDeviceSupported() && await _auth.canCheckBiometrics;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> setEnabled(bool value) async {
+    if (value && !await authenticate()) {
+      throw const DomainValidationException(
+        'Biometric verification was not completed.',
+      );
+    }
+    await (await SharedPreferences.getInstance()).setBool(_key, value);
+  }
+
+  static Future<bool> authenticate() async {
+    try {
+      return await _auth.authenticate(
+        localizedReason: 'Unlock your PlayUp account',
+        biometricOnly: true,
+        sensitiveTransaction: true,
+        persistAcrossBackgrounding: true,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
+class BiometricGate extends StatefulWidget {
+  const BiometricGate({super.key, required this.child});
+  final Widget child;
+  @override
+  State<BiometricGate> createState() => _BiometricGateState();
+}
+
+class _BiometricGateState extends State<BiometricGate> {
+  bool loading = true;
+  bool unlocked = false;
+  @override
+  void initState() {
+    super.initState();
+    _unlock();
+  }
+
+  Future<void> _unlock() async {
+    final required =
+        FirebaseAuth.instance.currentUser != null &&
+        await BiometricService.isEnabled();
+    final ok = !required || await BiometricService.authenticate();
+    if (mounted) {
+      setState(() {
+        loading = false;
+        unlocked = ok;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) return const LaunchLoadingScreen();
+    if (unlocked) return widget.child;
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  CupertinoIcons.lock_shield_fill,
+                  size: 64,
+                  color: AppColors.purple,
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'PlayUp is locked',
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Verify with your device biometrics to continue.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                PrimaryButton(label: 'Unlock', onPressed: _unlock),
+                const SizedBox(height: 10),
+                SecondaryButton(
+                  label: 'Sign out instead',
+                  onPressed: () async {
+                    await SocialAuth.signOutEverywhere();
+                    if (mounted) setState(() => unlocked = true);
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class BiometricSettingsTile extends StatefulWidget {
+  const BiometricSettingsTile({super.key});
+  @override
+  State<BiometricSettingsTile> createState() => _BiometricSettingsTileState();
+}
+
+class _BiometricSettingsTileState extends State<BiometricSettingsTile> {
+  bool loading = true, available = false, enabled = false;
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final values = await Future.wait([
+      BiometricService.isAvailable(),
+      BiometricService.isEnabled(),
+    ]);
+    if (mounted) {
+      setState(() {
+        available = values[0];
+        enabled = values[1];
+        loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => SwitchListTile.adaptive(
+    value: enabled,
+    onChanged: !available || loading
+        ? null
+        : (value) async {
+            try {
+              await BiometricService.setEnabled(value);
+              if (!mounted) return;
+              setState(() => enabled = value);
+            } catch (error) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text(error.toString())));
+              }
+            }
+          },
+    secondary: const Icon(CupertinoIcons.lock_shield),
+    title: const Text('Biometric unlock'),
+    subtitle: Text(
+      available
+          ? 'Use Face ID, Touch ID, or Android biometrics'
+          : 'No device biometrics are enrolled',
+    ),
+  );
 }
 
 class AuthGate extends StatelessWidget {
@@ -398,6 +627,9 @@ class AppRepository {
   Future<String> createBooking({
     required Court court,
     required bool matchmaking,
+    required DateTime startUtc,
+    required DateTime endUtc,
+    required int playerCapacity,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -409,12 +641,12 @@ class AppRepository {
       );
     }
     try {
-      final startUtc = DateTime.now().toUtc().add(const Duration(hours: 2));
       final response = await _functions.httpsCallable('createBooking').call({
         'courtId': court.id,
         'startUtc': startUtc.toIso8601String(),
         'endUtc': startUtc.add(const Duration(hours: 1)).toIso8601String(),
         'matchmaking': matchmaking,
+        'playerCapacity': playerCapacity,
       });
       final bookingId = (response.data as Map)['bookingId']?.toString();
       if (bookingId == null || bookingId.isEmpty) {
@@ -436,7 +668,7 @@ class AppRepository {
     }
   }
 
-  Future<void> joinMatch(
+  Future<String> joinMatch(
     String title, {
     String sport = 'Basketball',
     String type = 'Casual',
@@ -444,9 +676,11 @@ class AppRepository {
     String skill = 'Intermediate',
   }) async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      throw const DomainValidationException('Sign in to create a match.');
+    }
     try {
-      await _functions.httpsCallable('createMatch').call({
+      final response = await _functions.httpsCallable('createMatch').call({
         'title': title,
         'sport': sport,
         'type': type,
@@ -458,6 +692,7 @@ class AppRepository {
             .add(const Duration(hours: 3))
             .toIso8601String(),
       });
+      return (response.data as Map)['matchId'].toString();
     } catch (error) {
       if (error is FirebaseFunctionsException) {
         throw DomainValidationException(
@@ -478,6 +713,64 @@ class AppRepository {
     } on FirebaseFunctionsException catch (error) {
       throw DomainValidationException(
         error.message ?? 'Could not join this match.',
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> redeemOffer(String offerId) async {
+    try {
+      final result = await _functions.httpsCallable('redeemOffer').call({
+        'offerId': offerId,
+      });
+      return Map<String, dynamic>.from(result.data as Map);
+    } on FirebaseFunctionsException catch (error) {
+      throw DomainValidationException(
+        error.message ?? 'Could not redeem this offer.',
+      );
+    }
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> pointsLedger() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return const Stream.empty();
+    return _users
+        .doc(uid)
+        .collection('pointsLedger')
+        .orderBy('createdAt', descending: true)
+        .limit(100)
+        .snapshots();
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> matchMessages(String matchId) =>
+      _matches
+          .doc(matchId)
+          .collection('messages')
+          .orderBy('createdAt')
+          .limitToLast(200)
+          .snapshots();
+
+  Future<void> sendMatchMessage(String matchId, String body) async {
+    try {
+      await _functions.httpsCallable('sendMatchMessage').call({
+        'matchId': matchId,
+        'body': body,
+      });
+    } on FirebaseFunctionsException catch (error) {
+      throw DomainValidationException(
+        error.message ?? 'Message could not be sent.',
+      );
+    }
+  }
+
+  Future<String> createBookingInvite(String bookingId) async {
+    try {
+      final result = await _functions.httpsCallable('createBookingInvite').call(
+        {'bookingId': bookingId},
+      );
+      return (result.data as Map)['url'].toString();
+    } on FirebaseFunctionsException catch (error) {
+      throw DomainValidationException(
+        error.message ?? 'Invite link could not be created.',
       );
     }
   }
@@ -1182,6 +1475,7 @@ class _MainShellState extends State<MainShell> {
     // Populate the catalog on first run (no-op if already seeded or if
     // write rules reject it — the UI falls back to bundled data either way).
     CatalogService.instance.seedIfEmpty();
+    unawaited(DeepLinkService.consumePending());
   }
 
   @override
@@ -1358,7 +1652,7 @@ class HomeScreen extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           SizedBox(
-            height: 190,
+            height: 200,
             child: StreamBuilder<List<Court>>(
               stream: CatalogService.instance.courts(),
               builder: (context, snapshot) {
@@ -1626,9 +1920,17 @@ class PlayScreen extends StatelessWidget {
           StreamBuilder<List<OpenMatch>>(
             stream: openMatchesStream(),
             builder: (context, snapshot) {
-              final list = (snapshot.hasData && snapshot.data!.isNotEmpty)
-                  ? snapshot.data!
-                  : kOpenMatches;
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final list = snapshot.data ?? const <OpenMatch>[];
+              if (list.isEmpty) {
+                return const CardBox(
+                  child: Text(
+                    'No open matches yet. Create the first live match.',
+                  ),
+                );
+              }
               return Column(
                 children: [
                   for (final match in list.take(3))
@@ -1697,6 +1999,7 @@ class RewardsScreen extends StatelessWidget {
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => OfferDetailsScreen(
+                              offerId: offer.id,
                               title: offer.title,
                               partner: offer.partner,
                               points: offer.points,
@@ -2084,9 +2387,16 @@ class CourtDetailsScreen extends StatelessWidget {
 }
 
 class BookingSetupScreen extends StatefulWidget {
-  const BookingSetupScreen({super.key, required this.court});
+  const BookingSetupScreen({
+    super.key,
+    required this.court,
+    required this.startUtc,
+    required this.endUtc,
+  });
 
   final Court court;
+  final DateTime startUtc;
+  final DateTime endUtc;
 
   @override
   State<BookingSetupScreen> createState() => _BookingSetupScreenState();
@@ -2094,6 +2404,7 @@ class BookingSetupScreen extends StatefulWidget {
 
 class _BookingSetupScreenState extends State<BookingSetupScreen> {
   int _players = 4;
+  String _mode = 'invite';
 
   @override
   Widget build(BuildContext context) {
@@ -2114,23 +2425,34 @@ class _BookingSetupScreenState extends State<BookingSetupScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 12),
-            const OptionTile(
-              icon: CupertinoIcons.person,
-              title: 'Book for Myself',
-              subtitle: 'I will bring my own players',
+            GestureDetector(
+              onTap: () => setState(() => _mode = 'self'),
+              child: OptionTile(
+                icon: CupertinoIcons.person,
+                title: 'Book for Myself',
+                subtitle: 'I will bring my own players',
+                selected: _mode == 'self',
+              ),
             ),
             const SizedBox(height: 10),
-            const OptionTile(
-              icon: CupertinoIcons.person_2,
-              title: 'Invite Friends',
-              subtitle: 'Invite your friends to join',
+            GestureDetector(
+              onTap: () => setState(() => _mode = 'invite'),
+              child: OptionTile(
+                icon: CupertinoIcons.person_2,
+                title: 'Invite Friends',
+                subtitle: 'Create a shareable link after booking',
+                selected: _mode == 'invite',
+              ),
             ),
             const SizedBox(height: 10),
-            const OptionTile(
-              icon: CupertinoIcons.sparkles,
-              title: 'Find Players (Matchmaking)',
-              subtitle: 'We will find players for you',
-              selected: true,
+            GestureDetector(
+              onTap: () => setState(() => _mode = 'matchmaking'),
+              child: OptionTile(
+                icon: CupertinoIcons.sparkles,
+                title: 'Find Players (Matchmaking)',
+                subtitle: 'Publish this booking to eligible players',
+                selected: _mode == 'matchmaking',
+              ),
             ),
             const SizedBox(height: 22),
             const Text(
@@ -2185,7 +2507,13 @@ class _BookingSetupScreenState extends State<BookingSetupScreen> {
               label: 'Continue to Payment',
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => PaymentScreen(court: widget.court),
+                  builder: (_) => PaymentScreen(
+                    court: widget.court,
+                    startUtc: widget.startUtc,
+                    endUtc: widget.endUtc,
+                    playerCapacity: _players,
+                    matchmaking: _mode == 'matchmaking',
+                  ),
                 ),
               ),
             ),
@@ -2197,24 +2525,14 @@ class _BookingSetupScreenState extends State<BookingSetupScreen> {
 }
 
 class FindingPlayersScreen extends StatefulWidget {
-  const FindingPlayersScreen({super.key});
+  const FindingPlayersScreen({super.key, required this.matchId});
+  final String matchId;
 
   @override
   State<FindingPlayersScreen> createState() => _FindingPlayersScreenState();
 }
 
 class _FindingPlayersScreenState extends State<FindingPlayersScreen> {
-  @override
-  void initState() {
-    super.initState();
-    Future.delayed(const Duration(milliseconds: 1600), () {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MatchFoundScreen()),
-      );
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2245,13 +2563,43 @@ class _FindingPlayersScreenState extends State<FindingPlayersScreen> {
                 const Spacer(),
                 const OrbitFinder(),
                 const Spacer(),
-                const ChecklistItem(
-                  done: true,
-                  text: 'Checking player availability',
+                StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('matches')
+                      .doc(widget.matchId)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    final data = snapshot.data?.data();
+                    final joined = (data?['players'] as List?)?.length ?? 1;
+                    final capacity = (data?['capacity'] as num?)?.toInt() ?? 1;
+                    return Column(
+                      children: [
+                        ChecklistItem(
+                          done: snapshot.hasData,
+                          text: 'Match published',
+                        ),
+                        ChecklistItem(
+                          done: joined > 1,
+                          text: '$joined of $capacity players joined',
+                        ),
+                        ChecklistItem(
+                          done: joined >= capacity,
+                          text: joined >= capacity
+                              ? 'Team complete'
+                              : 'Waiting for eligible players',
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'This screen updates live. You can leave it and return from My Matches.',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: .65),
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    );
+                  },
                 ),
-                const ChecklistItem(done: true, text: 'Matching skill levels'),
-                const ChecklistItem(done: true, text: 'Finding best fit'),
-                const ChecklistItem(done: false, text: 'Almost there...'),
                 const SizedBox(height: 30),
                 SizedBox(
                   width: double.infinity,
@@ -2411,9 +2759,20 @@ class MatchFoundScreen extends StatelessWidget {
 }
 
 class PaymentScreen extends StatefulWidget {
-  const PaymentScreen({super.key, required this.court});
+  const PaymentScreen({
+    super.key,
+    required this.court,
+    required this.startUtc,
+    required this.endUtc,
+    required this.playerCapacity,
+    required this.matchmaking,
+  });
 
   final Court court;
+  final DateTime startUtc;
+  final DateTime endUtc;
+  final int playerCapacity;
+  final bool matchmaking;
 
   @override
   State<PaymentScreen> createState() => _PaymentScreenState();
@@ -2427,7 +2786,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
     try {
       final bookingId = await AppRepository.instance.createBooking(
         court: widget.court,
-        matchmaking: true,
+        matchmaking: widget.matchmaking,
+        startUtc: widget.startUtc,
+        endUtc: widget.endUtc,
+        playerCapacity: widget.playerCapacity,
       );
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -2471,8 +2833,17 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   ),
                   const SizedBox(height: 14),
                   DetailRow(label: 'Court', value: widget.court.name),
-                  const DetailRow(label: 'Date', value: 'Today, 20 May'),
-                  const DetailRow(label: 'Time', value: '8:00 PM - 9:00 PM'),
+                  DetailRow(
+                    label: 'Date',
+                    value: DateFormat(
+                      'EEE, d MMM',
+                    ).format(widget.startUtc.toLocal()),
+                  ),
+                  DetailRow(
+                    label: 'Time',
+                    value:
+                        '${DateFormat.jm().format(widget.startUtc.toLocal())} - ${DateFormat.jm().format(widget.endUtc.toLocal())}',
+                  ),
                   DetailRow(label: 'Price', value: widget.court.price),
                 ],
               ),
@@ -2483,8 +2854,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 children: [
                   const OptionTile(
                     icon: CupertinoIcons.money_dollar,
-                    title: 'Pay at venue',
-                    subtitle: 'No payment is collected in the app',
+                    title: 'Cash at venue',
+                    subtitle:
+                        'Payment remains pending until academy staff collect cash',
                     selected: true,
                   ),
                 ],
@@ -2534,7 +2906,7 @@ class BookingConfirmationScreen extends StatelessWidget {
             ).animate().scale(duration: 320.ms, curve: Curves.easeOutBack),
             const SizedBox(height: 22),
             const Text(
-              'Booking Confirmed',
+              'Booking Requested',
               style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 8),
@@ -2549,16 +2921,32 @@ class BookingConfirmationScreen extends StatelessWidget {
                   DetailRow(label: 'Court', value: court.name),
                   const DetailRow(label: 'Date', value: 'Today, 20 May'),
                   const DetailRow(label: 'Time', value: '8:00 PM - 9:00 PM'),
-                  const DetailRow(label: 'XP after match', value: '+150 XP'),
+                  const DetailRow(label: 'Payment', value: 'Cash - Pending'),
                 ],
               ),
             ),
             const SizedBox(height: 16),
             PrimaryButton(
-              label: 'Find Players',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const FindingPlayersScreen()),
-              ),
+              label: 'Invite Players',
+              onPressed: () async {
+                try {
+                  final url = await AppRepository.instance.createBookingInvite(
+                    bookingId,
+                  );
+                  await SharePlus.instance.share(
+                    ShareParams(
+                      text: 'Join my PlayUp booking at ${court.name}: $url',
+                      subject: 'Join my PlayUp booking',
+                    ),
+                  );
+                } catch (error) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text(error.toString())));
+                  }
+                }
+              },
             ),
             const SizedBox(height: 10),
             SecondaryButton(
@@ -2638,23 +3026,7 @@ class NotificationsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final notifications = [
-      (
-        'Your match starts in 2 hours',
-        'Basketball 5v5 at Infinity Sports Center',
-        CupertinoIcons.clock,
-      ),
-      (
-        'You earned 120 XP',
-        'Great work. Your level progress was updated.',
-        CupertinoIcons.bolt_fill,
-      ),
-      (
-        'New academy offer',
-        'Infinity Sports added a court discount.',
-        CupertinoIcons.gift_fill,
-      ),
-    ];
+    final uid = FirebaseAuth.instance.currentUser?.uid;
     return Scaffold(
       body: AppScrollPage(
         child: Column(
@@ -2665,37 +3037,77 @@ class NotificationsScreen extends StatelessWidget {
               onBack: () => Navigator.of(context).pop(),
             ),
             const SizedBox(height: 18),
-            ...notifications.map(
-              (item) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: CardBox(
-                  child: Row(
-                    children: [
-                      Icon(item.$3, color: AppColors.purple),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item.$1,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
+            if (uid == null)
+              const CardBox(child: Text('Sign in to view notifications.'))
+            else
+              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: FirebaseFirestore.instance
+                    .collection('notifications')
+                    .where('userId', isEqualTo: uid)
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final docs = snapshot.data?.docs.toList() ?? [];
+                  docs.sort((a, b) {
+                    final at =
+                        (a.data()['createdAt'] as Timestamp?)
+                            ?.millisecondsSinceEpoch ??
+                        0;
+                    final bt =
+                        (b.data()['createdAt'] as Timestamp?)
+                            ?.millisecondsSinceEpoch ??
+                        0;
+                    return bt.compareTo(at);
+                  });
+                  if (docs.isEmpty) {
+                    return const CardBox(child: Text('No notifications yet.'));
+                  }
+                  return Column(
+                    children: docs.map((doc) {
+                      final item = doc.data();
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: CardBox(
+                          child: Row(
+                            children: [
+                              const Icon(
+                                CupertinoIcons.bell_fill,
+                                color: AppColors.purple,
                               ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              item.$2,
-                              style: const TextStyle(color: AppColors.muted),
-                            ),
-                          ],
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item['title']?.toString() ??
+                                          'PlayUp update',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      item['body']?.toString() ??
+                                          item['type']?.toString() ??
+                                          '',
+                                      style: const TextStyle(
+                                        color: AppColors.muted,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
+                      );
+                    }).toList(),
+                  );
+                },
               ),
-            ),
           ],
         ),
       ),
@@ -2704,7 +3116,8 @@ class NotificationsScreen extends StatelessWidget {
 }
 
 class MatchChatScreen extends StatefulWidget {
-  const MatchChatScreen({super.key});
+  const MatchChatScreen({super.key, this.matchId});
+  final String? matchId;
 
   @override
   State<MatchChatScreen> createState() => _MatchChatScreenState();
@@ -2712,11 +3125,7 @@ class MatchChatScreen extends StatefulWidget {
 
 class _MatchChatScreenState extends State<MatchChatScreen> {
   final _message = TextEditingController();
-  final _messages = <String>[
-    'Ahmad joined',
-    'Court confirmed',
-    'Payment completed',
-  ];
+  bool _sending = false;
 
   @override
   void dispose() {
@@ -2736,32 +3145,59 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
               onBack: () => Navigator.of(context).pop(),
             ),
             const SizedBox(height: 16),
-            ..._messages.map(
-              (message) => Align(
-                alignment: message.contains('completed')
-                    ? Alignment.centerRight
-                    : Alignment.centerLeft,
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: message.contains('completed')
-                        ? AppColors.purple
-                        : Colors.white,
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: Text(
-                    message,
-                    style: TextStyle(
-                      color: message.contains('completed')
-                          ? Colors.white
-                          : AppColors.ink,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+            if (widget.matchId == null)
+              const CardBox(
+                child: Text(
+                  'Open a live match you joined to use its group chat.',
                 ),
+              )
+            else
+              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: AppRepository.instance.matchMessages(widget.matchId!),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return CardBox(
+                      child: Text('Chat unavailable. ${snapshot.error}'),
+                    );
+                  }
+                  final messages = snapshot.data?.docs ?? const [];
+                  if (messages.isEmpty) {
+                    return const CardBox(
+                      child: Text('No messages yet. Start the conversation.'),
+                    );
+                  }
+                  final uid = FirebaseAuth.instance.currentUser?.uid;
+                  return Column(
+                    children: messages.map((doc) {
+                      final data = doc.data();
+                      final mine = data['userId'] == uid;
+                      return Align(
+                        alignment: mine
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: mine ? AppColors.purple : Colors.white,
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Text(
+                            data['body']?.toString() ?? '',
+                            style: TextStyle(
+                              color: mine ? Colors.white : AppColors.ink,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  );
+                },
               ),
-            ),
             const SizedBox(height: 12),
             AppTextField(
               controller: _message,
@@ -2770,13 +3206,26 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
             ),
             const SizedBox(height: 12),
             PrimaryButton(
-              label: 'Send',
-              onPressed: () {
-                if (_message.text.trim().isEmpty) return;
-                setState(() {
-                  _messages.add(_message.text.trim());
+              label: _sending ? 'Sending...' : 'Send',
+              onPressed: () async {
+                final body = _message.text.trim();
+                if (body.isEmpty || widget.matchId == null || _sending) return;
+                setState(() => _sending = true);
+                try {
+                  await AppRepository.instance.sendMatchMessage(
+                    widget.matchId!,
+                    body,
+                  );
                   _message.clear();
-                });
+                } catch (error) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text(error.toString())));
+                  }
+                } finally {
+                  if (mounted) setState(() => _sending = false);
+                }
               },
             ),
             const SizedBox(height: 8),
@@ -2970,6 +3419,7 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
             ),
+            const BiometricSettingsTile(),
             SettingsTile(
               icon: CupertinoIcons.creditcard,
               title: 'Payment Methods',
@@ -3414,6 +3864,36 @@ class DarkFeatureCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (title == 'Best match for you') {
+      return StreamBuilder<List<OpenMatch>>(
+        stream: openMatchesStream(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final matches = snapshot.data ?? const <OpenMatch>[];
+          if (matches.isEmpty) {
+            return const CardBox(
+              child: Text(
+                'No live match recommendation yet. Create a match to start matchmaking.',
+              ),
+            );
+          }
+          final match = matches.first;
+          return DarkFeatureCard(
+            title: 'Recommended live match',
+            subtitle: match.title,
+            meta: '${match.sport} - ${match.skill} - ${match.court}',
+            cta: 'View',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => MatchDetailsScreen(match: match),
+              ),
+            ),
+          );
+        },
+      );
+    }
     return CardBox(
       radius: 24,
       padding: const EdgeInsets.all(18),
@@ -3471,7 +3951,7 @@ class DarkFeatureCard extends StatelessWidget {
                 ),
               ),
               SizedBox(
-                width: 76,
+                width: 104,
                 child: FilledButton(
                   onPressed: onPressed,
                   style: FilledButton.styleFrom(
@@ -3960,50 +4440,60 @@ class RewardsPointsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CardBox(
-      color: AppColors.dark,
-      borderColor: const Color(0xFF153020),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Your Points',
-                  style: TextStyle(color: AppColors.gold.withValues(alpha: .9)),
+    return StreamBuilder<Map<String, dynamic>>(
+      stream: AppRepository.instance.currentUserDoc(),
+      builder: (context, snapshot) {
+        final points = (snapshot.data?['points'] as num?)?.toInt() ?? 0;
+        return CardBox(
+          color: AppColors.dark,
+          borderColor: const Color(0xFF153020),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Your Points',
+                      style: TextStyle(
+                        color: AppColors.gold.withValues(alpha: .9),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      formatThousands(points),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 34,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      'Earned through real PlayUp activity',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: .68),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 10),
-                const Text(
-                  '3,250',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 34,
-                    fontWeight: FontWeight.w900,
-                  ),
+              ),
+              Container(
+                width: 96,
+                height: 96,
+                decoration: BoxDecoration(
+                  color: AppColors.gold.withValues(alpha: .16),
+                  borderRadius: BorderRadius.circular(24),
                 ),
-                Text(
-                  'Worth AED 325',
-                  style: TextStyle(color: Colors.white.withValues(alpha: .68)),
+                child: const Icon(
+                  CupertinoIcons.gift_fill,
+                  color: AppColors.gold,
+                  size: 54,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          Container(
-            width: 96,
-            height: 96,
-            decoration: BoxDecoration(
-              color: AppColors.gold.withValues(alpha: .16),
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: const Icon(
-              CupertinoIcons.gift_fill,
-              color: AppColors.gold,
-              size: 54,
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

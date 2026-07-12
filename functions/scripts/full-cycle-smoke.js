@@ -21,17 +21,25 @@ async function call(name, token, data) {
   const [player, owner, admin] = await Promise.all([signIn('player@uat.invalid'), signIn('owner-a@uat.invalid'), signIn('superadmin@uat.invalid')]);
   const tomorrow = new Date(); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1); tomorrow.setUTCHours(10, 0, 0, 0);
   const end = new Date(tomorrow.valueOf() + 60 * 60 * 1000);
+  const existingLock = db.collection('bookingLocks').doc(`uat-court-a1_${tomorrow.valueOf()}`);
+  const existing = await existingLock.get();
+  if (existing.exists) { const oldBookingId = existing.data().bookingId; await existingLock.delete(); if (oldBookingId) await db.collection('bookings').doc(oldBookingId).delete(); }
   const attempts = await Promise.allSettled([call('createBooking', player, {courtId: 'uat-court-a1', startUtc: tomorrow.toISOString(), endUtc: end.toISOString()}), call('createBooking', player, {courtId: 'uat-court-a1', startUtc: tomorrow.toISOString(), endUtc: end.toISOString()})]);
   const successes = attempts.filter((x) => x.status === 'fulfilled');
   const failures = attempts.filter((x) => x.status === 'rejected');
   if (successes.length !== 1 || failures.length !== 1) throw new Error('Double-booking concurrency guard failed.');
   const bookingId = successes[0].value.bookingId;
   const booking = (await db.collection('bookings').doc(bookingId).get()).data();
-  if (booking.totalMinor !== 18000 || booking.paymentMethod !== 'payAtVenue') throw new Error('Server pricing/payment policy failed.');
+  if (booking.totalMinor !== 18000 || booking.paymentMethod !== 'cash' || booking.paymentStatus !== 'pending') throw new Error('Server pricing/payment policy failed.');
+  const invite = await call('createBookingInvite', player, {bookingId});
+  await call('joinBookingInvite', owner, {token: invite.token});
+  await call('recordCashPayment', owner, {bookingId});
+  await call('transitionBooking', admin, {bookingId, status: 'confirmed'});
   await call('transitionBooking', admin, {bookingId, status: 'checkedIn'});
   await call('transitionBooking', admin, {bookingId, status: 'completed'});
   const match = await call('createMatch', player, {title: 'UAT Padel Doubles', sport: 'Padel', courtId: 'uat-court-a1', startUtc: tomorrow.toISOString(), capacity: 2, skill: 'Intermediate', type: 'Casual'});
   await call('joinMatch', owner, {matchId: match.matchId});
+  await call('sendMatchMessage', owner, {matchId: match.matchId, body: 'UAT chat works'});
   let duplicateRejected = false; try { await call('joinMatch', owner, {matchId: match.matchId}); } catch { duplicateRejected = true; }
   if (!duplicateRejected) throw new Error('Duplicate matchmaking join was accepted.');
   await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -39,5 +47,6 @@ async function call(name, token, data) {
   if (notifications.empty) throw new Error('Booking notification was not generated.');
   const audit = await db.collection('auditLogs').where('entityId', '==', bookingId).get();
   if (audit.size < 3) throw new Error('Expected booking audit trail was not generated.');
-  console.log(JSON.stringify({authRoles: 3, bookingId, doubleBookingRejected: true, serverTotalMinor: booking.totalMinor, finalBookingStatus: 'completed', matchId: match.matchId, duplicateJoinRejected: true, notifications: notifications.size, auditEntries: audit.size}, null, 2));
+  const redemption = await call('redeemOffer', player, {offerId: 'uat-offer-a'});
+  console.log(JSON.stringify({authRoles: 3, bookingId, doubleBookingRejected: true, cashPaymentCollected: true, inviteJoined: true, serverTotalMinor: booking.totalMinor, finalBookingStatus: 'completed', matchId: match.matchId, chatSent: true, duplicateJoinRejected: true, redemptionCode: redemption.code, notifications: notifications.size, auditEntries: audit.size}, null, 2));
 })().catch((error) => { console.error(error); process.exitCode = 1; });

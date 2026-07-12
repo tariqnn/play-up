@@ -32,6 +32,36 @@ class AcademyService {
       .limit(200)
       .snapshots();
 
+  Stream<DocumentSnapshot<Map<String, dynamic>>> academy(String academyId) =>
+      _db.collection('academies').doc(academyId).snapshots();
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> staff(String academyId) => _db
+      .collection('users')
+      .where('academyId', isEqualTo: academyId)
+      .snapshots();
+
+  Future<void> saveAcademy(Map<String, dynamic> values) async {
+    final id = await academyId();
+    await _db.collection('academies').doc(id).set({
+      ...values,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> createStaff({
+    required String displayName,
+    required String email,
+    required String temporaryPassword,
+    required List<String> permissions,
+  }) async {
+    await _functions.httpsCallable('createAcademyStaff').call({
+      'displayName': displayName,
+      'email': email,
+      'temporaryPassword': temporaryPassword,
+      'permissions': permissions,
+    });
+  }
+
   Future<void> saveCourt({
     String? courtId,
     required String name,
@@ -64,6 +94,12 @@ class AcademyService {
     await _functions.httpsCallable('transitionBooking').call({
       'bookingId': bookingId,
       'status': status,
+    });
+  }
+
+  Future<void> recordCashPayment(String bookingId) async {
+    await _functions.httpsCallable('recordCashPayment').call({
+      'bookingId': bookingId,
     });
   }
 }

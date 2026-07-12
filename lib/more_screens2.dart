@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:intl/intl.dart';
 
 import 'main.dart';
 import 'more_screens.dart';
@@ -10,6 +11,7 @@ import 'more_screens3.dart';
 import 'more_screens4.dart';
 import 'custom_dashboard.dart';
 import 'academy_live_screens.dart';
+import 'academy_service.dart';
 
 /// Live open matches from Firestore, falling back to bundled samples when
 /// none exist yet (e.g. a brand new project with no matches created).
@@ -43,17 +45,24 @@ class OpenMatch {
   factory OpenMatch.fromMap(Map<String, dynamic> d, {String? id}) {
     final players = (d['players'] as List?)?.length ?? 1;
     final needed = (d['neededPlayers'] as num?)?.toInt() ?? 0;
+    final start = (d['startUtc'] as Timestamp?)?.toDate().toLocal();
+    final capacity = (d['capacity'] as num?)?.toInt() ?? (players + needed);
+    final totalMinor = (d['totalMinor'] as num?)?.toInt() ?? 0;
     return OpenMatch(
       id: id,
       title: (d['title'] ?? 'Match').toString(),
       sport: (d['sport'] ?? 'Basketball').toString(),
       host: (d['hostName'] ?? 'Player').toString(),
       court: (d['courtName'] ?? 'Court').toString(),
-      time: (d['time'] ?? 'Today').toString(),
+      time: start == null
+          ? 'Time pending'
+          : DateFormat('EEE, d MMM - h:mm a').format(start),
       skill: (d['skillRange'] ?? 'Intermediate').toString(),
       joined: players,
       needed: needed,
-      pricePerPlayer: (d['pricePerPlayer'] ?? 'AED 50').toString(),
+      pricePerPlayer: totalMinor > 0
+          ? '${d['currency'] ?? 'AED'} ${(totalMinor / 100 / capacity).toStringAsFixed(2)}'
+          : 'Cash at venue',
       ranked: d['ranked'] == true,
     );
   }
@@ -168,9 +177,10 @@ class _OpenMatchesScreenState extends State<OpenMatchesScreen> {
             StreamBuilder<List<OpenMatch>>(
               stream: openMatchesStream(),
               builder: (context, snapshot) {
-                final source = (snapshot.hasData && snapshot.data!.isNotEmpty)
-                    ? snapshot.data!
-                    : kOpenMatches;
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final source = snapshot.data ?? const <OpenMatch>[];
                 final matches = source.where((m) {
                   if (_filter == 'All') return true;
                   if (_filter == 'Ranked') return m.ranked;
@@ -462,7 +472,7 @@ class MatchDetailsScreen extends StatelessWidget {
                   IconButton(
                     onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => const MatchChatScreen(),
+                        builder: (_) => MatchChatScreen(matchId: match.id),
                       ),
                     ),
                     icon: const Icon(
@@ -501,7 +511,9 @@ class MatchDetailsScreen extends StatelessWidget {
             SecondaryButton(
               label: 'Open Chat',
               onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const MatchChatScreen()),
+                MaterialPageRoute(
+                  builder: (_) => MatchChatScreen(matchId: match.id),
+                ),
               ),
             ),
           ],
@@ -532,20 +544,28 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   Future<void> _publish() async {
     setState(() => _publishing = true);
     try {
-      await AppRepository.instance.joinMatch(
+      final matchId = await AppRepository.instance.joinMatch(
         '$_sport $_type Match',
         sport: _sport,
         type: _type,
         neededPlayers: _players,
         skill: _skill,
       );
-    } catch (_) {
-      // Non-fatal: still proceed to the matchmaking experience.
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => FindingPlayersScreen(matchId: matchId),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _publishing = false);
     }
-    if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const FindingPlayersScreen()),
-    );
   }
 
   void _next() {
@@ -1058,11 +1078,28 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
             const SizedBox(height: 20),
             PrimaryButton(
               label: 'Continue',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => BookingSetupScreen(court: widget.court),
-                ),
-              ),
+              onPressed: () {
+                final day = DateTime(
+                  now.year,
+                  now.month,
+                  now.day,
+                ).add(Duration(days: _dayIndex));
+                final start = DateTime(
+                  day.year,
+                  day.month,
+                  day.day,
+                  18 + _slotIndex,
+                );
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => BookingSetupScreen(
+                      court: widget.court,
+                      startUtc: start.toUtc(),
+                      endUtc: start.add(Duration(minutes: _duration)).toUtc(),
+                    ),
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -1344,60 +1381,7 @@ class AcademyModeDashboard extends StatelessWidget {
               onBack: () => Navigator.of(context).pop(),
             ),
             const SizedBox(height: 16),
-            CardBox(
-              color: AppColors.dark,
-              borderColor: AppColors.dark,
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    'Infinity Sports Center',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    'Owner dashboard',
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 1.5,
-              children: const [
-                _OwnerMetric(
-                  label: "Today's bookings",
-                  value: '18',
-                  icon: CupertinoIcons.calendar_today,
-                ),
-                _OwnerMetric(
-                  label: 'Revenue',
-                  value: 'AED 3,780',
-                  icon: CupertinoIcons.money_dollar_circle,
-                ),
-                _OwnerMetric(
-                  label: 'Occupancy',
-                  value: '76%',
-                  icon: CupertinoIcons.chart_pie,
-                ),
-                _OwnerMetric(
-                  label: 'Pending check-ins',
-                  value: '5',
-                  icon: CupertinoIcons.person_badge_plus,
-                ),
-              ],
-            ),
+            const LiveAcademyDashboardSummary(),
             const SizedBox(height: 20),
             SettingsTile(
               icon: CupertinoIcons.square_grid_2x2,
@@ -1408,6 +1392,24 @@ class AcademyModeDashboard extends StatelessWidget {
                     scope: 'academy',
                     available: academyWidgets,
                   ),
+                ),
+              ),
+            ),
+            SettingsTile(
+              icon: CupertinoIcons.building_2_fill,
+              title: 'Academy Profile & Contact',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const AcademyProfileManagementScreen(),
+                ),
+              ),
+            ),
+            SettingsTile(
+              icon: CupertinoIcons.person_2_fill,
+              title: 'Staff & Permissions',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const AcademyStaffManagementScreen(),
                 ),
               ),
             ),
@@ -1461,6 +1463,106 @@ class AcademyModeDashboard extends StatelessWidget {
       ),
     );
   }
+}
+
+class LiveAcademyDashboardSummary extends StatelessWidget {
+  const LiveAcademyDashboardSummary({super.key});
+  @override
+  Widget build(BuildContext context) => FutureBuilder<String>(
+    future: AcademyService.instance.academyId(),
+    builder: (context, id) {
+      if (!id.hasData) return const Center(child: CircularProgressIndicator());
+      return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: AcademyService.instance.academy(id.data!),
+        builder: (context, academy) {
+          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: AcademyService.instance.bookings(id.data!),
+            builder: (context, bookings) {
+              final rows =
+                  bookings.data?.docs.map((d) => d.data()).toList() ?? [];
+              final now = DateTime.now();
+              final today = rows.where((b) {
+                final date = (b['startUtc'] as Timestamp?)?.toDate().toLocal();
+                return date != null &&
+                    date.year == now.year &&
+                    date.month == now.month &&
+                    date.day == now.day;
+              }).toList();
+              final revenue = rows
+                  .where((b) => b['paymentStatus'] == 'collected')
+                  .fold<int>(
+                    0,
+                    (total, b) =>
+                        total + (b['totalMinor'] as num? ?? 0).toInt(),
+                  );
+              final pending = rows
+                  .where((b) => ['pending', 'confirmed'].contains(b['status']))
+                  .length;
+              return Column(
+                children: [
+                  CardBox(
+                    color: AppColors.dark,
+                    borderColor: AppColors.dark,
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          academy.data?.data()?['name']?.toString() ??
+                              'Your academy',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Live owner dashboard',
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  GridView.count(
+                    crossAxisCount: 2,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 1.5,
+                    children: [
+                      _OwnerMetric(
+                        label: "Today's bookings",
+                        value: '${today.length}',
+                        icon: CupertinoIcons.calendar_today,
+                      ),
+                      _OwnerMetric(
+                        label: 'Cash collected',
+                        value: 'AED ${(revenue / 100).toStringAsFixed(0)}',
+                        icon: CupertinoIcons.money_dollar_circle,
+                      ),
+                      _OwnerMetric(
+                        label: 'All bookings',
+                        value: '${rows.length}',
+                        icon: CupertinoIcons.chart_pie,
+                      ),
+                      _OwnerMetric(
+                        label: 'Pending actions',
+                        value: '$pending',
+                        icon: CupertinoIcons.person_badge_plus,
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    },
+  );
 }
 
 class _OwnerMetric extends StatelessWidget {
