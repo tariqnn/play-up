@@ -2,6 +2,8 @@
 
 Flutter/Firebase sports discovery, booking, academy, matchmaking, rewards, player, platform-admin and academy-admin application.
 
+The player and academy applications use Flutter. Platform administration is a separate React website under `admin-web/`.
+
 ## Prerequisites
 
 - Flutter SDK compatible with Dart 3.11+
@@ -12,6 +14,8 @@ Flutter/Firebase sports discovery, booking, academy, matchmaking, rewards, playe
 
 ```powershell
 flutter pub get
+npm --prefix admin-web install
+npm --prefix admin-web run build
 flutterfire configure --project <uat-project-id>
 firebase use <uat-project-id>
 flutter analyze

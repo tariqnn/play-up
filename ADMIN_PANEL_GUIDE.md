@@ -1,6 +1,10 @@
-# Admin panel guide
+# Admin website guide
 
-Assign `role: superAdmin` through trusted UAT administration, sign in, open Settings, then Admin Panel. The hub manages courts, academies, offers, events and players. Custom dashboard supports drag reordering, compact/expanded sizing, hiding, adding, resetting and explicit save. Layouts persist in `dashboardLayouts/{uid}`.
+The platform administration surface is a dedicated React + TypeScript website in `admin-web/`; it is not rendered by Flutter. It provides a desktop sidebar, responsive mobile drawer, live dashboard totals, searchable wide data tables, role-gated sign-in, academies, courts, bookings, users, matchmaking, reviews, audit logs and settings.
+
+Run it with `npm --prefix admin-web install` and `npm --prefix admin-web run dev`. Build with `npm --prefix admin-web run build`. Deploy independently with `firebase deploy --config firebase.admin.json --only hosting` after selecting the intended admin Hosting site.
+
+Assign `role: superAdmin` through trusted UAT administration, then sign in at the admin website. Firestore remains authoritative and rejects unauthorized or cross-tenant access even if the website is manipulated.
 
 The **Seed Sample Data** action calls the trusted `seedUat` function and is restricted to a Super Administrator. New UAT user accounts can be created through the protected `createUatUser` callable; bootstrap the first Super Administrator with the guarded `functions/scripts/seed-uat.js` workflow.
 

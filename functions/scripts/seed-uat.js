@@ -7,7 +7,7 @@ const projectId = process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID;
 if (!projectId) throw new Error('Set FIREBASE_PROJECT_ID.');
 const emulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST && process.env.FIREBASE_AUTH_EMULATOR_HOST);
 if (!emulator && !projectId.toLowerCase().includes('uat')) throw new Error('Refusing to seed a project whose ID does not contain "uat".');
-initializeApp({credential: emulator ? undefined : applicationDefault(), projectId});
+initializeApp(emulator ? {projectId} : {credential: applicationDefault(), projectId});
 const auth = getAuth(); const db = getFirestore();
 const password = process.env.UAT_TEMPORARY_PASSWORD;
 if (!password || password.length < 12) throw new Error('Set UAT_TEMPORARY_PASSWORD to at least 12 characters.');

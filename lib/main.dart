@@ -16,7 +16,6 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'firebase_options.dart';
-import 'admin.dart';
 import 'catalog.dart';
 import 'more_screens.dart';
 import 'more_screens2.dart';
@@ -28,11 +27,27 @@ import 'access_control.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  const useEmulators = bool.fromEnvironment('USE_FIREBASE_EMULATORS');
+  if (useEmulators) {
+    await FirebaseAuth.instance.useAuthEmulator('127.0.0.1', 9099);
+    FirebaseFirestore.instance.useFirestoreEmulator('127.0.0.1', 8080);
+    FirebaseFunctions.instanceFor(
+      region: 'me-central1',
+    ).useFunctionsEmulator('127.0.0.1', 5001);
+    const testEmail = String.fromEnvironment('UAT_TEST_EMAIL');
+    const testPassword = String.fromEnvironment('UAT_TEST_PASSWORD');
+    if (testEmail.isNotEmpty && testPassword.isNotEmpty) {
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: testEmail,
+        password: testPassword,
+      );
+    }
+  }
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   FirebaseFirestore.instance.settings = const Settings(
     persistenceEnabled: true,
   );
-  await _configureMessaging();
+  if (!useEmulators) await _configureMessaging();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -2976,16 +2991,6 @@ class SettingsScreen extends StatelessWidget {
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => const AcademyModeDashboard(),
-                          ),
-                        ),
-                      ),
-                    if (access.isPlatformAdmin && !access.suspended)
-                      SettingsTile(
-                        icon: CupertinoIcons.lock_shield_fill,
-                        title: 'Admin Panel',
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const AdminPanelScreen(),
                           ),
                         ),
                       ),
