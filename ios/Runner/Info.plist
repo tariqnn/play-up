@@ -51,6 +51,8 @@
 	<true/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Use Face ID to securely unlock your PlayUp account.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>PlayUp uses your location to show nearby courts and academies.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

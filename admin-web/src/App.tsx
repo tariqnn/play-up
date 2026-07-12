@@ -127,6 +127,18 @@ const modules: Module[] = [
     ],
   },
   {
+    label: "Achievements",
+    collection: "achievements",
+    icon: Star,
+    columns: ["title", "description", "metric", "goal", "rewardPoints", "active"],
+  },
+  {
+    label: "Tournaments",
+    collection: "tournaments",
+    icon: CalendarDays,
+    columns: ["name", "sport", "format", "teamSize", "maxEntries", "status", "academyId"],
+  },
+  {
     label: "Audit logs",
     collection: "auditLogs",
     icon: ShieldCheck,
@@ -945,20 +957,25 @@ function DataModule({
               (column) => (
                 <label key={column}>
                   {column}
-                  <input
-                    value={String(
-                      editing[column] ??
-                        "",
-                    )}
-                    onChange={(e) =>
-                      setEditing({
-                        ...editing,
-                        [column]:
-                          e.target
-                            .value,
-                      })
-                    }
-                  />
+                  {column === "currency" ? (
+                    <select value={String(editing[column] ?? "JOD")} onChange={(e) => setEditing({...editing, [column]: e.target.value})}>
+                      {["JOD", "AED", "SAR", "QAR", "KWD", "BHD", "OMR", "USD"].map((v) => <option key={v}>{v}</option>)}
+                    </select>
+                  ) : ["active", "hidden", "suspended"].includes(column) ? (
+                    <select value={String(editing[column] ?? false)} onChange={(e) => setEditing({...editing, [column]: e.target.value === "true"})}>
+                      <option value="true">Yes</option><option value="false">No</option>
+                    </select>
+                  ) : column === "sport" ? (
+                    <select value={String(editing[column] ?? "Football")} onChange={(e) => setEditing({...editing, [column]: e.target.value})}>
+                      {["Football", "Basketball", "Padel", "Tennis", "Volleyball", "Cricket", "Handball"].map((v) => <option key={v}>{v}</option>)}
+                    </select>
+                  ) : column === "format" ? (
+                    <select value={String(editing[column] ?? "singleElimination")} onChange={(e) => setEditing({...editing, [column]: e.target.value})}>
+                      <option value="singleElimination">Single elimination</option><option value="doubleElimination">Double elimination</option><option value="roundRobin">Round robin</option><option value="groupKnockout">Groups + knockout</option>
+                    </select>
+                  ) : (
+                    <input value={String(editing[column] ?? "")} onChange={(e) => setEditing({...editing, [column]: e.target.value})} />
+                  )}
                 </label>
               ),
             )}

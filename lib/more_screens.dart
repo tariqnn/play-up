@@ -432,16 +432,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   int _tab = 0;
   static const _tabs = ['Friends', 'City', 'Academy', 'All-time'];
 
-  static const _players = <(String, int, String, String)>[
-    ('Sara N.', 18, 'Legend', '11,240'),
-    ('Omar K.', 16, 'Pro', '9,880'),
-    ('Alex Mercer', 12, 'Court Commander', '7,430'),
-    ('Zayd A.', 11, 'Elite', '6,910'),
-    ('Lina H.', 10, 'Captain', '6,120'),
-    ('Mazen R.', 9, 'Playmaker', '5,480'),
-    ('Yara S.', 8, 'Baller', '4,760'),
-  ];
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -472,22 +462,29 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               stream: CatalogService.instance.topPlayers(),
               builder: (context, snapshot) {
                 final docs = snapshot.data?.docs ?? [];
-                final players = docs.length >= 3
-                    ? [
-                        for (final d in docs)
-                          (
-                            (d.data()['displayName'] ?? 'Player').toString(),
-                            (d.data()['level'] as num?)?.toInt() ?? 1,
-                            (d.data()['rankTitle'] ?? 'Rookie').toString(),
-                            _formatXp(d.data()['xp']),
-                          ),
-                      ]
-                    : _players;
+                final players = [
+                  for (final d in docs)
+                    (
+                      (d.data()['displayName'] ?? 'Player').toString(),
+                      (d.data()['level'] as num?)?.toInt() ?? 1,
+                      (d.data()['rankTitle'] ?? 'Rookie').toString(),
+                      _formatXp(d.data()['xp']),
+                    ),
+                ];
                 final myName =
                     FirebaseAuth.instance.currentUser?.displayName ??
                     'Alex Mercer';
                 return Column(
                   children: [
+                    if (players.isEmpty)
+                      EmptyState(
+                        icon: CupertinoIcons.chart_bar_alt_fill,
+                        title: 'No rankings yet',
+                        message:
+                            'Complete matches to earn XP and enter the leaderboard.',
+                        action: 'Go back',
+                        onTap: () => Navigator.of(context).pop(),
+                      ),
                     _PodiumRow(players: players.take(3).toList()),
                     const SizedBox(height: 18),
                     for (var i = 0; i < players.length; i++)
@@ -1710,9 +1707,14 @@ class _RedeemOfferButtonState extends State<_RedeemOfferButton> {
       );
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
+        await showAdaptiveMessage(
           context,
-        ).showSnackBar(SnackBar(content: Text(error.toString())));
+          title: 'Unable to redeem',
+          message: error.toString().replaceFirst(
+            'DomainValidationException: ',
+            '',
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => busy = false);

@@ -1,21 +1,25 @@
 import 'dart:math' as math;
+import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 import 'main.dart';
 import 'more_screens.dart';
+import 'location_service.dart';
+import 'catalog.dart';
 
 // ---------------------------------------------------------------------------
 // Location picker & map view
 // ---------------------------------------------------------------------------
 
 class LocationPickerScreen extends StatefulWidget {
-  const LocationPickerScreen({super.key, this.current = 'Dubai, UAE'});
-
-  final String current;
+  const LocationPickerScreen({super.key});
 
   @override
   State<LocationPickerScreen> createState() => _LocationPickerScreenState();
@@ -23,29 +27,59 @@ class LocationPickerScreen extends StatefulWidget {
 
 class _LocationPickerScreenState extends State<LocationPickerScreen> {
   final _search = TextEditingController();
-  late String _selected = widget.current;
+  AppLocation? _selected;
+  List<AppLocation> _results = const [];
+  bool _loading = false;
+  Timer? _debounce;
 
-  static const _areas = [
-    'Dubai Marina',
-    'Downtown Dubai',
-    'Business Bay',
-    'Jumeirah',
-    'Deira',
-    'Al Barsha',
-    'Dubai Sports City',
-  ];
+  Future<void> _searchLocations(String query) async {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 450), () async {
+      if (query.trim().length < 3) {
+        if (mounted) setState(() => _results = const []);
+        return;
+      }
+      setState(() => _loading = true);
+      try {
+        final rows = await LocationService.instance.search(query);
+        if (mounted) setState(() => _results = rows);
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(error.toString())));
+        }
+      } finally {
+        if (mounted) setState(() => _loading = false);
+      }
+    });
+  }
+
+  Future<void> _currentLocation() async {
+    try {
+      final value = await LocationService.instance.useCurrentLocation();
+      if (value != null && mounted) {
+        setState(() => _selected = value);
+        Navigator.of(context).pop();
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
 
   @override
   void dispose() {
     _search.dispose();
+    _debounce?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final filtered = _areas
-        .where((a) => a.toLowerCase().contains(_search.text.toLowerCase()))
-        .toList();
     return Scaffold(
       body: AppScrollPage(
         child: Column(
@@ -60,15 +94,13 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
               controller: _search,
               label: 'Search city or area',
               icon: CupertinoIcons.search,
-              onChanged: (_) => setState(() {}),
+              onChanged: _searchLocations,
             ),
             const SizedBox(height: 14),
             GestureDetector(
-              onTap: () => setState(() => _selected = 'Current location'),
+              onTap: _currentLocation,
               child: CardBox(
-                borderColor: _selected == 'Current location'
-                    ? AppColors.purple
-                    : AppColors.line,
+                borderColor: AppColors.purple,
                 child: Row(
                   children: const [
                     Icon(
@@ -85,14 +117,22 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
               ),
             ),
             const SizedBox(height: 18),
-            const MapPreview(height: 150),
+            if (_loading) const LinearProgressIndicator(),
             const SizedBox(height: 18),
             const Text(
-              'Popular areas',
+              'Search results',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 12),
-            for (final area in filtered)
+            if (_results.isEmpty &&
+                _search.text.trim().length >= 3 &&
+                !_loading)
+              const CardBox(
+                child: Text(
+                  'No matching location found. Try a city, district, or address.',
+                ),
+              ),
+            for (final area in _results)
               GestureDetector(
                 onTap: () => setState(() => _selected = area),
                 child: Padding(
@@ -115,7 +155,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            area,
+                            area.label,
                             style: const TextStyle(fontWeight: FontWeight.w800),
                           ),
                         ),
@@ -133,7 +173,12 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
             const SizedBox(height: 12),
             PrimaryButton(
               label: 'Save Location',
-              onPressed: () => Navigator.of(context).pop(_selected),
+              onPressed: _selected == null
+                  ? null
+                  : () async {
+                      await LocationService.instance.setManual(_selected!);
+                      if (context.mounted) Navigator.of(context).pop();
+                    },
             ),
           ],
         ),
@@ -228,74 +273,152 @@ class MapViewScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: CustomPaint(
-              painter: _MapPainter(),
-              child: Container(color: const Color(0xFFE9EEF4)),
-            ),
-          ),
-          // Pins
-          for (final pin in const [(0.25, 0.3), (0.6, 0.42), (0.4, 0.6)])
-            Align(
-              alignment: Alignment(pin.$1 * 2 - 1, pin.$2 * 2 - 1),
-              child: const Icon(
-                CupertinoIcons.placemark_fill,
-                color: AppColors.purple,
-                size: 36,
-              ),
-            ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: CircleIconButton(
-                icon: CupertinoIcons.arrow_left,
-                onTap: () => Navigator.of(context).pop(),
-              ),
-            ),
-          ),
-          DraggableScrollableSheet(
-            initialChildSize: 0.35,
-            minChildSize: 0.2,
-            maxChildSize: 0.85,
-            builder: (context, controller) => Container(
-              decoration: const BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-              ),
-              child: ListView(
-                controller: controller,
-                padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+    return StreamBuilder<List<Court>>(
+      stream: CatalogService.instance.courts(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final courts = (snapshot.data ?? const <Court>[])
+            .where((court) => court.latitude != null && court.longitude != null)
+            .toList();
+        return ValueListenableBuilder<AppLocation?>(
+          valueListenable: LocationService.instance.current,
+          builder: (context, location, _) {
+            final center = location != null
+                ? LatLng(location.latitude, location.longitude)
+                : courts.isNotEmpty
+                ? LatLng(courts.first.latitude!, courts.first.longitude!)
+                : const LatLng(20, 0);
+            return Scaffold(
+              body: Stack(
                 children: [
-                  Center(
-                    child: Container(
-                      width: 44,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: AppColors.line,
-                        borderRadius: BorderRadius.circular(999),
+                  Positioned.fill(
+                    child: FlutterMap(
+                      options: MapOptions(
+                        initialCenter: center,
+                        initialZoom: location == null && courts.isEmpty
+                            ? 2
+                            : 12,
+                      ),
+                      children: [
+                        TileLayer(
+                          urlTemplate:
+                              'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          userAgentPackageName: 'com.playup.playup',
+                        ),
+                        MarkerLayer(
+                          markers: [
+                            if (location != null)
+                              Marker(
+                                point: center,
+                                width: 44,
+                                height: 44,
+                                child: const Icon(
+                                  Icons.my_location,
+                                  color: Colors.blue,
+                                  size: 32,
+                                ),
+                              ),
+                            ...courts.map(
+                              (court) => Marker(
+                                point: LatLng(
+                                  court.latitude!,
+                                  court.longitude!,
+                                ),
+                                width: 48,
+                                height: 48,
+                                child: GestureDetector(
+                                  onTap: () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          CourtDetailsScreen(court: court),
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    CupertinoIcons.placemark_fill,
+                                    color: AppColors.purple,
+                                    size: 42,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        RichAttributionWidget(
+                          attributions: const [
+                            TextSourceAttribution('OpenStreetMap contributors'),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: CircleIconButton(
+                        icon: CupertinoIcons.arrow_left,
+                        onTap: () => Navigator.of(context).pop(),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Courts near you',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-                  ),
-                  const SizedBox(height: 12),
-                  for (final court in courts)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: CourtListCard(court: court),
+                  DraggableScrollableSheet(
+                    initialChildSize: 0.35,
+                    minChildSize: 0.2,
+                    maxChildSize: 0.85,
+                    builder: (context, controller) => Container(
+                      decoration: const BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(28),
+                        ),
+                      ),
+                      child: ListView(
+                        controller: controller,
+                        padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+                        children: [
+                          Center(
+                            child: Container(
+                              width: 44,
+                              height: 5,
+                              decoration: BoxDecoration(
+                                color: AppColors.line,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Courts near you',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          if (courts.isEmpty)
+                            const CardBox(
+                              child: Text(
+                                'No courts with map coordinates are available near this location.',
+                              ),
+                            ),
+                          for (final court in courts)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: CourtListCard(court: court),
+                            ),
+                        ],
+                      ),
                     ),
+                  ),
                 ],
               ),
-            ),
-          ),
-        ],
-      ),
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -1199,7 +1322,7 @@ class _LineChartPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
-    final path = Path()..moveTo(points.first.dx, points.first.dy);
+    final path = ui.Path()..moveTo(points.first.dx, points.first.dy);
     for (var i = 1; i < points.length; i++) {
       final prev = points[i - 1];
       final curr = points[i];
@@ -1208,7 +1331,7 @@ class _LineChartPainter extends CustomPainter {
     }
 
     // Fill under the curve
-    final fillPath = Path.from(path)
+    final fillPath = ui.Path.from(path)
       ..lineTo(points.last.dx, chartHeight)
       ..lineTo(points.first.dx, chartHeight)
       ..close();

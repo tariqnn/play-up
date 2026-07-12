@@ -43,6 +43,15 @@ service cloud.firestore {
         allow read: if signedIn() && request.auth.uid == userId;
         allow write: if false;
       }
+
+      match /favorites/{courtId} {
+        allow read, create, update, delete: if signedIn() && request.auth.uid == userId;
+      }
+
+      match /achievements/{achievementId} {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow write: if false;
+      }
     }
 
     match /academies/{academyId} {
@@ -73,6 +82,23 @@ service cloud.firestore {
     match /events/{id} {
       allow read: if true;
       allow write: if permission('platform.manage');
+    }
+
+    match /achievements/{id} {
+      allow read: if active();
+      allow create, update, delete: if permission('platform.manage');
+    }
+
+    match /tournaments/{tournamentId} {
+      allow read: if active();
+      allow create, update, delete: if false;
+
+      match /registrations/{registrationId} {
+        allow read: if active() && (request.auth.uid == registrationId
+          || sameAcademy(get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.academyId)
+          || permission('platform.manage'));
+        allow write: if false;
+      }
     }
 
     match /bookings/{bookingId} {

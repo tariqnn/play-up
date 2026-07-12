@@ -232,6 +232,8 @@ Court _courtFrom(Map<String, dynamic> d, {String id = ''}) => Court(
   gradient: gradientFor(d['gradient'] as String?),
   icon: iconFor(d['icon'] as String?),
   imageUrl: (d['image'] ?? '').toString(),
+  latitude: (d['latitude'] as num?)?.toDouble(),
+  longitude: (d['longitude'] as num?)?.toDouble(),
 );
 
 Academy _academyFrom(Map<String, dynamic> d) => Academy(

@@ -27,7 +27,8 @@ import 'more_screens2.dart';
 import 'more_screens3.dart';
 import 'more_screens4.dart';
 import 'booking_domain.dart';
-import 'access_control.dart';
+import 'location_service.dart';
+import 'tournament_screens.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -64,8 +65,10 @@ Future<void> main() async {
       systemNavigationBarIconBrightness: Brightness.dark,
     ),
   );
+  await ThemeController.initialize();
   runApp(const PlayUpApp());
   unawaited(DeepLinkService.start());
+  unawaited(LocationService.instance.initialize());
   if (!useEmulators) unawaited(_configureMessaging());
 }
 
@@ -101,6 +104,43 @@ class AppColors {
   static const green = Color(0xFF62D84E);
   static const gold = Color(0xFFF5B942);
   static const danger = Color(0xFFFF4D4F);
+}
+
+Future<void> showAdaptiveMessage(
+  BuildContext context, {
+  required String title,
+  required String message,
+}) async {
+  if (defaultTargetPlatform == TargetPlatform.iOS) {
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (dialog) => CupertinoAlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.pop(dialog),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  } else {
+    await showDialog<void>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        icon: const Icon(Icons.info_outline),
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialog),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Maps raw Firebase/plugin errors to friendly, human messages.
@@ -244,24 +284,92 @@ class PlayUpApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      scaffoldMessengerKey: appMessengerKey,
-      title: 'PlayUp',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        scaffoldBackgroundColor: AppColors.background,
-        fontFamily: 'SF Pro Display',
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: AppColors.purple,
-          brightness: Brightness.light,
-          primary: AppColors.purple,
-          surface: AppColors.surface,
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: ThemeController.mode,
+      builder: (context, mode, _) => MaterialApp(
+        scaffoldMessengerKey: appMessengerKey,
+        title: 'PlayUp',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          useMaterial3: true,
+          scaffoldBackgroundColor: AppColors.background,
+          fontFamily: 'SF Pro Display',
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: AppColors.purple,
+            brightness: Brightness.light,
+            primary: AppColors.purple,
+            surface: AppColors.surface,
+          ),
         ),
+        darkTheme: ThemeData(
+          useMaterial3: true,
+          brightness: Brightness.dark,
+          scaffoldBackgroundColor: const Color(0xFF07111F),
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: AppColors.purple,
+            brightness: Brightness.dark,
+            primary: const Color(0xFF9B72FF),
+            surface: const Color(0xFF111B2B),
+          ),
+          inputDecorationTheme: const InputDecorationTheme(filled: true),
+          cardTheme: const CardThemeData(color: Color(0xFF111B2B)),
+        ),
+        themeMode: mode,
+        home: const BiometricGate(child: AuthGate()),
       ),
-      home: const BiometricGate(child: AuthGate()),
     );
   }
+}
+
+class ThemeController {
+  static final mode = ValueNotifier<ThemeMode>(ThemeMode.system);
+  static Future<void> initialize() async {
+    final value =
+        (await SharedPreferences.getInstance()).getString('theme_mode') ??
+        'system';
+    mode.value = ThemeMode.values.firstWhere(
+      (item) => item.name == value,
+      orElse: () => ThemeMode.system,
+    );
+  }
+
+  static Future<void> set(ThemeMode value) async {
+    mode.value = value;
+    await (await SharedPreferences.getInstance()).setString(
+      'theme_mode',
+      value.name,
+    );
+  }
+}
+
+class ThemeModeTile extends StatelessWidget {
+  const ThemeModeTile({super.key});
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<ThemeMode>(
+    valueListenable: ThemeController.mode,
+    builder: (context, value, _) => ListTile(
+      leading: const Icon(CupertinoIcons.moon_stars),
+      title: const Text('Appearance'),
+      subtitle: Text(
+        value == ThemeMode.system
+            ? 'Follow device'
+            : value == ThemeMode.dark
+            ? 'Dark mode'
+            : 'Light mode',
+      ),
+      trailing: DropdownButton<ThemeMode>(
+        value: value,
+        items: const [
+          DropdownMenuItem(value: ThemeMode.system, child: Text('System')),
+          DropdownMenuItem(value: ThemeMode.light, child: Text('Light')),
+          DropdownMenuItem(value: ThemeMode.dark, child: Text('Dark')),
+        ],
+        onChanged: (mode) {
+          if (mode != null) ThemeController.set(mode);
+        },
+      ),
+    ),
+  );
 }
 
 final appMessengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -499,11 +607,15 @@ class AuthGate extends StatelessWidget {
         }
         final user = snapshot.data;
         if (user == null) return const WelcomeScreen();
-        return FutureBuilder<void>(
-          future: AppRepository.instance.ensureUserProfile(user),
+        return FutureBuilder<Map<String, dynamic>>(
+          future: AppRepository.instance.ensureAndLoadProfile(user),
           builder: (context, profileSnapshot) {
             if (profileSnapshot.connectionState == ConnectionState.waiting) {
               return const LaunchLoadingScreen();
+            }
+            final role = profileSnapshot.data?['role']?.toString() ?? 'player';
+            if (role == 'academyOwner' || role == 'academyStaff') {
+              return const AcademyModeDashboard(standalone: true);
             }
             return const MainShell();
           },
@@ -571,6 +683,12 @@ class AppRepository {
     } catch (error) {
       debugPrint('ensureUserProfile skipped: $error');
     }
+  }
+
+  Future<Map<String, dynamic>> ensureAndLoadProfile(User user) async {
+    await ensureUserProfile(user);
+    final snapshot = await _users.doc(user.uid).get();
+    return snapshot.data() ?? const <String, dynamic>{'role': 'player'};
   }
 
   /// Resolves a sensible display name for any auth type.
@@ -814,6 +932,36 @@ class AppRepository {
       debugPrint('submitRating skipped: $error');
     }
   }
+
+  Stream<bool> isFavorite(String courtId) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || courtId.isEmpty) return Stream.value(false);
+    return _users
+        .doc(uid)
+        .collection('favorites')
+        .doc(courtId)
+        .snapshots()
+        .map((snapshot) => snapshot.exists);
+  }
+
+  Future<void> toggleFavorite(Court court, bool favorite) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      throw const DomainValidationException('Sign in to save favorite courts.');
+    }
+    if (court.id.isEmpty) {
+      throw const DomainValidationException('This court cannot be saved yet.');
+    }
+    final ref = _users.doc(uid).collection('favorites').doc(court.id);
+    if (favorite) {
+      await ref.set({
+        'courtId': court.id,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } else {
+      await ref.delete();
+    }
+  }
 }
 
 class Court {
@@ -827,6 +975,8 @@ class Court {
     required this.icon,
     this.imageUrl = '',
     this.id = '',
+    this.latitude,
+    this.longitude,
   });
 
   final String name;
@@ -838,6 +988,25 @@ class Court {
   final IconData icon;
   final String imageUrl;
   final String id;
+  final double? latitude;
+  final double? longitude;
+
+  String distanceFrom(AppLocation? location) {
+    if (location == null || latitude == null || longitude == null) {
+      return 'Location needed';
+    }
+    const earthRadiusKm = 6371.0;
+    final dLat = (latitude! - location.latitude) * math.pi / 180;
+    final dLon = (longitude! - location.longitude) * math.pi / 180;
+    final a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(location.latitude * math.pi / 180) *
+            math.cos(latitude! * math.pi / 180) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    final km = earthRadiusKm * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return km < 1 ? '${(km * 1000).round()} m' : '${km.toStringAsFixed(1)} km';
+  }
 }
 
 const courts = [
@@ -1556,38 +1725,37 @@ class HomeScreen extends StatelessWidget {
               final firstName = fullName.isEmpty
                   ? 'Champion'
                   : fullName.split(' ').first;
-              final city = (data['city'] ?? 'Dubai, UAE').toString();
-              return HeaderRow(
-                title: 'Good Morning,\n$firstName',
-                subtitle: city,
-                onLocationTap: () async {
-                  final picked = await Navigator.of(context).push<String>(
-                    MaterialPageRoute(
-                      builder: (_) => LocationPickerScreen(current: city),
-                    ),
-                  );
-                  if (picked != null && picked.isNotEmpty) {
-                    await AppRepository.instance.updateCity(picked);
-                  }
-                },
-                trailing: Row(
-                  children: [
-                    IconButton.filledTonal(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const NotificationsScreen(),
-                        ),
+              return ValueListenableBuilder<AppLocation?>(
+                valueListenable: LocationService.instance.current,
+                builder: (context, location, _) => HeaderRow(
+                  title: 'Good Morning,\n$firstName',
+                  subtitle: location?.label ?? 'Choose your location',
+                  onLocationTap: () async {
+                    await Navigator.of(context).push<void>(
+                      MaterialPageRoute(
+                        builder: (_) => const LocationPickerScreen(),
                       ),
-                      icon: const Icon(CupertinoIcons.bell),
-                    ),
-                    const SizedBox(width: 8),
-                    Avatar(
-                      name: firstName.isEmpty
-                          ? 'A'
-                          : firstName.characters.first.toUpperCase(),
-                      size: 42,
-                    ),
-                  ],
+                    );
+                  },
+                  trailing: Row(
+                    children: [
+                      IconButton.filledTonal(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const NotificationsScreen(),
+                          ),
+                        ),
+                        icon: const Icon(CupertinoIcons.bell),
+                      ),
+                      const SizedBox(width: 8),
+                      Avatar(
+                        name: firstName.isEmpty
+                            ? 'A'
+                            : firstName.characters.first.toUpperCase(),
+                        size: 42,
+                      ),
+                    ],
+                  ),
                 ),
               );
             },
@@ -1818,17 +1986,20 @@ class BookScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          HeaderRow(
-            title: 'Book a Court',
-            subtitle: 'Dubai, UAE',
-            onLocationTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const LocationPickerScreen()),
-            ),
-            trailing: IconButton(
-              onPressed: () => Navigator.of(
-                context,
-              ).push(MaterialPageRoute(builder: (_) => const MapViewScreen())),
-              icon: const Icon(CupertinoIcons.map, size: 24),
+          ValueListenableBuilder<AppLocation?>(
+            valueListenable: LocationService.instance.current,
+            builder: (context, location, _) => HeaderRow(
+              title: 'Book a Court',
+              subtitle: location?.label ?? 'Choose your location',
+              onLocationTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const LocationPickerScreen()),
+              ),
+              trailing: IconButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const MapViewScreen()),
+                ),
+                icon: const Icon(CupertinoIcons.map, size: 24),
+              ),
             ),
           ),
           const SizedBox(height: 18),
@@ -1907,6 +2078,13 @@ class PlayScreen extends StatelessWidget {
             icon: CupertinoIcons.plus,
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const CreateMatchScreen()),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SecondaryButton(
+            label: 'Browse Tournaments',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const TournamentsScreen()),
             ),
           ),
           const SizedBox(height: 22),
@@ -2272,11 +2450,27 @@ class CourtDetailsScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-                const Positioned(
+                Positioned(
                   top: 18,
                   right: 10,
                   child: SafeArea(
-                    child: CircleIconButton(icon: CupertinoIcons.heart),
+                    child: StreamBuilder<bool>(
+                      stream: AppRepository.instance.isFavorite(court.id),
+                      builder: (context, snapshot) {
+                        final favorite = snapshot.data ?? false;
+                        return CircleIconButton(
+                          icon: favorite
+                              ? CupertinoIcons.heart_fill
+                              : CupertinoIcons.heart,
+                          onTap: court.id.isEmpty
+                              ? null
+                              : () => AppRepository.instance.toggleFavorite(
+                                  court,
+                                  !favorite,
+                                ),
+                        );
+                      },
+                    ),
                   ),
                 ),
               ],
@@ -2288,7 +2482,7 @@ class CourtDetailsScreen extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              '${court.subtitle}  •  ${court.distance}',
+              '${court.subtitle}  •  ${court.distanceFrom(LocationService.instance.current.value)}',
               style: const TextStyle(
                 color: AppColors.muted,
                 fontWeight: FontWeight.w600,
@@ -2610,7 +2804,7 @@ class _FindingPlayersScreenState extends State<FindingPlayersScreen> {
                       backgroundColor: Colors.white.withValues(alpha: .12),
                       foregroundColor: Colors.white,
                     ),
-                    child: const Text('Cancel'),
+                    child: const Text('Continue browsing'),
                   ),
                 ),
               ],
@@ -2954,6 +3148,13 @@ class BookingConfirmationScreen extends StatelessWidget {
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const MyBookingsScreen()),
               ),
+            ),
+            const SizedBox(height: 10),
+            TextButton.icon(
+              onPressed: () =>
+                  Navigator.of(context).popUntil((route) => route.isFirst),
+              icon: const Icon(CupertinoIcons.house_fill),
+              label: const Text('Back to Home'),
             ),
           ],
         ),
@@ -3420,6 +3621,7 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
             const BiometricSettingsTile(),
+            const ThemeModeTile(),
             SettingsTile(
               icon: CupertinoIcons.creditcard,
               title: 'Payment Methods',
@@ -3427,30 +3629,6 @@ class SettingsScreen extends StatelessWidget {
                 context,
                 'Card and wallet management will connect to your payment provider.',
               ),
-            ),
-            StreamBuilder<Map<String, dynamic>>(
-              stream: AppRepository.instance.currentUserDoc(),
-              builder: (context, snapshot) {
-                final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-                final access = AccessContext.fromMap(
-                  uid,
-                  snapshot.data ?? const <String, dynamic>{},
-                );
-                return Column(
-                  children: [
-                    if (access.isAcademyUser && !access.suspended)
-                      SettingsTile(
-                        icon: CupertinoIcons.building_2_fill,
-                        title: 'Switch to Academy Mode',
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const AcademyModeDashboard(),
-                          ),
-                        ),
-                      ),
-                  ],
-                );
-              },
             ),
             const SizedBox(height: 18),
             SecondaryButton(
@@ -3763,16 +3941,19 @@ class HeaderRow extends StatelessWidget {
 }
 
 class PageTopBar extends StatelessWidget {
-  const PageTopBar({super.key, required this.title, required this.onBack});
+  const PageTopBar({super.key, required this.title, this.onBack});
 
   final String title;
-  final VoidCallback onBack;
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        CircleIconButton(icon: CupertinoIcons.arrow_left, onTap: onBack),
+        if (onBack != null)
+          CircleIconButton(icon: CupertinoIcons.arrow_left, onTap: onBack!)
+        else
+          const SizedBox(width: 46),
         Expanded(
           child: Center(
             child: Text(
@@ -3827,12 +4008,19 @@ class CardBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final effectiveColor = dark && color == AppColors.surface
+        ? const Color(0xFF111B2B)
+        : color;
+    final effectiveBorder = dark && borderColor == AppColors.line
+        ? const Color(0xFF263449)
+        : borderColor;
     return Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: color,
+        color: effectiveColor,
         borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: borderColor),
+        border: Border.all(color: effectiveBorder),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: .06),
@@ -4039,8 +4227,8 @@ class SecondaryButton extends StatelessWidget {
       child: FilledButton(
         onPressed: handlePress,
         style: FilledButton.styleFrom(
-          backgroundColor: Colors.white,
-          foregroundColor: AppColors.ink,
+          backgroundColor: Theme.of(context).colorScheme.surface,
+          foregroundColor: Theme.of(context).colorScheme.onSurface,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
@@ -4541,7 +4729,7 @@ class CourtListCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 7),
                   Text(
-                    '★ ${court.rating}   ${court.distance}',
+                    '★ ${court.rating}   ${court.distanceFrom(LocationService.instance.current.value)}',
                     style: const TextStyle(
                       color: AppColors.muted,
                       fontSize: 12,
@@ -4555,9 +4743,24 @@ class CourtListCard extends StatelessWidget {
                 ],
               ),
             ),
-            IconButton(
-              onPressed: () {},
-              icon: const Icon(CupertinoIcons.heart, color: AppColors.ink),
+            StreamBuilder<bool>(
+              stream: AppRepository.instance.isFavorite(court.id),
+              builder: (context, snapshot) {
+                final favorite = snapshot.data ?? false;
+                return IconButton(
+                  tooltip: favorite ? 'Remove favorite' : 'Save favorite',
+                  onPressed: court.id.isEmpty
+                      ? null
+                      : () => AppRepository.instance.toggleFavorite(
+                          court,
+                          !favorite,
+                        ),
+                  icon: Icon(
+                    favorite ? CupertinoIcons.heart_fill : CupertinoIcons.heart,
+                    color: favorite ? AppColors.danger : AppColors.ink,
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -4604,7 +4807,7 @@ class CourtCarouselCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${court.rating}  •  ${court.distance}',
+                      '${court.rating}  •  ${court.distanceFrom(LocationService.instance.current.value)}',
                       style: const TextStyle(
                         color: AppColors.muted,
                         fontSize: 12,

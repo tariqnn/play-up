@@ -282,6 +282,56 @@ export const createMatch = onCall(async (request) => {
   return {matchId: ref.id};
 });
 
+export const createTournament = onCall(async (request) => {
+  const uid = requireAuth(request);
+  const actor = await profile(uid);
+  if (!['academyOwner', 'academyStaff'].includes(actor.role) || !actor.academyId) {
+    throw new HttpsError('permission-denied', 'Academy access is required.');
+  }
+  const name = text(request.data?.name, 'name');
+  const sport = text(request.data?.sport, 'sport');
+  const format = text(request.data?.format, 'format');
+  if (!['singleElimination', 'doubleElimination', 'roundRobin', 'groupKnockout'].includes(format)) {
+    throw new HttpsError('invalid-argument', 'Tournament format is invalid.');
+  }
+  const teamSize = Number(request.data?.teamSize);
+  const maxEntries = Number(request.data?.maxEntries);
+  if (!Number.isInteger(teamSize) || teamSize < 1 || teamSize > 30) throw new HttpsError('invalid-argument', 'Team size must be 1–30.');
+  if (!Number.isInteger(maxEntries) || maxEntries < 2 || maxEntries > 256) throw new HttpsError('invalid-argument', 'Maximum entries must be 2–256.');
+  const startsAt = date(request.data?.startsAt, 'startsAt');
+  const registrationEndsAt = date(request.data?.registrationEndsAt, 'registrationEndsAt');
+  if (registrationEndsAt <= new Date() || startsAt <= registrationEndsAt) throw new HttpsError('invalid-argument', 'Registration must close before the tournament starts.');
+  const ref = db.collection('tournaments').doc();
+  await ref.set({name, sport, format, teamSize, maxEntries, registrationCount: 0,
+    participantType: teamSize === 1 ? 'individual' : 'team', academyId: actor.academyId,
+    startsAt: Timestamp.fromDate(startsAt), registrationEndsAt: Timestamp.fromDate(registrationEndsAt),
+    rules: typeof request.data?.rules === 'string' ? request.data.rules.trim() : '',
+    imageUrl: typeof request.data?.imageUrl === 'string' ? request.data.imageUrl.trim() : '',
+    status: 'registrationOpen', createdBy: uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()});
+  return {tournamentId: ref.id};
+});
+
+export const registerTournament = onCall(async (request) => {
+  const uid = requireAuth(request);
+  await profile(uid);
+  const tournamentId = text(request.data?.tournamentId, 'tournamentId');
+  const ref = db.collection('tournaments').doc(tournamentId);
+  const registrationRef = ref.collection('registrations').doc(uid);
+  await db.runTransaction(async (tx) => {
+    const [tournamentSnap, registrationSnap] = await Promise.all([tx.get(ref), tx.get(registrationRef)]);
+    const tournament = tournamentSnap.data();
+    if (!tournament || tournament.status !== 'registrationOpen') throw new HttpsError('failed-precondition', 'Registration is closed.');
+    if (registrationSnap.exists) throw new HttpsError('already-exists', 'You are already registered.');
+    if ((tournament.registrationEndsAt as Timestamp).toDate() <= new Date()) throw new HttpsError('failed-precondition', 'Registration has ended.');
+    if ((tournament.registrationCount ?? 0) >= tournament.maxEntries) throw new HttpsError('resource-exhausted', 'Tournament is full.');
+    tx.create(registrationRef, {userId: uid, teamName: typeof request.data?.teamName === 'string' ? request.data.teamName.trim() : '',
+      roster: Array.isArray(request.data?.roster) ? request.data.roster.slice(0, tournament.teamSize) : [],
+      paymentMethod: 'cash', paymentStatus: 'pending', status: 'registered', createdAt: FieldValue.serverTimestamp()});
+    tx.update(ref, {registrationCount: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp()});
+  });
+  return {ok: true, paymentStatus: 'pending'};
+});
+
 export const seedUat = onCall(async (request) => {
   const uid = requireAuth(request);
   const user = await profile(uid);

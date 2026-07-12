@@ -12,6 +12,7 @@ import 'more_screens4.dart';
 import 'custom_dashboard.dart';
 import 'academy_live_screens.dart';
 import 'academy_service.dart';
+import 'tournament_screens.dart';
 
 /// Live open matches from Firestore, falling back to bundled samples when
 /// none exist yet (e.g. a brand new project with no matches created).
@@ -1367,7 +1368,8 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
 // ---------------------------------------------------------------------------
 
 class AcademyModeDashboard extends StatelessWidget {
-  const AcademyModeDashboard({super.key});
+  const AcademyModeDashboard({super.key, this.standalone = false});
+  final bool standalone;
 
   @override
   Widget build(BuildContext context) {
@@ -1377,11 +1379,12 @@ class AcademyModeDashboard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             PageTopBar(
-              title: 'Academy Mode',
-              onBack: () => Navigator.of(context).pop(),
+              title: 'Academy Operations',
+              onBack: standalone ? null : () => Navigator.of(context).pop(),
             ),
             const SizedBox(height: 16),
             const LiveAcademyDashboardSummary(),
+            const ThemeModeTile(),
             const SizedBox(height: 20),
             SettingsTile(
               icon: CupertinoIcons.square_grid_2x2,
@@ -1395,6 +1398,13 @@ class AcademyModeDashboard extends StatelessWidget {
                 ),
               ),
             ),
+            if (standalone) ...[
+              const SizedBox(height: 18),
+              SecondaryButton(
+                label: 'Sign out',
+                onPressed: () async => SocialAuth.signOutEverywhere(),
+              ),
+            ],
             SettingsTile(
               icon: CupertinoIcons.building_2_fill,
               title: 'Academy Profile & Contact',
@@ -1446,6 +1456,15 @@ class AcademyModeDashboard extends StatelessWidget {
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => const EventManagementScreen(),
+                ),
+              ),
+            ),
+            SettingsTile(
+              icon: CupertinoIcons.flag_fill,
+              title: 'Create Tournament',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const CreateTournamentScreen(),
                 ),
               ),
             ),

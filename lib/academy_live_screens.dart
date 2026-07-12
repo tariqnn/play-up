@@ -56,32 +56,93 @@ class LiveCourtManagementScreen extends StatelessWidget {
   }) async {
     final name = TextEditingController(text: data?['name']?.toString());
     final sport = TextEditingController(text: data?['sport']?.toString());
+    var currency = data?['currency']?.toString() ?? 'JOD';
     final price = TextEditingController(
       text: ((data?['basePriceMinor'] as num? ?? 0) / 100).toStringAsFixed(0),
     );
+    final address = TextEditingController(text: data?['address']?.toString());
+    final latitude = TextEditingController(text: data?['latitude']?.toString());
+    final longitude = TextEditingController(
+      text: data?['longitude']?.toString(),
+    );
+    final imageUrl = TextEditingController(text: data?['imageUrl']?.toString());
     await showDialog<void>(
       context: context,
       builder: (dialog) => AlertDialog(
         title: Text(id == null ? 'Add court' : 'Edit court'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: name,
-              decoration: const InputDecoration(labelText: 'Name'),
+        content: StatefulBuilder(
+          builder: (context, setDialogState) => SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: name,
+                  decoration: const InputDecoration(labelText: 'Name'),
+                ),
+                DropdownButtonFormField<String>(
+                  initialValue: sport.text.isEmpty ? 'Football' : sport.text,
+                  decoration: const InputDecoration(labelText: 'Sport'),
+                  items:
+                      [
+                            'Football',
+                            'Basketball',
+                            'Padel',
+                            'Tennis',
+                            'Volleyball',
+                            'Cricket',
+                            'Handball',
+                          ]
+                          .map(
+                            (v) => DropdownMenuItem(value: v, child: Text(v)),
+                          )
+                          .toList(),
+                  onChanged: (v) => sport.text = v!,
+                ),
+                DropdownButtonFormField<String>(
+                  initialValue: currency,
+                  decoration: const InputDecoration(labelText: 'Currency'),
+                  items:
+                      ['JOD', 'AED', 'SAR', 'QAR', 'KWD', 'BHD', 'OMR', 'USD']
+                          .map(
+                            (v) => DropdownMenuItem(value: v, child: Text(v)),
+                          )
+                          .toList(),
+                  onChanged: (v) => setDialogState(() => currency = v!),
+                ),
+                TextField(
+                  controller: price,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Hourly price'),
+                ),
+                TextField(
+                  controller: address,
+                  decoration: const InputDecoration(labelText: 'Full address'),
+                ),
+                TextField(
+                  controller: latitude,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                    signed: true,
+                  ),
+                  decoration: const InputDecoration(labelText: 'Latitude'),
+                ),
+                TextField(
+                  controller: longitude,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                    signed: true,
+                  ),
+                  decoration: const InputDecoration(labelText: 'Longitude'),
+                ),
+                TextField(
+                  controller: imageUrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Court photo URL',
+                  ),
+                ),
+              ],
             ),
-            TextField(
-              controller: sport,
-              decoration: const InputDecoration(labelText: 'Sport'),
-            ),
-            TextField(
-              controller: price,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Hourly price (AED)',
-              ),
-            ),
-          ],
+          ),
         ),
         actions: [
           TextButton(
@@ -91,10 +152,19 @@ class LiveCourtManagementScreen extends StatelessWidget {
           FilledButton(
             onPressed: () async {
               final amount = double.tryParse(price.text);
+              final lat = double.tryParse(latitude.text);
+              final lng = double.tryParse(longitude.text);
               if (name.text.trim().isEmpty ||
                   sport.text.trim().isEmpty ||
                   amount == null ||
-                  amount <= 0) {
+                  amount <= 0 ||
+                  address.text.trim().isEmpty ||
+                  lat == null ||
+                  lng == null ||
+                  lat < -90 ||
+                  lat > 90 ||
+                  lng < -180 ||
+                  lng > 180) {
                 return;
               }
               await AcademyService.instance.saveCourt(
@@ -102,6 +172,11 @@ class LiveCourtManagementScreen extends StatelessWidget {
                 name: name.text,
                 sport: sport.text,
                 basePriceMinor: (amount * 100).round(),
+                currency: currency,
+                address: address.text,
+                latitude: lat,
+                longitude: lng,
+                imageUrl: imageUrl.text,
               );
               if (dialog.mounted) Navigator.pop(dialog);
             },
@@ -113,6 +188,10 @@ class LiveCourtManagementScreen extends StatelessWidget {
     name.dispose();
     sport.dispose();
     price.dispose();
+    address.dispose();
+    latitude.dispose();
+    longitude.dispose();
+    imageUrl.dispose();
   }
 }
 
