@@ -8,7 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, TargetPlatform;
+    show defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -29,11 +29,15 @@ Future<void> main() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   const useEmulators = bool.fromEnvironment('USE_FIREBASE_EMULATORS');
   if (useEmulators) {
-    await FirebaseAuth.instance.useAuthEmulator('127.0.0.1', 9099);
-    FirebaseFirestore.instance.useFirestoreEmulator('127.0.0.1', 8080);
+    final emulatorHost =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+        ? '10.0.2.2'
+        : '127.0.0.1';
+    await FirebaseAuth.instance.useAuthEmulator(emulatorHost, 9099);
+    FirebaseFirestore.instance.useFirestoreEmulator(emulatorHost, 8080);
     FirebaseFunctions.instanceFor(
       region: 'me-central1',
-    ).useFunctionsEmulator('127.0.0.1', 5001);
+    ).useFunctionsEmulator(emulatorHost, 5001);
     const testEmail = String.fromEnvironment('UAT_TEST_EMAIL');
     const testPassword = String.fromEnvironment('UAT_TEST_PASSWORD');
     if (testEmail.isNotEmpty && testPassword.isNotEmpty) {
