@@ -27,6 +27,9 @@ import 'access_control.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  FirebaseFirestore.instance.settings = const Settings(
+    persistenceEnabled: true,
+  );
   const useEmulators = bool.fromEnvironment('USE_FIREBASE_EMULATORS');
   if (useEmulators) {
     final emulatorHost =
@@ -48,10 +51,6 @@ Future<void> main() async {
     }
   }
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  FirebaseFirestore.instance.settings = const Settings(
-    persistenceEnabled: true,
-  );
-  if (!useEmulators) await _configureMessaging();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -61,6 +60,7 @@ Future<void> main() async {
     ),
   );
   runApp(const PlayUpApp());
+  if (!useEmulators) unawaited(_configureMessaging());
 }
 
 @pragma('vm:entry-point')
