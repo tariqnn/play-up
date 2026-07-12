@@ -1,0 +1,79 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    match /users/{userId} {
+      // Profiles are readable by any signed-in user (leaderboard, admin,
+      // player discovery). Only the owner can create or modify their profile.
+      allow read: if signedIn();
+      allow create, update, delete: if isOwner(userId);
+    }
+
+    // Catalog collections: public read, writes by any signed-in user (admin
+    // panel). Tighten to a custom admin claim before production.
+    match /courts/{courtId} {
+      allow read: if true;
+      allow write: if signedIn();
+    }
+
+    match /academies/{academyId} {
+      allow read: if true;
+      allow write: if signedIn();
+    }
+
+    match /offers/{offerId} {
+      allow read: if true;
+      allow write: if signedIn();
+    }
+
+    match /events/{eventId} {
+      allow read: if true;
+      allow write: if signedIn();
+    }
+
+    match /bookings/{bookingId} {
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if signedIn()
+        && resource.data.userId == request.auth.uid;
+    }
+
+    match /matches/{matchId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.hostId == request.auth.uid;
+      allow update: if signedIn()
+        && (
+          resource.data.hostId == request.auth.uid
+          || request.auth.uid in resource.data.players
+        );
+      allow delete: if signedIn()
+        && resource.data.hostId == request.auth.uid;
+    }
+
+    match /reviews/{reviewId} {
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid;
+      allow read: if signedIn();
+      allow update, delete: if false;
+    }
+
+    match /supportTickets/{ticketId} {
+      allow create: if signedIn();
+      allow read, update, delete: if signedIn()
+        && resource.data.userId == request.auth.uid;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
