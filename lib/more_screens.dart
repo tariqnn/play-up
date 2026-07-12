@@ -304,7 +304,10 @@ class _SkillLevelScreenState extends State<SkillLevelScreen> {
             for (final sport in widget.sports) ...[
               Text(
                 sport,
-                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
+                ),
               ),
               const SizedBox(height: 10),
               Wrap(
@@ -482,7 +485,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                     : _players;
                 final myName =
                     FirebaseAuth.instance.currentUser?.displayName ??
-                        'Alex Mercer';
+                    'Alex Mercer';
                 return Column(
                   children: [
                     _PodiumRow(players: players.take(3).toList()),
@@ -646,8 +649,14 @@ class _LeaderboardRow extends StatelessWidget {
 }
 
 class Achievement {
-  const Achievement(this.title, this.description, this.icon, this.color,
-      this.progress, this.goal);
+  const Achievement(
+    this.title,
+    this.description,
+    this.icon,
+    this.color,
+    this.progress,
+    this.goal,
+  );
   final String title;
   final String description;
   final IconData icon;
@@ -657,22 +666,70 @@ class Achievement {
 }
 
 const kAchievements = <Achievement>[
-  Achievement('First Booking', 'Book your first court', CupertinoIcons.calendar,
-      AppColors.green, 1, 1),
-  Achievement('10 Matches Played', 'Play 10 matches',
-      CupertinoIcons.sportscourt, AppColors.purple, 7, 10),
-  Achievement('5-Star Player', 'Earn a 5-star rating',
-      CupertinoIcons.star_fill, AppColors.gold, 1, 1),
-  Achievement('Weekend Warrior', 'Play 3 weekends in a row',
-      CupertinoIcons.flame_fill, Color(0xFFFF7A45), 2, 3),
-  Achievement('No Cancellation Streak', '10 games with no cancels',
-      CupertinoIcons.shield_lefthalf_fill, Color(0xFF3B82F6), 8, 10),
-  Achievement('3x3 Champion', 'Win a 3x3 tournament',
-      CupertinoIcons.rosette, Color(0xFFEC4899), 0, 1),
-  Achievement('Team Captain', 'Host 5 matches',
-      CupertinoIcons.person_2_fill, AppColors.purple, 3, 5),
-  Achievement('Academy Loyal', 'Book same academy 8 times',
-      CupertinoIcons.building_2_fill, AppColors.green, 5, 8),
+  Achievement(
+    'First Booking',
+    'Book your first court',
+    CupertinoIcons.calendar,
+    AppColors.green,
+    1,
+    1,
+  ),
+  Achievement(
+    '10 Matches Played',
+    'Play 10 matches',
+    CupertinoIcons.sportscourt,
+    AppColors.purple,
+    7,
+    10,
+  ),
+  Achievement(
+    '5-Star Player',
+    'Earn a 5-star rating',
+    CupertinoIcons.star_fill,
+    AppColors.gold,
+    1,
+    1,
+  ),
+  Achievement(
+    'Weekend Warrior',
+    'Play 3 weekends in a row',
+    CupertinoIcons.flame_fill,
+    Color(0xFFFF7A45),
+    2,
+    3,
+  ),
+  Achievement(
+    'No Cancellation Streak',
+    '10 games with no cancels',
+    CupertinoIcons.shield_lefthalf_fill,
+    Color(0xFF3B82F6),
+    8,
+    10,
+  ),
+  Achievement(
+    '3x3 Champion',
+    'Win a 3x3 tournament',
+    CupertinoIcons.rosette,
+    Color(0xFFEC4899),
+    0,
+    1,
+  ),
+  Achievement(
+    'Team Captain',
+    'Host 5 matches',
+    CupertinoIcons.person_2_fill,
+    AppColors.purple,
+    3,
+    5,
+  ),
+  Achievement(
+    'Academy Loyal',
+    'Book same academy 8 times',
+    CupertinoIcons.building_2_fill,
+    AppColors.green,
+    5,
+    8,
+  ),
 ];
 
 class AchievementsScreen extends StatelessWidget {
@@ -696,8 +753,11 @@ class AchievementsScreen extends StatelessWidget {
               borderColor: AppColors.dark,
               child: Row(
                 children: [
-                  const Icon(CupertinoIcons.rosette,
-                      color: AppColors.gold, size: 34),
+                  const Icon(
+                    CupertinoIcons.rosette,
+                    color: AppColors.gold,
+                    size: 34,
+                  ),
                   const SizedBox(width: 14),
                   Expanded(
                     child: Column(
@@ -1084,7 +1144,9 @@ class _AcademyCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => AcademyProfileScreen(academy: academy)),
+        MaterialPageRoute(
+          builder: (_) => AcademyProfileScreen(academy: academy),
+        ),
       ),
       child: CardBox(
         padding: EdgeInsets.zero,
@@ -1107,9 +1169,11 @@ class _AcademyCard extends StatelessWidget {
                     ),
                     child: academy.imageUrl.isEmpty
                         ? Center(
-                            child: Icon(academy.icon,
-                                color: Colors.white.withValues(alpha: .5),
-                                size: 54),
+                            child: Icon(
+                              academy.icon,
+                              color: Colors.white.withValues(alpha: .5),
+                              size: 54,
+                            ),
                           )
                         : CachedNetworkImage(
                             imageUrl: academy.imageUrl,
@@ -1117,9 +1181,11 @@ class _AcademyCard extends StatelessWidget {
                             width: double.infinity,
                             height: 120,
                             errorWidget: (context, url, error) => Center(
-                              child: Icon(academy.icon,
-                                  color: Colors.white.withValues(alpha: .5),
-                                  size: 54),
+                              child: Icon(
+                                academy.icon,
+                                color: Colors.white.withValues(alpha: .5),
+                                size: 54,
+                              ),
                             ),
                           ),
                   ),
@@ -1172,16 +1238,22 @@ class _AcademyCard extends StatelessWidget {
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      const Icon(CupertinoIcons.star_fill,
-                          color: AppColors.gold, size: 15),
+                      const Icon(
+                        CupertinoIcons.star_fill,
+                        color: AppColors.gold,
+                        size: 15,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         academy.rating,
                         style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(width: 12),
-                      const Icon(CupertinoIcons.location_solid,
-                          color: AppColors.muted, size: 14),
+                      const Icon(
+                        CupertinoIcons.location_solid,
+                        color: AppColors.muted,
+                        size: 14,
+                      ),
                       const SizedBox(width: 2),
                       Text(
                         academy.distance,
@@ -1246,16 +1318,20 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                             imageUrl: academy.imageUrl,
                             fit: BoxFit.cover,
                             errorWidget: (context, url, error) => Center(
-                              child: Icon(academy.icon,
-                                  color: Colors.white.withValues(alpha: .4),
-                                  size: 72),
+                              child: Icon(
+                                academy.icon,
+                                color: Colors.white.withValues(alpha: .4),
+                                size: 72,
+                              ),
                             ),
                           )
                         else
                           Center(
-                            child: Icon(academy.icon,
-                                color: Colors.white.withValues(alpha: .4),
-                                size: 72),
+                            child: Icon(
+                              academy.icon,
+                              color: Colors.white.withValues(alpha: .4),
+                              size: 72,
+                            ),
                           ),
                         const DecoratedBox(
                           decoration: BoxDecoration(
@@ -1312,8 +1388,11 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          const Icon(CupertinoIcons.star_fill,
-                              color: AppColors.gold, size: 15),
+                          const Icon(
+                            CupertinoIcons.star_fill,
+                            color: AppColors.gold,
+                            size: 15,
+                          ),
                           const SizedBox(width: 4),
                           Text(
                             '${academy.rating}  •  ${academy.distance}',
@@ -1329,10 +1408,12 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                   child: FilledButton(
                     onPressed: () => setState(() => _following = !_following),
                     style: FilledButton.styleFrom(
-                      backgroundColor:
-                          _following ? AppColors.line : AppColors.purple,
-                      foregroundColor:
-                          _following ? AppColors.ink : Colors.white,
+                      backgroundColor: _following
+                          ? AppColors.line
+                          : AppColors.purple,
+                      foregroundColor: _following
+                          ? AppColors.ink
+                          : Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14),
                       ),
@@ -1518,8 +1599,11 @@ class OfferDetailsScreen extends StatelessWidget {
                     ),
                   ),
                   child: Center(
-                    child: Icon(CupertinoIcons.gift_fill,
-                        color: Colors.white.withValues(alpha: .5), size: 64),
+                    child: Icon(
+                      CupertinoIcons.gift_fill,
+                      color: Colors.white.withValues(alpha: .5),
+                      size: 64,
+                    ),
                   ),
                 ),
                 Positioned(
@@ -1581,7 +1665,8 @@ class OfferDetailsScreen extends StatelessWidget {
               label: 'Redeem for $points points',
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => RedeemQrScreen(title: title, partner: partner),
+                  builder: (_) =>
+                      RedeemQrScreen(title: title, partner: partner),
                 ),
               ),
             ),
@@ -1628,9 +1713,9 @@ class RedeemQrScreen extends StatelessWidget {
                       size: 48,
                     ),
                   ).animate().scale(
-                        duration: 320.ms,
-                        curve: Curves.easeOutBack,
-                      ),
+                    duration: 320.ms,
+                    curve: Curves.easeOutBack,
+                  ),
                   const SizedBox(height: 16),
                   const Text(
                     'Offer Redeemed!',
@@ -1680,9 +1765,9 @@ class RedeemQrScreen extends StatelessWidget {
             const SizedBox(height: 24),
             PrimaryButton(
               label: 'Save to Wallet',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const WalletScreen()),
-              ),
+              onPressed: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const WalletScreen())),
             ),
             const SizedBox(height: 10),
             SecondaryButton(
@@ -1726,16 +1811,15 @@ class _QrPainter extends CustomPainter {
     }
 
     bool inFinder(int c, int r) =>
-        (c < 8 && r < 8) || (c > cells - 9 && r < 8) || (c < 8 && r > cells - 9);
+        (c < 8 && r < 8) ||
+        (c > cells - 9 && r < 8) ||
+        (c < 8 && r > cells - 9);
 
     for (var r = 0; r < cells; r++) {
       for (var c = 0; c < cells; c++) {
         if (inFinder(c, r)) continue;
         if (rng.nextBool()) {
-          canvas.drawRect(
-            Rect.fromLTWH(c * cell, r * cell, cell, cell),
-            paint,
-          );
+          canvas.drawRect(Rect.fromLTWH(c * cell, r * cell, cell, cell), paint);
         }
       }
     }
@@ -1745,7 +1829,8 @@ class _QrPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _QrPainter oldDelegate) => oldDelegate.seed != seed;
+  bool shouldRepaint(covariant _QrPainter oldDelegate) =>
+      oldDelegate.seed != seed;
 }
 
 class WalletScreen extends StatelessWidget {
@@ -1768,9 +1853,9 @@ class WalletScreen extends StatelessWidget {
               stream: uid == null
                   ? null
                   : FirebaseFirestore.instance
-                      .collection('users')
-                      .doc(uid)
-                      .snapshots(),
+                        .collection('users')
+                        .doc(uid)
+                        .snapshots(),
               builder: (context, snapshot) {
                 final points = snapshot.data?.data()?['points'] ?? 3250;
                 return CardBox(
@@ -1802,8 +1887,11 @@ class WalletScreen extends StatelessWidget {
                         ],
                       ),
                       const Spacer(),
-                      const Icon(CupertinoIcons.gift_fill,
-                          color: AppColors.gold, size: 44),
+                      const Icon(
+                        CupertinoIcons.gift_fill,
+                        color: AppColors.gold,
+                        size: 44,
+                      ),
                     ],
                   ),
                 );
@@ -1812,11 +1900,17 @@ class WalletScreen extends StatelessWidget {
             const SizedBox(height: 14),
             Row(
               children: const [
-                Expanded(child: StatCard(value: 'AED 120', label: 'Credits')),
+                Expanded(
+                  child: StatCard(value: 'AED 120', label: 'Credits'),
+                ),
                 SizedBox(width: 10),
-                Expanded(child: StatCard(value: '3', label: 'Coupons')),
+                Expanded(
+                  child: StatCard(value: '3', label: 'Coupons'),
+                ),
                 SizedBox(width: 10),
-                Expanded(child: StatCard(value: 'x1.5', label: 'Multiplier')),
+                Expanded(
+                  child: StatCard(value: 'x1.5', label: 'Multiplier'),
+                ),
               ],
             ),
             const SizedBox(height: 22),
@@ -1897,7 +1991,10 @@ class _CouponRow extends StatelessWidget {
               color: AppColors.gold.withValues(alpha: .15),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Icon(CupertinoIcons.ticket_fill, color: AppColors.gold),
+            child: const Icon(
+              CupertinoIcons.ticket_fill,
+              color: AppColors.gold,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -1915,8 +2012,11 @@ class _CouponRow extends StatelessWidget {
               ],
             ),
           ),
-          const Icon(CupertinoIcons.chevron_right,
-              color: AppColors.muted, size: 18),
+          const Icon(
+            CupertinoIcons.chevron_right,
+            color: AppColors.muted,
+            size: 18,
+          ),
         ],
       ),
     );
@@ -1984,21 +2084,18 @@ class PlayerStatsScreen extends StatelessWidget {
                                 gradient: const LinearGradient(
                                   begin: Alignment.topCenter,
                                   end: Alignment.bottomCenter,
-                                  colors: [
-                                    AppColors.purple,
-                                    Color(0xFFB79BFF),
-                                  ],
+                                  colors: [AppColors.purple, Color(0xFFB79BFF)],
                                 ),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                             ).animate().scaleY(
-                                  begin: 0,
-                                  end: 1,
-                                  alignment: Alignment.bottomCenter,
-                                  duration: 400.ms,
-                                  delay: (i * 60).ms,
-                                  curve: Curves.easeOut,
-                                ),
+                              begin: 0,
+                              end: 1,
+                              alignment: Alignment.bottomCenter,
+                              duration: 400.ms,
+                              delay: (i * 60).ms,
+                              curve: Curves.easeOut,
+                            ),
                             const SizedBox(height: 6),
                             Text(
                               days[i],
@@ -2083,8 +2180,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Future<void> _load() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid != null) {
-      final snap =
-          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
       final data = snap.data() ?? {};
       _name.text = (data['displayName'] ?? 'Alex Mercer').toString();
       _city.text = (data['city'] ?? 'Dubai, UAE').toString();
@@ -2114,9 +2213,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         }, SetOptions(merge: true));
       }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile updated.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Profile updated.')));
         Navigator.of(context).pop();
       }
     } catch (error) {
@@ -2295,14 +2394,14 @@ class _FriendsScreenState extends State<FriendsScreen> {
     final label = _tab == 1
         ? 'Accept'
         : _tab == 2
-            ? 'Add'
-            : 'Invite';
+        ? 'Add'
+        : 'Invite';
     return SizedBox(
       height: 36,
       child: FilledButton(
-        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$label sent.')),
-        ),
+        onPressed: () => ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$label sent.'))),
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.purple,
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -2365,7 +2464,8 @@ class HelpCenterScreen extends StatelessWidget {
               label: 'Contact Support',
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => const SupportScreen(category: 'Support ticket'),
+                  builder: (_) =>
+                      const SupportScreen(category: 'Support ticket'),
                 ),
               ),
             ),

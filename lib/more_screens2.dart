@@ -8,6 +8,7 @@ import 'main.dart';
 import 'more_screens.dart';
 import 'more_screens3.dart';
 import 'more_screens4.dart';
+import 'custom_dashboard.dart';
 
 /// Live open matches from Firestore, falling back to bundled samples when
 /// none exist yet (e.g. a brand new project with no matches created).
@@ -15,7 +16,9 @@ Stream<List<OpenMatch>> openMatchesStream() => FirebaseFirestore.instance
     .collection('matches')
     .where('status', isEqualTo: 'open')
     .snapshots()
-    .map((s) => s.docs.map((d) => OpenMatch.fromMap(d.data())).toList());
+    .map(
+      (s) => s.docs.map((d) => OpenMatch.fromMap(d.data(), id: d.id)).toList(),
+    );
 
 // ---------------------------------------------------------------------------
 // Matchmaking: open matches, match details, create match, pre-match check-in
@@ -23,6 +26,7 @@ Stream<List<OpenMatch>> openMatchesStream() => FirebaseFirestore.instance
 
 class OpenMatch {
   const OpenMatch({
+    this.id,
     required this.title,
     required this.sport,
     required this.host,
@@ -35,10 +39,11 @@ class OpenMatch {
     required this.ranked,
   });
 
-  factory OpenMatch.fromMap(Map<String, dynamic> d) {
+  factory OpenMatch.fromMap(Map<String, dynamic> d, {String? id}) {
     final players = (d['players'] as List?)?.length ?? 1;
     final needed = (d['neededPlayers'] as num?)?.toInt() ?? 0;
     return OpenMatch(
+      id: id,
       title: (d['title'] ?? 'Match').toString(),
       sport: (d['sport'] ?? 'Basketball').toString(),
       host: (d['hostName'] ?? 'Player').toString(),
@@ -53,6 +58,7 @@ class OpenMatch {
   }
 
   final String title;
+  final String? id;
   final String sport;
   final String host;
   final String court;
@@ -124,7 +130,13 @@ class OpenMatchesScreen extends StatefulWidget {
 
 class _OpenMatchesScreenState extends State<OpenMatchesScreen> {
   String _filter = 'All';
-  static const _filters = ['All', 'Basketball', 'Padel', 'Volleyball', 'Ranked'];
+  static const _filters = [
+    'All',
+    'Basketball',
+    'Padel',
+    'Volleyball',
+    'Ranked',
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -155,10 +167,9 @@ class _OpenMatchesScreenState extends State<OpenMatchesScreen> {
             StreamBuilder<List<OpenMatch>>(
               stream: openMatchesStream(),
               builder: (context, snapshot) {
-                final source =
-                    (snapshot.hasData && snapshot.data!.isNotEmpty)
-                        ? snapshot.data!
-                        : kOpenMatches;
+                final source = (snapshot.hasData && snapshot.data!.isNotEmpty)
+                    ? snapshot.data!
+                    : kOpenMatches;
                 final matches = source.where((m) {
                   if (_filter == 'All') return true;
                   if (_filter == 'Ranked') return m.ranked;
@@ -168,8 +179,7 @@ class _OpenMatchesScreenState extends State<OpenMatchesScreen> {
                   return EmptyState(
                     icon: CupertinoIcons.search,
                     title: 'No matches found',
-                    message:
-                        'Try a different filter or create your own match.',
+                    message: 'Try a different filter or create your own match.',
                     action: 'Create Match',
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
@@ -223,8 +233,10 @@ class OpenMatchCard extends StatelessWidget {
                   ),
                 ),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: match.ranked
                         ? AppColors.purple.withValues(alpha: .12)
@@ -245,15 +257,21 @@ class OpenMatchCard extends StatelessWidget {
             const SizedBox(height: 8),
             Row(
               children: [
-                const Icon(CupertinoIcons.location_solid,
-                    size: 14, color: AppColors.muted),
+                const Icon(
+                  CupertinoIcons.location_solid,
+                  size: 14,
+                  color: AppColors.muted,
+                ),
                 const SizedBox(width: 4),
                 Expanded(
                   child: Text(
                     '${match.court}  •  ${match.time}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppColors.muted, fontSize: 13),
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
               ],
@@ -340,8 +358,10 @@ class MatchDetailsScreen extends StatelessWidget {
                   ),
                 ),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: match.ranked
                         ? AppColors.purple.withValues(alpha: .12)
@@ -366,7 +386,10 @@ class MatchDetailsScreen extends StatelessWidget {
                   DetailRow(label: 'Court', value: match.court),
                   DetailRow(label: 'Time', value: match.time),
                   DetailRow(label: 'Skill range', value: match.skill),
-                  DetailRow(label: 'Price per player', value: match.pricePerPlayer),
+                  DetailRow(
+                    label: 'Price per player',
+                    value: match.pricePerPlayer,
+                  ),
                 ],
               ),
             ),
@@ -403,8 +426,11 @@ class MatchDetailsScreen extends StatelessWidget {
                       color: AppColors.background,
                       border: Border.all(color: AppColors.line),
                     ),
-                    child: const Icon(CupertinoIcons.add,
-                        color: AppColors.muted, size: 18),
+                    child: const Icon(
+                      CupertinoIcons.add,
+                      color: AppColors.muted,
+                      size: 18,
+                    ),
                   ),
               ],
             ),
@@ -438,8 +464,10 @@ class MatchDetailsScreen extends StatelessWidget {
                         builder: (_) => const MatchChatScreen(),
                       ),
                     ),
-                    icon: const Icon(CupertinoIcons.chat_bubble_2_fill,
-                        color: AppColors.purple),
+                    icon: const Icon(
+                      CupertinoIcons.chat_bubble_2_fill,
+                      color: AppColors.purple,
+                    ),
                   ),
                 ],
               ),
@@ -447,13 +475,26 @@ class MatchDetailsScreen extends StatelessWidget {
             const SizedBox(height: 24),
             PrimaryButton(
               label: match.needed == 0 ? 'Match Full' : 'Request to Join',
-              onPressed: match.needed == 0
-                  ? () {}
-                  : () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const MatchFoundScreen(),
-                        ),
-                      ),
+              onPressed: match.needed == 0 || match.id == null
+                  ? null
+                  : () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      try {
+                        await AppRepository.instance.joinExistingMatch(
+                          match.id!,
+                        );
+                        if (!context.mounted) return;
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const MatchFoundScreen(),
+                          ),
+                        );
+                      } catch (error) {
+                        messenger.showSnackBar(
+                          SnackBar(content: Text(error.toString())),
+                        );
+                      }
+                    },
             ),
             const SizedBox(height: 10),
             SecondaryButton(
@@ -766,7 +807,9 @@ class PreMatchCheckInScreen extends StatelessWidget {
                     child: SizedBox(
                       width: 200,
                       height: 200,
-                      child: CustomPaint(painter: CheckInQrPainter('PU-CHECKIN')),
+                      child: CustomPaint(
+                        painter: CheckInQrPainter('PU-CHECKIN'),
+                      ),
                     ),
                   ),
                 ),
@@ -815,7 +858,9 @@ class PreMatchCheckInScreen extends StatelessWidget {
                   onPressed: () {
                     HapticFeedback.mediumImpact();
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Checked in! Enjoy the game.')),
+                      const SnackBar(
+                        content: Text('Checked in! Enjoy the game.'),
+                      ),
                     );
                     Navigator.of(context).pop();
                   },
@@ -873,7 +918,13 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
   int _slotIndex = 2;
   int _duration = 60;
 
-  static const _slots = ['6:00 PM', '7:00 PM', '8:00 PM', '9:00 PM', '10:00 PM'];
+  static const _slots = [
+    '6:00 PM',
+    '7:00 PM',
+    '8:00 PM',
+    '9:00 PM',
+    '10:00 PM',
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -901,7 +952,15 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
                 separatorBuilder: (context, index) => const SizedBox(width: 10),
                 itemBuilder: (context, index) {
                   final day = now.add(Duration(days: index));
-                  const weekday = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                  const weekday = [
+                    'Mon',
+                    'Tue',
+                    'Wed',
+                    'Thu',
+                    'Fri',
+                    'Sat',
+                    'Sun',
+                  ];
                   final selected = index == _dayIndex;
                   return GestureDetector(
                     onTap: () => setState(() => _dayIndex = index),
@@ -920,7 +979,9 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
                           Text(
                             weekday[day.weekday - 1],
                             style: TextStyle(
-                              color: selected ? Colors.white70 : AppColors.muted,
+                              color: selected
+                                  ? Colors.white70
+                                  : AppColors.muted,
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
                             ),
@@ -1106,7 +1167,9 @@ class BookingDetailsScreen extends StatelessWidget {
               height: 56,
               child: OutlinedButton(
                 onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const CancelBookingScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const CancelBookingScreen(),
+                  ),
                 ),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.danger,
@@ -1174,8 +1237,7 @@ class _NotificationSettingsScreenState
                         entry.key,
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
-                      onChanged: (v) =>
-                          setState(() => _values[entry.key] = v),
+                      onChanged: (v) => setState(() => _values[entry.key] = v),
                     ),
                 ],
               ),
@@ -1218,24 +1280,30 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                   SwitchListTile.adaptive(
                     value: _publicProfile,
                     activeThumbColor: AppColors.purple,
-                    title: const Text('Public profile',
-                        style: TextStyle(fontWeight: FontWeight.w800)),
+                    title: const Text(
+                      'Public profile',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
                     subtitle: const Text('Discoverable by other players'),
                     onChanged: (v) => setState(() => _publicProfile = v),
                   ),
                   SwitchListTile.adaptive(
                     value: _showActivity,
                     activeThumbColor: AppColors.purple,
-                    title: const Text('Show activity',
-                        style: TextStyle(fontWeight: FontWeight.w800)),
+                    title: const Text(
+                      'Show activity',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
                     subtitle: const Text('Display recent matches on profile'),
                     onChanged: (v) => setState(() => _showActivity = v),
                   ),
                   SwitchListTile.adaptive(
                     value: _allowInvites,
                     activeThumbColor: AppColors.purple,
-                    title: const Text('Allow match invites',
-                        style: TextStyle(fontWeight: FontWeight.w800)),
+                    title: const Text(
+                      'Allow match invites',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
                     subtitle: const Text('Let players invite you to matches'),
                     onChanged: (v) => setState(() => _allowInvites = v),
                   ),
@@ -1331,10 +1399,24 @@ class AcademyModeDashboard extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             SettingsTile(
+              icon: CupertinoIcons.square_grid_2x2,
+              title: 'Customize Dashboard',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const CustomDashboard(
+                    scope: 'academy',
+                    available: academyWidgets,
+                  ),
+                ),
+              ),
+            ),
+            SettingsTile(
               icon: CupertinoIcons.sportscourt,
               title: 'Court Management',
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const CourtManagementScreen()),
+                MaterialPageRoute(
+                  builder: (_) => const CourtManagementScreen(),
+                ),
               ),
             ),
             SettingsTile(
@@ -1450,8 +1532,9 @@ class CourtManagementScreen extends StatelessWidget {
                           children: [
                             Text(
                               court.name,
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w900),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                             Text(
                               '${court.subtitle} • ${court.price}',
@@ -1464,9 +1547,12 @@ class CourtManagementScreen extends StatelessWidget {
                         ),
                       ),
                       IconButton(
-                        onPressed: () => _showAddCourt(context, name: court.name),
-                        icon: const Icon(CupertinoIcons.pencil,
-                            color: AppColors.purple),
+                        onPressed: () =>
+                            _showAddCourt(context, name: court.name),
+                        icon: const Icon(
+                          CupertinoIcons.pencil,
+                          color: AppColors.purple,
+                        ),
                       ),
                     ],
                   ),
@@ -1576,8 +1662,9 @@ class _BookingManagementScreenState extends State<BookingManagementScreen> {
                           children: [
                             Text(
                               booking.$1,
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w900),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                             Text(
                               '${booking.$2} • ${booking.$3}',
@@ -1593,8 +1680,10 @@ class _BookingManagementScreenState extends State<BookingManagementScreen> {
                         FilledButton(
                           onPressed: () =>
                               ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Player checked in.')),
-                          ),
+                                const SnackBar(
+                                  content: Text('Player checked in.'),
+                                ),
+                              ),
                           style: FilledButton.styleFrom(
                             backgroundColor: AppColors.purple,
                             padding: const EdgeInsets.symmetric(horizontal: 14),

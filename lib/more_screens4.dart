@@ -54,8 +54,9 @@ class _CancelBookingScreenState extends State<CancelBookingScreen> {
                 child: Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: CardBox(
-                    borderColor:
-                        _reason == reason ? AppColors.purple : AppColors.line,
+                    borderColor: _reason == reason
+                        ? AppColors.purple
+                        : AppColors.line,
                     child: Row(
                       children: [
                         Icon(
@@ -103,9 +104,9 @@ class _CancelBookingScreenState extends State<CancelBookingScreen> {
 
   Future<void> _confirm(BuildContext context) async {
     if (_reason == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select a reason first.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Select a reason first.')));
       return;
     }
     final ok = await showCupertinoDialog<bool>(
@@ -127,9 +128,9 @@ class _CancelBookingScreenState extends State<CancelBookingScreen> {
       ),
     );
     if (ok == true && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Booking cancelled.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Booking cancelled.')));
       Navigator.of(context).popUntil((route) => route.isFirst);
     }
   }
@@ -170,22 +171,29 @@ class MatchResultsScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 20),
                 CardBox(
-                  color: Colors.white.withValues(alpha: .05),
-                  borderColor: Colors.white.withValues(alpha: .08),
-                  child: Row(
-                    children: [
-                      _TeamScore(name: 'Team A', score: '21', winner: true),
-                      const Text(
-                        'VS',
-                        style: TextStyle(
-                          color: Colors.white54,
-                          fontWeight: FontWeight.w900,
-                        ),
+                      color: Colors.white.withValues(alpha: .05),
+                      borderColor: Colors.white.withValues(alpha: .08),
+                      child: Row(
+                        children: [
+                          _TeamScore(name: 'Team A', score: '21', winner: true),
+                          const Text(
+                            'VS',
+                            style: TextStyle(
+                              color: Colors.white54,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          _TeamScore(
+                            name: 'Team B',
+                            score: '18',
+                            winner: false,
+                          ),
+                        ],
                       ),
-                      _TeamScore(name: 'Team B', score: '18', winner: false),
-                    ],
-                  ),
-                ).animate().fadeIn(duration: 300.ms).scale(
+                    )
+                    .animate()
+                    .fadeIn(duration: 300.ms)
+                    .scale(
                       begin: const Offset(.96, .96),
                       end: const Offset(1, 1),
                     ),
@@ -200,12 +208,17 @@ class MatchResultsScreen extends StatelessWidget {
                       ],
                     ),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: AppColors.gold.withValues(alpha: .4)),
+                    border: Border.all(
+                      color: AppColors.gold.withValues(alpha: .4),
+                    ),
                   ),
                   child: Row(
                     children: const [
-                      Icon(CupertinoIcons.star_circle_fill,
-                          color: AppColors.gold, size: 40),
+                      Icon(
+                        CupertinoIcons.star_circle_fill,
+                        color: AppColors.gold,
+                        size: 40,
+                      ),
                       SizedBox(width: 14),
                       Expanded(
                         child: Column(
@@ -267,8 +280,9 @@ class MatchResultsScreen extends StatelessWidget {
                   width: double.infinity,
                   height: 54,
                   child: FilledButton(
-                    onPressed: () =>
-                        Navigator.of(context).popUntil((route) => route.isFirst),
+                    onPressed: () => Navigator.of(
+                      context,
+                    ).popUntil((route) => route.isFirst),
                     style: FilledButton.styleFrom(
                       backgroundColor: Colors.white.withValues(alpha: .12),
                       foregroundColor: Colors.white,

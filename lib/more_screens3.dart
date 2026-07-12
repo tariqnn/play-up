@@ -71,8 +71,10 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                     : AppColors.line,
                 child: Row(
                   children: const [
-                    Icon(CupertinoIcons.location_circle_fill,
-                        color: AppColors.purple),
+                    Icon(
+                      CupertinoIcons.location_circle_fill,
+                      color: AppColors.purple,
+                    ),
                     SizedBox(width: 12),
                     Text(
                       'Use current location',
@@ -100,12 +102,16 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                       horizontal: 16,
                       vertical: 14,
                     ),
-                    borderColor:
-                        _selected == area ? AppColors.purple : AppColors.line,
+                    borderColor: _selected == area
+                        ? AppColors.purple
+                        : AppColors.line,
                     child: Row(
                       children: [
-                        const Icon(CupertinoIcons.location,
-                            color: AppColors.muted, size: 18),
+                        const Icon(
+                          CupertinoIcons.location,
+                          color: AppColors.muted,
+                          size: 18,
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
@@ -114,8 +120,11 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                           ),
                         ),
                         if (_selected == area)
-                          const Icon(CupertinoIcons.checkmark_circle_fill,
-                              color: AppColors.purple, size: 20),
+                          const Icon(
+                            CupertinoIcons.checkmark_circle_fill,
+                            color: AppColors.purple,
+                            size: 20,
+                          ),
                       ],
                     ),
                   ),
@@ -153,8 +162,11 @@ class MapPreview extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: const [
-                Icon(CupertinoIcons.placemark_fill,
-                    color: AppColors.purple, size: 38),
+                Icon(
+                  CupertinoIcons.placemark_fill,
+                  color: AppColors.purple,
+                  size: 38,
+                ),
                 SizedBox(height: 2),
               ],
             ),
@@ -226,15 +238,14 @@ class MapViewScreen extends StatelessWidget {
             ),
           ),
           // Pins
-          for (final pin in const [
-            (0.25, 0.3),
-            (0.6, 0.42),
-            (0.4, 0.6),
-          ])
+          for (final pin in const [(0.25, 0.3), (0.6, 0.42), (0.4, 0.6)])
             Align(
               alignment: Alignment(pin.$1 * 2 - 1, pin.$2 * 2 - 1),
-              child: const Icon(CupertinoIcons.placemark_fill,
-                  color: AppColors.purple, size: 36),
+              child: const Icon(
+                CupertinoIcons.placemark_fill,
+                color: AppColors.purple,
+                size: 36,
+              ),
             ),
           SafeArea(
             child: Padding(
@@ -399,9 +410,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   Future<void> _send() async {
     if (_email.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter your email first.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Enter your email first.')));
       return;
     }
     setState(() => _sending = true);
@@ -473,8 +484,10 @@ class OtpVerificationScreen extends StatefulWidget {
 }
 
 class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
-  final List<TextEditingController> _controllers =
-      List.generate(4, (_) => TextEditingController());
+  final List<TextEditingController> _controllers = List.generate(
+    4,
+    (_) => TextEditingController(),
+  );
   final List<FocusNode> _nodes = List.generate(4, (_) => FocusNode());
 
   @override
@@ -532,9 +545,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                         fontSize: 26,
                         fontWeight: FontWeight.w900,
                       ),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                      ],
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       decoration: InputDecoration(
                         counterText: '',
                         filled: true,
@@ -545,8 +556,10 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(18),
-                          borderSide:
-                              const BorderSide(color: AppColors.purple, width: 2),
+                          borderSide: const BorderSide(
+                            color: AppColors.purple,
+                            width: 2,
+                          ),
                         ),
                       ),
                       onChanged: (value) {
@@ -575,15 +588,15 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
               label: 'Verify',
               onPressed: _complete
                   ? () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const ResetPasswordScreen(),
-                        ),
-                      )
-                  : () => ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Enter the full 4-digit code.'),
-                        ),
+                      MaterialPageRoute(
+                        builder: (_) => const ResetPasswordScreen(),
                       ),
+                    )
+                  : () => ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Enter the full 4-digit code.'),
+                      ),
+                    ),
             ),
           ],
         ),
@@ -728,8 +741,10 @@ class _OffersManagementScreenState extends State<OffersManagementScreen> {
                           color: AppColors.gold.withValues(alpha: .15),
                           borderRadius: BorderRadius.circular(14),
                         ),
-                        child: const Icon(CupertinoIcons.gift_fill,
-                            color: AppColors.gold),
+                        child: const Icon(
+                          CupertinoIcons.gift_fill,
+                          color: AppColors.gold,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -738,8 +753,9 @@ class _OffersManagementScreenState extends State<OffersManagementScreen> {
                           children: [
                             Text(
                               _offers[i].$1,
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w900),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                             Text(
                               _offers[i].$2,
@@ -753,13 +769,17 @@ class _OffersManagementScreenState extends State<OffersManagementScreen> {
                       ),
                       IconButton(
                         onPressed: () => _editor(index: i),
-                        icon: const Icon(CupertinoIcons.pencil,
-                            color: AppColors.purple),
+                        icon: const Icon(
+                          CupertinoIcons.pencil,
+                          color: AppColors.purple,
+                        ),
                       ),
                       IconButton(
                         onPressed: () => setState(() => _offers.removeAt(i)),
-                        icon: const Icon(CupertinoIcons.trash,
-                            color: AppColors.danger),
+                        icon: const Icon(
+                          CupertinoIcons.trash,
+                          color: AppColors.danger,
+                        ),
                       ),
                     ],
                   ),
@@ -776,7 +796,9 @@ class _OffersManagementScreenState extends State<OffersManagementScreen> {
       text: index != null ? _offers[index].$1 : '',
     );
     final points = TextEditingController(
-      text: index != null ? _offers[index].$2.replaceAll(RegExp(r'[^0-9]'), '') : '',
+      text: index != null
+          ? _offers[index].$2.replaceAll(RegExp(r'[^0-9]'), '')
+          : '',
     );
     showModalBottomSheet<void>(
       context: context,
@@ -879,8 +901,10 @@ class _EventManagementScreenState extends State<EventManagementScreen> {
                           color: AppColors.purple.withValues(alpha: .12),
                           borderRadius: BorderRadius.circular(14),
                         ),
-                        child: const Icon(CupertinoIcons.rosette,
-                            color: AppColors.purple),
+                        child: const Icon(
+                          CupertinoIcons.rosette,
+                          color: AppColors.purple,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -889,8 +913,9 @@ class _EventManagementScreenState extends State<EventManagementScreen> {
                           children: [
                             Text(
                               _events[i].$1,
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w900),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                             Text(
                               _events[i].$2,
@@ -904,13 +929,17 @@ class _EventManagementScreenState extends State<EventManagementScreen> {
                       ),
                       IconButton(
                         onPressed: () => _editor(index: i),
-                        icon: const Icon(CupertinoIcons.pencil,
-                            color: AppColors.purple),
+                        icon: const Icon(
+                          CupertinoIcons.pencil,
+                          color: AppColors.purple,
+                        ),
                       ),
                       IconButton(
                         onPressed: () => setState(() => _events.removeAt(i)),
-                        icon: const Icon(CupertinoIcons.trash,
-                            color: AppColors.danger),
+                        icon: const Icon(
+                          CupertinoIcons.trash,
+                          color: AppColors.danger,
+                        ),
                       ),
                     ],
                   ),

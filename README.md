@@ -1,17 +1,29 @@
-# playup
+# PlayUp
 
-A new Flutter project.
+Flutter/Firebase sports discovery, booking, academy, matchmaking, rewards, player, platform-admin and academy-admin application.
 
-## Getting Started
+## Prerequisites
 
-This project is a starting point for a Flutter application.
+- Flutter SDK compatible with Dart 3.11+
+- Firebase CLI (for rules/index deployment and emulators)
+- A non-production Firebase project with Email/Password and desired social providers enabled
 
-A few resources to get you started if this is your first Flutter project:
+## Setup
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+```powershell
+flutter pub get
+flutterfire configure --project <uat-project-id>
+firebase use <uat-project-id>
+flutter analyze
+flutter test
+flutter run -d chrome
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Deploy database configuration only after reviewing the selected project:
+
+```powershell
+firebase deploy --only firestore:rules,firestore:indexes
+flutter build web --release
+```
+
+Privileged roles must be assigned by a trusted Firebase Admin SDK process or directly in the UAT console; clients cannot promote themselves. See `UAT_HANDOVER.md`.

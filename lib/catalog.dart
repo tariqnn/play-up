@@ -223,45 +223,46 @@ const _eventSeed = <Map<String, dynamic>>[
 ];
 
 Court _courtFrom(Map<String, dynamic> d) => Court(
-      name: (d['name'] ?? 'Court').toString(),
-      subtitle: (d['subtitle'] ?? 'Sports court').toString(),
-      rating: (d['rating'] ?? '4.5').toString(),
-      distance: (d['distance'] ?? '1 km').toString(),
-      price: (d['price'] ?? 'AED 150 / hr').toString(),
-      gradient: gradientFor(d['gradient'] as String?),
-      icon: iconFor(d['icon'] as String?),
-      imageUrl: (d['image'] ?? '').toString(),
-    );
+  name: (d['name'] ?? 'Court').toString(),
+  subtitle: (d['subtitle'] ?? 'Sports court').toString(),
+  rating: (d['rating'] ?? '4.5').toString(),
+  distance: (d['distance'] ?? '1 km').toString(),
+  price: (d['price'] ?? 'AED 150 / hr').toString(),
+  gradient: gradientFor(d['gradient'] as String?),
+  icon: iconFor(d['icon'] as String?),
+  imageUrl: (d['image'] ?? '').toString(),
+);
 
 Academy _academyFrom(Map<String, dynamic> d) => Academy(
-      name: (d['name'] ?? 'Academy').toString(),
-      sports: (d['sports'] ?? 'Multi-sport').toString(),
-      rating: (d['rating'] ?? '4.5').toString(),
-      distance: (d['distance'] ?? '1 km').toString(),
-      featured: d['featured'] == true,
-      gradient: gradientFor(d['gradient'] as String?),
-      icon: iconFor(d['icon'] as String?),
-      imageUrl: (d['image'] ?? '').toString(),
-    );
+  name: (d['name'] ?? 'Academy').toString(),
+  sports: (d['sports'] ?? 'Multi-sport').toString(),
+  rating: (d['rating'] ?? '4.5').toString(),
+  distance: (d['distance'] ?? '1 km').toString(),
+  featured: d['featured'] == true,
+  gradient: gradientFor(d['gradient'] as String?),
+  icon: iconFor(d['icon'] as String?),
+  imageUrl: (d['image'] ?? '').toString(),
+);
 
 Offer _offerFrom(String id, Map<String, dynamic> d) => Offer(
-      id: id,
-      title: (d['title'] ?? 'Offer').toString(),
-      partner: (d['partner'] ?? 'PlayUp').toString(),
-      points: (d['points'] ?? '500').toString(),
-      gradientKey: (d['gradient'] ?? 'teal').toString(),
-    );
+  id: id,
+  title: (d['title'] ?? 'Offer').toString(),
+  partner: (d['partner'] ?? 'PlayUp').toString(),
+  points: (d['points'] ?? '500').toString(),
+  gradientKey: (d['gradient'] ?? 'teal').toString(),
+);
 
 EventItem _eventFrom(Map<String, dynamic> d) => EventItem(
-      title: (d['title'] ?? 'Event').toString(),
-      date: (d['date'] ?? '').toString(),
-      prize: (d['prize'] ?? '').toString(),
-    );
+  title: (d['title'] ?? 'Event').toString(),
+  date: (d['date'] ?? '').toString(),
+  prize: (d['prize'] ?? '').toString(),
+);
 
 /// Fallback lists (used when Firestore is empty, offline, or unreadable).
 final List<Court> kFallbackCourts = _courtSeed.map(_courtFrom).toList();
-final List<Academy> kFallbackAcademies =
-    _academySeed.map(_academyFrom).toList();
+final List<Academy> kFallbackAcademies = _academySeed
+    .map(_academyFrom)
+    .toList();
 final List<Offer> kFallbackOffers = [
   for (var i = 0; i < _offerSeed.length; i++)
     _offerFrom('seed$i', _offerSeed[i]),
@@ -282,21 +283,21 @@ class CatalogService {
       _db.collection(name);
 
   // --- UI streams (mapped to view models) ---
-  Stream<List<Court>> courts() => col('courts').snapshots().map(
-        (s) => s.docs.map((d) => _courtFrom(d.data())).toList(),
-      );
+  Stream<List<Court>> courts() => col(
+    'courts',
+  ).snapshots().map((s) => s.docs.map((d) => _courtFrom(d.data())).toList());
 
-  Stream<List<Academy>> academies() => col('academies').snapshots().map(
-        (s) => s.docs.map((d) => _academyFrom(d.data())).toList(),
-      );
+  Stream<List<Academy>> academies() => col(
+    'academies',
+  ).snapshots().map((s) => s.docs.map((d) => _academyFrom(d.data())).toList());
 
   Stream<List<Offer>> offers() => col('offers').snapshots().map(
-        (s) => s.docs.map((d) => _offerFrom(d.id, d.data())).toList(),
-      );
+    (s) => s.docs.map((d) => _offerFrom(d.id, d.data())).toList(),
+  );
 
-  Stream<List<EventItem>> events() => col('events').snapshots().map(
-        (s) => s.docs.map((d) => _eventFrom(d.data())).toList(),
-      );
+  Stream<List<EventItem>> events() => col(
+    'events',
+  ).snapshots().map((s) => s.docs.map((d) => _eventFrom(d.data())).toList());
 
   // --- Admin raw streams ---
   Stream<QuerySnapshot<Map<String, dynamic>>> raw(String collection) =>
@@ -312,10 +313,9 @@ class CatalogService {
   ) async {
     final payload = {...data, 'updatedAt': FieldValue.serverTimestamp()};
     if (id == null) {
-      await col(collection).add({
-        ...payload,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+      await col(
+        collection,
+      ).add({...payload, 'createdAt': FieldValue.serverTimestamp()});
     } else {
       await col(collection).doc(id).set(payload, SetOptions(merge: true));
     }
@@ -329,10 +329,10 @@ class CatalogService {
     final batch = _db.batch();
     void seed(String collection, List<Map<String, dynamic>> rows) {
       for (final row in rows) {
-        batch.set(
-          col(collection).doc(),
-          {...row, 'createdAt': FieldValue.serverTimestamp()},
-        );
+        batch.set(col(collection).doc(), {
+          ...row,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
       }
     }
 

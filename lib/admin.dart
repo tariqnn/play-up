@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'catalog.dart';
 import 'main.dart';
+import 'custom_dashboard.dart';
 
 // ---------------------------------------------------------------------------
 // Admin hub
@@ -30,8 +31,11 @@ class AdminPanelScreen extends StatelessWidget {
               padding: const EdgeInsets.all(18),
               child: Row(
                 children: [
-                  const Icon(CupertinoIcons.lock_shield_fill,
-                      color: AppColors.gold, size: 30),
+                  const Icon(
+                    CupertinoIcons.lock_shield_fill,
+                    color: AppColors.gold,
+                    size: 30,
+                  ),
                   const SizedBox(width: 14),
                   const Expanded(
                     child: Text(
@@ -43,6 +47,19 @@ class AdminPanelScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
+            _AdminTile(
+              icon: CupertinoIcons.square_grid_2x2,
+              title: 'Custom dashboard',
+              subtitle: 'Reorder, resize, hide and persist widgets',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const CustomDashboard(
+                    scope: 'platform',
+                    available: platformWidgets,
+                  ),
+                ),
+              ),
+            ),
             _AdminTile(
               icon: CupertinoIcons.sportscourt,
               title: 'Courts',
@@ -93,7 +110,11 @@ class AdminPanelScreen extends StatelessWidget {
             const Text(
               'Seeding writes the default courts, academies, offers and events '
               'to Firestore. Requires a signed-in user and admin write rules.',
-              style: TextStyle(color: AppColors.muted, fontSize: 12, height: 1.4),
+              style: TextStyle(
+                color: AppColors.muted,
+                fontSize: 12,
+                height: 1.4,
+              ),
             ),
           ],
         ),
@@ -109,9 +130,7 @@ class AdminPanelScreen extends StatelessWidget {
         const SnackBar(content: Text('Sample data written to Firestore.')),
       );
     } catch (error) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Seed failed: $error')),
-      );
+      messenger.showSnackBar(SnackBar(content: Text('Seed failed: $error')));
     }
   }
 }
@@ -167,8 +186,11 @@ class _AdminTile extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(CupertinoIcons.chevron_right,
-                  color: AppColors.muted, size: 18),
+              const Icon(
+                CupertinoIcons.chevron_right,
+                color: AppColors.muted,
+                size: 18,
+              ),
             ],
           ),
         ),
@@ -219,7 +241,10 @@ class AdminCollectionScreen extends StatelessWidget {
         icon: const Icon(CupertinoIcons.add, color: Colors.white),
         label: Text(
           'Add',
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+          ),
         ),
       ),
       body: AppScrollPage(
@@ -271,7 +296,8 @@ class AdminCollectionScreen extends StatelessWidget {
                                       ),
                                     ),
                                     Text(
-                                      (doc.data()[subtitleKey] ?? '').toString(),
+                                      (doc.data()[subtitleKey] ?? '')
+                                          .toString(),
                                       style: const TextStyle(
                                         color: AppColors.muted,
                                         fontSize: 12,
@@ -281,15 +307,19 @@ class AdminCollectionScreen extends StatelessWidget {
                                 ),
                               ),
                               IconButton(
-                                onPressed: () =>
-                                    _openEditor(context, doc: doc),
-                                icon: const Icon(CupertinoIcons.pencil,
-                                    color: AppColors.purple),
+                                onPressed: () => _openEditor(context, doc: doc),
+                                icon: const Icon(
+                                  CupertinoIcons.pencil,
+                                  color: AppColors.purple,
+                                ),
                               ),
                               IconButton(
-                                onPressed: () => _confirmDelete(context, doc.id),
-                                icon: const Icon(CupertinoIcons.trash,
-                                    color: AppColors.danger),
+                                onPressed: () =>
+                                    _confirmDelete(context, doc.id),
+                                icon: const Icon(
+                                  CupertinoIcons.trash,
+                                  color: AppColors.danger,
+                                ),
                               ),
                             ],
                           ),
@@ -328,9 +358,9 @@ class AdminCollectionScreen extends StatelessWidget {
         await CatalogService.instance.delete(collection, id);
       } catch (error) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Delete failed: $error')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Delete failed: $error')));
         }
       }
     }
@@ -422,9 +452,9 @@ class _CollectionEditorState extends State<_CollectionEditor> {
     } catch (error) {
       if (mounted) {
         setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Save failed: $error')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Save failed: $error')));
       }
     }
   }
@@ -453,8 +483,9 @@ class _CollectionEditorState extends State<_CollectionEditor> {
                 controller: _controllers[f.key]!,
                 label: f.label,
                 icon: CupertinoIcons.textformat,
-                keyboardType:
-                    f.number ? TextInputType.number : TextInputType.text,
+                keyboardType: f.number
+                    ? TextInputType.number
+                    : TextInputType.text,
               ),
               const SizedBox(height: 12),
             ],
@@ -484,8 +515,10 @@ class _CollectionEditorState extends State<_CollectionEditor> {
                   contentPadding: EdgeInsets.zero,
                   value: _featured,
                   activeThumbColor: AppColors.purple,
-                  title: const Text('Featured',
-                      style: TextStyle(fontWeight: FontWeight.w900)),
+                  title: const Text(
+                    'Featured',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
                   onChanged: (v) => setState(() => _featured = v),
                 ),
               ),
@@ -566,8 +599,11 @@ class _ErrorCard extends StatelessWidget {
     return CardBox(
       child: Column(
         children: [
-          const Icon(CupertinoIcons.exclamationmark_triangle,
-              color: AppColors.danger, size: 32),
+          const Icon(
+            CupertinoIcons.exclamationmark_triangle,
+            color: AppColors.danger,
+            size: 32,
+          ),
           const SizedBox(height: 10),
           const Text(
             'Could not load data',

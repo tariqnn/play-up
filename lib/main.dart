@@ -6,7 +6,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,6 +21,8 @@ import 'more_screens.dart';
 import 'more_screens2.dart';
 import 'more_screens3.dart';
 import 'more_screens4.dart';
+import 'booking_domain.dart';
+import 'access_control.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -172,8 +175,9 @@ class SocialAuth {
       idToken: appleCredential.identityToken,
       accessToken: appleCredential.authorizationCode,
     );
-    final result =
-        await FirebaseAuth.instance.signInWithCredential(oauthCredential);
+    final result = await FirebaseAuth.instance.signInWithCredential(
+      oauthCredential,
+    );
     final displayName = [
       appleCredential.givenName,
       appleCredential.familyName,
@@ -203,9 +207,9 @@ Future<void> enterAsGuest(BuildContext context) async {
     Navigator.of(context).popUntil((route) => route.isFirst);
   } else {
     // Anonymous auth disabled: fall back to local browsing.
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const MainShell()),
-    );
+    Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute(builder: (_) => const MainShell()));
   }
 }
 
@@ -308,6 +312,9 @@ class AppRepository {
         'matches': 0,
         'winRate': 0,
         'sports': <String>[],
+        'role': 'player',
+        'permissions': <String>[],
+        'suspended': false,
         'createdAt': FieldValue.serverTimestamp(),
         'lastSeenAt': FieldValue.serverTimestamp(),
       });
@@ -344,10 +351,7 @@ class AppRepository {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || city.trim().isEmpty) return;
     try {
-      await _users.doc(uid).set(
-        {'city': city.trim()},
-        SetOptions(merge: true),
-      );
+      await _users.doc(uid).set({'city': city.trim()}, SetOptions(merge: true));
     } catch (error) {
       debugPrint('updateCity skipped: $error');
     }
@@ -380,21 +384,48 @@ class AppRepository {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return localId;
     try {
-      final doc = await _bookings.add({
-        'userId': user.uid,
-        'courtName': court.name,
-        'sport': court.subtitle,
-        'price': court.price,
-        'date': 'Today, 20 May',
-        'time': '8:00 PM - 9:00 PM',
-        'status': 'confirmed',
-        'matchmaking': matchmaking,
-        'players': [user.uid],
-        'createdAt': FieldValue.serverTimestamp(),
+      // The slot document is the concurrency lock. Firestore transactions
+      // retry optimistically, so only one client can create a given lock.
+      final startUtc = DateTime.now().toUtc().add(const Duration(hours: 2));
+      final courtId = court.name.toLowerCase().replaceAll(
+        RegExp(r'[^a-z0-9]+'),
+        '-',
+      );
+      final slotKey = BookingPolicy.slotKey(courtId, startUtc);
+      final bookingRef = _bookings.doc(slotKey);
+      final lockRef = _db.collection('bookingLocks').doc(slotKey);
+      await _db.runTransaction((transaction) async {
+        final existing = await transaction.get(lockRef);
+        if (existing.exists) {
+          throw const DomainValidationException(
+            'This court was just booked. Please choose another time.',
+          );
+        }
+        transaction.set(lockRef, {
+          'bookingId': slotKey,
+          'userId': user.uid,
+          'courtId': courtId,
+          'startUtc': Timestamp.fromDate(startUtc),
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        transaction.set(bookingRef, {
+          'userId': user.uid,
+          'courtId': courtId,
+          'academyId': 'platform',
+          'courtName': court.name,
+          'sport': court.subtitle,
+          'price': court.price,
+          'startUtc': Timestamp.fromDate(startUtc),
+          'endUtc': Timestamp.fromDate(startUtc.add(const Duration(hours: 1))),
+          'status': 'confirmed',
+          'matchmaking': matchmaking,
+          'players': [user.uid],
+          'createdAt': FieldValue.serverTimestamp(),
+        });
       });
       if (matchmaking) {
         await _matches.add({
-          'bookingId': doc.id,
+          'bookingId': slotKey,
           'hostId': user.uid,
           'title': 'Basketball 5v5 at ${court.name}',
           'sport': court.subtitle,
@@ -405,14 +436,18 @@ class AppRepository {
           'skillRange': 'Intermediate',
           'status': 'open',
           'neededPlayers': 3,
+          'capacity': 4,
           'players': [user.uid],
           'createdAt': FieldValue.serverTimestamp(),
         });
       }
-      return doc.id;
+      return slotKey;
     } catch (error) {
-      debugPrint('createBooking fell back to local id: $error');
-      return localId;
+      if (error is DomainValidationException) rethrow;
+      debugPrint('createBooking failed: $error');
+      throw const DomainValidationException(
+        'Booking could not be confirmed. Check your connection and try again.',
+      );
     }
   }
 
@@ -440,12 +475,47 @@ class AppRepository {
         'skillRange': skill,
         'status': 'open',
         'neededPlayers': neededPlayers,
+        'capacity': neededPlayers + 1,
         'players': [user.uid],
         'createdAt': FieldValue.serverTimestamp(),
       });
     } catch (error) {
       debugPrint('joinMatch skipped: $error');
     }
+  }
+
+  Future<void> joinExistingMatch(String matchId) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw const DomainValidationException('Sign in to join a match.');
+    }
+    final ref = _matches.doc(matchId);
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      final data = snapshot.data();
+      if (data == null) {
+        throw const DomainValidationException(
+          'This match is no longer available.',
+        );
+      }
+      final players = (data['players'] as List<dynamic>? ?? const [])
+          .whereType<String>()
+          .toSet();
+      final capacity = (data['capacity'] as num?)?.toInt() ?? players.length;
+      MatchmakingPolicy.validateJoin(
+        userId: user.uid,
+        players: players,
+        capacity: capacity,
+        suspended: false,
+        hasConflict: false,
+        status: data['status']?.toString() ?? 'closed',
+      );
+      transaction.update(ref, {
+        'players': FieldValue.arrayUnion([user.uid]),
+        'neededPlayers': FieldValue.increment(-1),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
   }
 
   Future<void> submitSupportTicket(String category, String message) async {
@@ -1223,8 +1293,9 @@ class HomeScreen extends StatelessWidget {
             builder: (context, snapshot) {
               final data = snapshot.data ?? const {};
               final fullName = (data['displayName'] ?? '').toString().trim();
-              final firstName =
-                  fullName.isEmpty ? 'Champion' : fullName.split(' ').first;
+              final firstName = fullName.isEmpty
+                  ? 'Champion'
+                  : fullName.split(' ').first;
               final city = (data['city'] ?? 'Dubai, UAE').toString();
               return HeaderRow(
                 title: 'Good Morning,\n$firstName',
@@ -1295,7 +1366,9 @@ class HomeScreen extends StatelessWidget {
                   icon: CupertinoIcons.plus_app,
                   label: 'Create Match',
                   onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const CreateMatchScreen()),
+                    MaterialPageRoute(
+                      builder: (_) => const CreateMatchScreen(),
+                    ),
                   ),
                 ),
               ),
@@ -1313,7 +1386,10 @@ class HomeScreen extends StatelessWidget {
           const SizedBox(height: 12),
           const ProgressSummaryCard(),
           const SizedBox(height: 22),
-          SectionHeader(title: 'Recommended Courts', onSeeAll: () => onTabChange(1)),
+          SectionHeader(
+            title: 'Recommended Courts',
+            onSeeAll: () => onTabChange(1),
+          ),
           const SizedBox(height: 12),
           SizedBox(
             height: 190,
@@ -1394,8 +1470,11 @@ class AcademyHomeCard extends StatelessWidget {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(16),
                 child: academy.imageUrl.isEmpty
-                    ? Icon(academy.icon,
-                        color: Colors.white.withValues(alpha: .7), size: 30)
+                    ? Icon(
+                        academy.icon,
+                        color: Colors.white.withValues(alpha: .7),
+                        size: 30,
+                      )
                     : CachedNetworkImage(
                         imageUrl: academy.imageUrl,
                         width: 64,
@@ -1458,8 +1537,11 @@ class AcademyHomeCard extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(CupertinoIcons.chevron_right,
-                color: AppColors.muted, size: 18),
+            const Icon(
+              CupertinoIcons.chevron_right,
+              color: AppColors.muted,
+              size: 18,
+            ),
           ],
         ),
       ),
@@ -1483,9 +1565,9 @@ class BookScreen extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const LocationPickerScreen()),
             ),
             trailing: IconButton(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const MapViewScreen()),
-              ),
+              onPressed: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const MapViewScreen())),
               icon: const Icon(CupertinoIcons.map, size: 24),
             ),
           ),
@@ -1615,9 +1697,9 @@ class RewardsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 22),
           GestureDetector(
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const WalletScreen()),
-            ),
+            onTap: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const WalletScreen())),
             child: const RewardsPointsCard(),
           ),
           const SizedBox(height: 18),
@@ -1687,17 +1769,15 @@ class ProfileScreen extends StatelessWidget {
             children: [
               IconButton(
                 onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const EditProfileScreen(),
-                  ),
+                  MaterialPageRoute(builder: (_) => const EditProfileScreen()),
                 ),
                 icon: const Icon(CupertinoIcons.pencil),
               ),
               const Spacer(),
               IconButton(
-                onPressed: () => Navigator.of(
-                  context,
-                ).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                ),
                 icon: const Icon(CupertinoIcons.gear_alt),
               ),
             ],
@@ -1712,10 +1792,12 @@ class ProfileScreen extends StatelessWidget {
               final matches = (data['matches'] as num?)?.toInt() ?? 0;
               final winRate = (data['winRate'] as num?)?.toInt() ?? 0;
               final ratingValue = (data['rating'] as num?)?.toDouble() ?? 0;
-              final rating =
-                  ratingValue <= 0 ? '—' : ratingValue.toStringAsFixed(1);
-              final points =
-                  formatThousands((data['points'] as num?)?.toInt() ?? 0);
+              final rating = ratingValue <= 0
+                  ? '—'
+                  : ratingValue.toStringAsFixed(1);
+              final points = formatThousands(
+                (data['points'] as num?)?.toInt() ?? 0,
+              );
               return Column(
                 children: [
                   GestureDetector(
@@ -1776,8 +1858,10 @@ class ProfileScreen extends StatelessWidget {
                         ),
                         const SizedBox(width: 10),
                         Expanded(
-                          child:
-                              StatCard(value: '$winRate%', label: 'Win Rate'),
+                          child: StatCard(
+                            value: '$winRate%',
+                            label: 'Win Rate',
+                          ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
@@ -1864,16 +1948,16 @@ class ProfileScreen extends StatelessWidget {
           SettingsTile(
             icon: CupertinoIcons.person_2_fill,
             title: 'Friends',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const FriendsScreen()),
-            ),
+            onTap: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const FriendsScreen())),
           ),
           SettingsTile(
             icon: CupertinoIcons.creditcard_fill,
             title: 'Wallet',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const WalletScreen()),
-            ),
+            onTap: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const WalletScreen())),
           ),
           SettingsTile(
             icon: CupertinoIcons.star_lefthalf_fill,
@@ -2906,9 +2990,9 @@ class SettingsScreen extends StatelessWidget {
             SettingsTile(
               icon: CupertinoIcons.person_2,
               title: 'Friends',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const FriendsScreen()),
-              ),
+              onTap: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const FriendsScreen())),
             ),
             SettingsTile(
               icon: CupertinoIcons.question_circle,
@@ -2930,7 +3014,9 @@ class SettingsScreen extends StatelessWidget {
               icon: CupertinoIcons.lock_shield,
               title: 'Privacy Settings',
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PrivacySettingsScreen()),
+                MaterialPageRoute(
+                  builder: (_) => const PrivacySettingsScreen(),
+                ),
               ),
             ),
             SettingsTile(
@@ -2941,19 +3027,39 @@ class SettingsScreen extends StatelessWidget {
                 'Card and wallet management will connect to your payment provider.',
               ),
             ),
-            SettingsTile(
-              icon: CupertinoIcons.building_2_fill,
-              title: 'Switch to Academy Mode',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const AcademyModeDashboard()),
-              ),
-            ),
-            SettingsTile(
-              icon: CupertinoIcons.lock_shield_fill,
-              title: 'Admin Panel',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const AdminPanelScreen()),
-              ),
+            StreamBuilder<Map<String, dynamic>>(
+              stream: AppRepository.instance.currentUserDoc(),
+              builder: (context, snapshot) {
+                final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+                final access = AccessContext.fromMap(
+                  uid,
+                  snapshot.data ?? const <String, dynamic>{},
+                );
+                return Column(
+                  children: [
+                    if (access.isAcademyUser && !access.suspended)
+                      SettingsTile(
+                        icon: CupertinoIcons.building_2_fill,
+                        title: 'Switch to Academy Mode',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const AcademyModeDashboard(),
+                          ),
+                        ),
+                      ),
+                    if (access.isPlatformAdmin && !access.suspended)
+                      SettingsTile(
+                        icon: CupertinoIcons.lock_shield_fill,
+                        title: 'Admin Panel',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const AdminPanelScreen(),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 18),
             SecondaryButton(
@@ -3363,7 +3469,7 @@ class DarkFeatureCard extends StatelessWidget {
   final String subtitle;
   final String meta;
   final String cta;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -3452,7 +3558,7 @@ class PrimaryButton extends StatelessWidget {
   });
 
   final String label;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final IconData? icon;
 
   @override
@@ -3460,14 +3566,14 @@ class PrimaryButton extends StatelessWidget {
     final leadingIcon = icon;
     void handlePress() {
       HapticFeedback.selectionClick();
-      onPressed();
+      onPressed?.call();
     }
 
     return SizedBox(
       width: double.infinity,
       height: 56,
       child: FilledButton(
-        onPressed: handlePress,
+        onPressed: onPressed == null ? null : handlePress,
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.purple,
           foregroundColor: Colors.white,
@@ -4306,7 +4412,11 @@ class AuthHeroBanner extends StatelessWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [Color(0xE67B3FF2), Color(0x998B5CF6), Color(0xE6120826)],
+                  colors: [
+                    Color(0xE67B3FF2),
+                    Color(0x998B5CF6),
+                    Color(0xE6120826),
+                  ],
                   stops: [0.0, 0.45, 1.0],
                 ),
               ),

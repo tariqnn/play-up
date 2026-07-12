@@ -1,0 +1,19 @@
+{
+  "notice": "UAT ONLY - create Auth users with unique passwords outside Git, then replace uid placeholders through trusted Admin tooling.",
+  "users": [
+    {"uid":"<super-admin-uid>","displayName":"UAT Super Admin","role":"superAdmin","permissions":[],"suspended":false},
+    {"uid":"<limited-admin-uid>","displayName":"UAT Booking Admin","role":"platformAdmin","permissions":["bookings.manage","matchmaking.manage"],"suspended":false},
+    {"uid":"<owner-a-uid>","displayName":"Academy A Owner","role":"academyOwner","academyId":"uat-academy-a","permissions":[],"suspended":false},
+    {"uid":"<owner-b-uid>","displayName":"Academy B Owner","role":"academyOwner","academyId":"uat-academy-b","permissions":[],"suspended":false},
+    {"uid":"<staff-a-uid>","displayName":"Academy A Check-in Staff","role":"academyStaff","academyId":"uat-academy-a","permissions":["academy.bookings.checkin","academy.bookings.manage"],"suspended":false},
+    {"uid":"<player-uid>","displayName":"UAT Player","role":"player","permissions":[],"suspended":false}
+  ],
+  "academies": [
+    {"id":"uat-academy-a","name":"UAT North Academy","status":"active"},
+    {"id":"uat-academy-b","name":"UAT South Academy","status":"active"}
+  ],
+  "courts": [
+    {"id":"uat-court-a1","academyId":"uat-academy-a","name":"North Court 1","sport":"Padel","active":true},
+    {"id":"uat-court-b1","academyId":"uat-academy-b","name":"South Court 1","sport":"Basketball","active":true}
+  ]
+}
