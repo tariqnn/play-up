@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -269,6 +270,7 @@ class AppRepository {
 
   static final instance = AppRepository._();
   final _db = FirebaseFirestore.instance;
+  final _functions = FirebaseFunctions.instanceFor(region: 'me-central1');
 
   CollectionReference<Map<String, dynamic>> get _users =>
       _db.collection('users');
@@ -378,73 +380,37 @@ class AppRepository {
     required Court court,
     required bool matchmaking,
   }) async {
-    // Generate a local booking id up-front so the confirmation flow always
-    // works, even for guests or when Firestore writes are rejected/offline.
-    final localId = 'PU${DateTime.now().millisecondsSinceEpoch}';
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return localId;
-    try {
-      // The slot document is the concurrency lock. Firestore transactions
-      // retry optimistically, so only one client can create a given lock.
-      final startUtc = DateTime.now().toUtc().add(const Duration(hours: 2));
-      final courtId = court.name.toLowerCase().replaceAll(
-        RegExp(r'[^a-z0-9]+'),
-        '-',
+    if (user == null) {
+      throw const DomainValidationException('Sign in to create a booking.');
+    }
+    if (court.id.isEmpty) {
+      throw const DomainValidationException(
+        'This sample court is not bookable. Select a live academy court.',
       );
-      final slotKey = BookingPolicy.slotKey(courtId, startUtc);
-      final bookingRef = _bookings.doc(slotKey);
-      final lockRef = _db.collection('bookingLocks').doc(slotKey);
-      await _db.runTransaction((transaction) async {
-        final existing = await transaction.get(lockRef);
-        if (existing.exists) {
-          throw const DomainValidationException(
-            'This court was just booked. Please choose another time.',
-          );
-        }
-        transaction.set(lockRef, {
-          'bookingId': slotKey,
-          'userId': user.uid,
-          'courtId': courtId,
-          'startUtc': Timestamp.fromDate(startUtc),
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-        transaction.set(bookingRef, {
-          'userId': user.uid,
-          'courtId': courtId,
-          'academyId': 'platform',
-          'courtName': court.name,
-          'sport': court.subtitle,
-          'price': court.price,
-          'startUtc': Timestamp.fromDate(startUtc),
-          'endUtc': Timestamp.fromDate(startUtc.add(const Duration(hours: 1))),
-          'status': 'confirmed',
-          'matchmaking': matchmaking,
-          'players': [user.uid],
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+    }
+    try {
+      final startUtc = DateTime.now().toUtc().add(const Duration(hours: 2));
+      final response = await _functions.httpsCallable('createBooking').call({
+        'courtId': court.id,
+        'startUtc': startUtc.toIso8601String(),
+        'endUtc': startUtc.add(const Duration(hours: 1)).toIso8601String(),
+        'matchmaking': matchmaking,
       });
-      if (matchmaking) {
-        await _matches.add({
-          'bookingId': slotKey,
-          'hostId': user.uid,
-          'title': 'Basketball 5v5 at ${court.name}',
-          'sport': court.subtitle,
-          'courtName': court.name,
-          'date': 'Today, 20 May',
-          'time': '8:00 PM - 9:00 PM',
-          'pricePerPlayer': 'AED 52.5',
-          'skillRange': 'Intermediate',
-          'status': 'open',
-          'neededPlayers': 3,
-          'capacity': 4,
-          'players': [user.uid],
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+      final bookingId = (response.data as Map)['bookingId']?.toString();
+      if (bookingId == null || bookingId.isEmpty) {
+        throw const DomainValidationException(
+          'The server returned an invalid booking confirmation.',
+        );
       }
-      return slotKey;
+      return bookingId;
     } catch (error) {
       if (error is DomainValidationException) rethrow;
-      debugPrint('createBooking failed: $error');
+      if (error is FirebaseFunctionsException) {
+        throw DomainValidationException(
+          error.message ?? 'Booking could not be confirmed.',
+        );
+      }
       throw const DomainValidationException(
         'Booking could not be confirmed. Check your connection and try again.',
       );
@@ -461,26 +427,25 @@ class AppRepository {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     try {
-      await _matches.add({
-        'hostId': user.uid,
-        'hostName': user.displayName ?? 'Player',
+      await _functions.httpsCallable('createMatch').call({
         'title': title,
         'sport': sport,
         'type': type,
-        'ranked': type == 'Ranked',
-        'courtName': 'Infinity Sports Center',
-        'date': 'Today, 20 May',
-        'time': 'Today, 8:00 PM',
-        'pricePerPlayer': 'AED 52.5',
-        'skillRange': skill,
-        'status': 'open',
-        'neededPlayers': neededPlayers,
-        'capacity': neededPlayers + 1,
-        'players': [user.uid],
-        'createdAt': FieldValue.serverTimestamp(),
+        'skill': skill,
+        'capacity': neededPlayers,
+        'courtId': 'uat-court-a1',
+        'startUtc': DateTime.now()
+            .toUtc()
+            .add(const Duration(hours: 3))
+            .toIso8601String(),
       });
     } catch (error) {
-      debugPrint('joinMatch skipped: $error');
+      if (error is FirebaseFunctionsException) {
+        throw DomainValidationException(
+          error.message ?? 'The match could not be created.',
+        );
+      }
+      rethrow;
     }
   }
 
@@ -489,33 +454,13 @@ class AppRepository {
     if (user == null) {
       throw const DomainValidationException('Sign in to join a match.');
     }
-    final ref = _matches.doc(matchId);
-    await _db.runTransaction((transaction) async {
-      final snapshot = await transaction.get(ref);
-      final data = snapshot.data();
-      if (data == null) {
-        throw const DomainValidationException(
-          'This match is no longer available.',
-        );
-      }
-      final players = (data['players'] as List<dynamic>? ?? const [])
-          .whereType<String>()
-          .toSet();
-      final capacity = (data['capacity'] as num?)?.toInt() ?? players.length;
-      MatchmakingPolicy.validateJoin(
-        userId: user.uid,
-        players: players,
-        capacity: capacity,
-        suspended: false,
-        hasConflict: false,
-        status: data['status']?.toString() ?? 'closed',
+    try {
+      await _functions.httpsCallable('joinMatch').call({'matchId': matchId});
+    } on FirebaseFunctionsException catch (error) {
+      throw DomainValidationException(
+        error.message ?? 'Could not join this match.',
       );
-      transaction.update(ref, {
-        'players': FieldValue.arrayUnion([user.uid]),
-        'neededPlayers': FieldValue.increment(-1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    });
+    }
   }
 
   Future<void> submitSupportTicket(String category, String message) async {
@@ -569,6 +514,7 @@ class Court {
     required this.gradient,
     required this.icon,
     this.imageUrl = '',
+    this.id = '',
   });
 
   final String name;
@@ -579,6 +525,7 @@ class Court {
   final List<Color> gradient;
   final IconData icon;
   final String imageUrl;
+  final String id;
 }
 
 const courts = [
@@ -2454,7 +2401,6 @@ class PaymentScreen extends StatefulWidget {
 }
 
 class _PaymentScreenState extends State<PaymentScreen> {
-  bool _usePoints = true;
   bool _loading = false;
 
   Future<void> _confirm() async {
@@ -2492,7 +2438,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             PageTopBar(
-              title: 'Payment',
+              title: 'Review booking',
               onBack: () => Navigator.of(context).pop(),
             ),
             const SizedBox(height: 22),
@@ -2516,25 +2462,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
             CardBox(
               child: Column(
                 children: [
-                  SwitchListTile.adaptive(
-                    value: _usePoints,
-                    onChanged: (value) => setState(() => _usePoints = value),
-                    title: const Text('Redeem 500 points'),
-                    subtitle: const Text('Save AED 20 on this booking'),
-                    activeThumbColor: AppColors.purple,
-                  ),
-                  const Divider(),
-                  const OptionTile(
-                    icon: CupertinoIcons.creditcard,
-                    title: 'Card',
-                    subtitle: 'Visa ending 4242',
-                    selected: true,
-                  ),
-                  const SizedBox(height: 10),
                   const OptionTile(
                     icon: CupertinoIcons.money_dollar,
-                    title: 'Cash at Venue',
-                    subtitle: 'Available at selected academies',
+                    title: 'Pay at venue',
+                    subtitle: 'No payment is collected in the app',
+                    selected: true,
                   ),
                 ],
               ),

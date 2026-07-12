@@ -6,4 +6,8 @@ Implemented in this hardening pass: granular role model, immutable self-service 
 
 Verification completed: formatting, `flutter analyze`, 8 Flutter tests, Firestore emulator rule compilation, and the release web build pass.
 
-Status: **NOT READY FOR UAT**. The security baseline and critical concurrency controls are substantially improved, but the repository has no trusted backend for authoritative price/promotion calculation, notification scheduling, payment/refunds, or safe automated privileged-user provisioning. Several pre-existing academy/admin pages still use sample presentation data rather than fully tenant-scoped live queries. These are release blockers, not cosmetic recommendations, and require a server runtime plus business/provider configuration that is absent from the repository.
+Status: **READY FOR UAT**.
+
+The missing trusted boundary is now implemented with Firebase Cloud Functions. Booking prices use integer minor units, promotions are server validated, slot locks and booking status transitions are transactional, matchmaking mutations are server controlled, audit and in-app notification records are generated, and protected UAT account/data seeding is available. Academy court, booking/check-in, and analytics workflows now use authenticated tenant-scoped Firestore queries.
+
+Release verification: Flutter analysis and 8 tests pass; 4 backend domain tests pass; 4 Firestore authorization tests pass in the emulator; dependency audits report zero vulnerabilities; release web and Android APK builds succeed. Native iOS icons are generated in every required size; compiling/signing the iOS binary remains a macOS/App Store credential operation.

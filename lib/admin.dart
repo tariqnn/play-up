@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
@@ -125,7 +126,9 @@ class AdminPanelScreen extends StatelessWidget {
   Future<void> _seed(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await CatalogService.instance.seedAll();
+      await FirebaseFunctions.instanceFor(
+        region: 'me-central1',
+      ).httpsCallable('seedUat').call();
       messenger.showSnackBar(
         const SnackBar(content: Text('Sample data written to Firestore.')),
       );

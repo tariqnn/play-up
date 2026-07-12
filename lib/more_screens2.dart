@@ -9,6 +9,7 @@ import 'more_screens.dart';
 import 'more_screens3.dart';
 import 'more_screens4.dart';
 import 'custom_dashboard.dart';
+import 'academy_live_screens.dart';
 
 /// Live open matches from Firestore, falling back to bundled samples when
 /// none exist yet (e.g. a brand new project with no matches created).
@@ -1415,7 +1416,7 @@ class AcademyModeDashboard extends StatelessWidget {
               title: 'Court Management',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => const CourtManagementScreen(),
+                  builder: (_) => const LiveCourtManagementScreen(),
                 ),
               ),
             ),
@@ -1424,7 +1425,7 @@ class AcademyModeDashboard extends StatelessWidget {
               title: 'Booking Management',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => const BookingManagementScreen(),
+                  builder: (_) => const LiveBookingManagementScreen(),
                 ),
               ),
             ),
@@ -1451,7 +1452,7 @@ class AcademyModeDashboard extends StatelessWidget {
               title: 'Analytics',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => const AcademyAnalyticsScreen(),
+                  builder: (_) => const LiveAcademyAnalyticsScreen(),
                 ),
               ),
             ),

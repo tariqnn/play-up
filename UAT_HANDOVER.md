@@ -1,7 +1,7 @@
 # UAT handover
 
-Use an isolated Firebase UAT project. Create Auth users in Firebase, then assign profile documents using trusted Admin SDK/console. UAT-only suggested accounts: `superadmin@uat.invalid`, `bookingadmin@uat.invalid`, `owner-a@uat.invalid`, `owner-b@uat.invalid`, `staff-a@uat.invalid`, `staff-b@uat.invalid`, and player accounts. Use unique generated passwords communicated outside Git.
+Use an isolated Firebase project whose ID contains `uat`. Run `npm --prefix functions run seed:uat` with `ALLOW_UAT_SEED=yes`, `FIREBASE_PROJECT_ID`, `UAT_TEMPORARY_PASSWORD`, and Application Default Credentials. The safety guard refuses non-emulator projects without `uat` in their ID. It creates the documented administrators, owners, staff, player, two academies and tenant-tagged courts. Share the temporary password outside Git and require replacement.
 
 Required profile fields: `uid`, `displayName`, `role`, `permissions`, `suspended`; academy roles also require `academyId`. Create at least academies `uat-academy-a` and `uat-academy-b`, with courts carrying the same `academyId`. Do not reuse UAT credentials in production.
 
-Payments/refunds, SMS/email delivery and server-generated notifications are not integrated because the repository contains no payment provider, mail/SMS account, Cloud Functions backend, or business credentials.
+Bookings use pay-at-venue and do not collect card data. In-app notifications are server generated. SMS/email are optional deployment integrations and remain disabled without provider credentials.

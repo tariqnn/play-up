@@ -2,4 +2,6 @@
 
 Assign `role: superAdmin` through trusted UAT administration, sign in, open Settings, then Admin Panel. The hub manages courts, academies, offers, events and players. Custom dashboard supports drag reordering, compact/expanded sizing, hiding, adding, resetting and explicit save. Layouts persist in `dashboardLayouts/{uid}`.
 
+The **Seed Sample Data** action calls the trusted `seedUat` function and is restricted to a Super Administrator. New UAT user accounts can be created through the protected `createUatUser` callable; bootstrap the first Super Administrator with the guarded `functions/scripts/seed-uat.js` workflow.
+
 Limited administrators use `role: platformAdmin` plus explicit permissions defined in `lib/access_control.dart`. Firestore remains authoritative if a UI entry is manipulated.

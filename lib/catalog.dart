@@ -222,7 +222,8 @@ const _eventSeed = <Map<String, dynamic>>[
   },
 ];
 
-Court _courtFrom(Map<String, dynamic> d) => Court(
+Court _courtFrom(Map<String, dynamic> d, {String id = ''}) => Court(
+  id: id.isEmpty ? (d['id'] ?? '').toString() : id,
   name: (d['name'] ?? 'Court').toString(),
   subtitle: (d['subtitle'] ?? 'Sports court').toString(),
   rating: (d['rating'] ?? '4.5').toString(),
@@ -283,9 +284,9 @@ class CatalogService {
       _db.collection(name);
 
   // --- UI streams (mapped to view models) ---
-  Stream<List<Court>> courts() => col(
-    'courts',
-  ).snapshots().map((s) => s.docs.map((d) => _courtFrom(d.data())).toList());
+  Stream<List<Court>> courts() => col('courts').snapshots().map(
+    (s) => s.docs.map((d) => _courtFrom(d.data(), id: d.id)).toList(),
+  );
 
   Stream<List<Academy>> academies() => col(
     'academies',

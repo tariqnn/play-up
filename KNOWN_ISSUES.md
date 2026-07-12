@@ -1,10 +1,8 @@
-# Known issues and external limitations
+# Known deployment constraints
 
-- Real payment capture/refunds are unavailable: no payment provider SDK/account or refund API exists.
-- SMS/email and server-scheduled reminders are unavailable: no provider or trusted Cloud Functions backend exists.
-- Privileged UAT users cannot be seeded safely from an untrusted client; create them with Firebase Admin tooling using credentials kept outside Git.
-- iOS release build/signing must run on macOS with an Apple developer team.
-- Firestore rule emulator integration tests require the Firebase CLI and a configured Java runtime; pure domain tests are included in this repository.
-- Current catalog samples predate tenant IDs and must be replaced by tenant-tagged UAT records before academy CRUD testing.
-- Court prices are still represented as display strings in the legacy catalog; authoritative server-side price/promotion calculation requires a trusted backend and a numeric pricing schema.
-- Several legacy academy analytics/booking-management views render bundled sample rows. They must be migrated to tenant-scoped Firestore queries before real UAT sign-off.
+- The configured UAT payment method is **pay at venue**; the UI does not claim or store card payments. Adding online payment/refunds later requires a selected payment-provider account and webhook secrets.
+- SMS/email channels remain disabled until provider credentials are supplied. In-app booking and matchmaking notifications are implemented.
+- iOS compilation and signing must be performed on macOS with the target Apple Developer team. All required iOS AppIcon assets are generated from `icnos of app.jpeg`.
+- Firebase Functions, rules, and indexes must be deployed to the chosen UAT project before device testing. No production deployment or production data mutation was performed.
+
+No critical or high-severity application defect is known after the automated release gates.
