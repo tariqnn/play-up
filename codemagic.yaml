@@ -28,6 +28,8 @@ workflows:
           source: true
       cancel_previous_builds: true
     scripts:
+      - name: Clean generated build files
+        script: flutter clean
       - name: Install Flutter dependencies
         script: flutter pub get
       - name: Run static analysis
