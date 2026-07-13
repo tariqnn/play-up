@@ -187,8 +187,7 @@ class _CustomDashboardState extends State<CustomDashboard> {
       body: ReorderableListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: _visible.length,
-        onReorder: (oldIndex, newIndex) => setState(() {
-          if (newIndex > oldIndex) newIndex--;
+        onReorderItem: (oldIndex, newIndex) => setState(() {
           _visible.insert(newIndex, _visible.removeAt(oldIndex));
         }),
         itemBuilder: (context, index) {
