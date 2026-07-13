@@ -380,6 +380,46 @@ export const createAcademyStaff = onCall(async (request) => {
   return {uid: created.uid};
 });
 
+export const createManagedOwnerAccount = onCall(async (request) => {
+  const uid = requireAuth(request);
+  const actor = await profile(uid);
+  if (actor.role !== 'superAdmin' && !(actor.role === 'platformAdmin' && Array.isArray(actor.permissions) && actor.permissions.includes('users.manage'))) {
+    throw new HttpsError('permission-denied', 'Platform administrator access is required.');
+  }
+  const email = text(request.data?.email, 'email').toLowerCase();
+  const displayName = text(request.data?.displayName, 'displayName');
+  const academyId = text(request.data?.academyId, 'academyId');
+  const ownerType = request.data?.ownerType === 'court' ? 'court' : 'academy';
+  const courtId = ownerType === 'court' ? text(request.data?.courtId, 'courtId') : null;
+  const academy = await db.collection('academies').doc(academyId).get();
+  if (!academy.exists) throw new HttpsError('not-found', 'Academy does not exist.');
+  if (courtId) {
+    const court = await db.collection('courts').doc(courtId).get();
+    if (!court.exists || court.data()?.academyId !== academyId) {
+      throw new HttpsError('invalid-argument', 'The selected court does not belong to this academy.');
+    }
+  }
+  const temporaryPassword = randomBytes(32).toString('base64url');
+  let created;
+  try {
+    created = await getAuth().createUser({email, displayName, password: temporaryPassword, emailVerified: false});
+    await db.collection('users').doc(created.uid).set({
+      uid: created.uid, email, displayName, role: 'academyOwner', ownerType,
+      academyId, courtIds: courtId ? [courtId] : [], permissions: [], suspended: false,
+      mustChangePassword: true, createdBy: uid, createdAt: FieldValue.serverTimestamp(),
+    });
+    await db.collection('auditLogs').add({actorId: uid, action: 'owner.create', entity: 'user',
+      entityId: created.uid, academyId, ownerType, courtId, createdAt: FieldValue.serverTimestamp()});
+  } catch (error) {
+    if (created?.uid) await getAuth().deleteUser(created.uid).catch(() => undefined);
+    if ((error as {code?: string}).code === 'auth/email-already-exists') {
+      throw new HttpsError('already-exists', 'An account already uses this email.');
+    }
+    throw error;
+  }
+  return {uid: created.uid, email, resetRequired: true};
+});
+
 export const notifyBookingCreated = onDocumentCreated("bookings/{bookingId}", async (event) => {
   const booking = event.data?.data();
   if (!booking) return;

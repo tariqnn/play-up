@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -101,6 +102,15 @@ class TournamentsScreen extends StatelessWidget {
   );
 
   static Future<void> _register(BuildContext context, String id) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) {
+      await showAdaptiveMessage(
+        context,
+        title: 'Account required',
+        message: 'Sign in to register for tournaments.',
+      );
+      return;
+    }
     try {
       await FirebaseFunctions.instanceFor(
         region: 'me-central1',

@@ -642,6 +642,9 @@ class AppRepository {
       _db.collection('supportTickets');
 
   Future<void> ensureUserProfile(User user) async {
+    // Guest mode is deliberately account-less. Do not create loyalty,
+    // achievement, profile, or points data for anonymous visitors.
+    if (user.isAnonymous) return;
     // Best-effort profile sync. Never blocks app entry if Firestore is
     // unreachable or rules reject the write (e.g. offline demo mode).
     try {
@@ -686,6 +689,7 @@ class AppRepository {
   }
 
   Future<Map<String, dynamic>> ensureAndLoadProfile(User user) async {
+    if (user.isAnonymous) return const <String, dynamic>{'role': 'guest'};
     await ensureUserProfile(user);
     final snapshot = await _users.doc(user.uid).get();
     return snapshot.data() ?? const <String, dynamic>{'role': 'player'};
@@ -750,7 +754,7 @@ class AppRepository {
     required int playerCapacity,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
+    if (user == null || user.isAnonymous) {
       throw const DomainValidationException('Sign in to create a booking.');
     }
     if (court.id.isEmpty) {
@@ -794,7 +798,7 @@ class AppRepository {
     String skill = 'Intermediate',
   }) async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
+    if (user == null || user.isAnonymous) {
       throw const DomainValidationException('Sign in to create a match.');
     }
     try {
@@ -823,7 +827,7 @@ class AppRepository {
 
   Future<void> joinExistingMatch(String matchId) async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
+    if (user == null || user.isAnonymous) {
       throw const DomainValidationException('Sign in to join a match.');
     }
     try {
@@ -836,6 +840,12 @@ class AppRepository {
   }
 
   Future<Map<String, dynamic>> redeemOffer(String offerId) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) {
+      throw const DomainValidationException(
+        'Create an account or sign in to redeem rewards.',
+      );
+    }
     try {
       final result = await _functions.httpsCallable('redeemOffer').call({
         'offerId': offerId,
@@ -866,6 +876,9 @@ class AppRepository {
           .orderBy('createdAt')
           .limitToLast(200)
           .snapshots();
+
+  Stream<DocumentSnapshot<Map<String, dynamic>>> match(String matchId) =>
+      _matches.doc(matchId).snapshots();
 
   Future<void> sendMatchMessage(String matchId, String body) async {
     try {
@@ -1649,6 +1662,50 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    final isGuest = user == null || user.isAnonymous;
+    if (isGuest) {
+      final guestPages = <Widget>[
+        const BookScreen(),
+        const PlayScreen(),
+        const GuestExitScreen(),
+      ];
+      if (_index >= guestPages.length) _index = 0;
+      return Scaffold(
+        body: IndexedStack(index: _index, children: guestPages),
+        bottomNavigationBar: SafeArea(
+          top: false,
+          minimum: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+          child: CardBox(
+            radius: 28,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _TabItem(
+                  icon: CupertinoIcons.calendar,
+                  label: 'Book',
+                  active: _index == 0,
+                  onTap: () => setState(() => _index = 0),
+                ),
+                _TabItem(
+                  icon: CupertinoIcons.game_controller,
+                  label: 'Play',
+                  active: _index == 1,
+                  onTap: () => setState(() => _index = 1),
+                ),
+                _TabItem(
+                  icon: CupertinoIcons.square_arrow_right,
+                  label: 'Sign out',
+                  active: _index == 2,
+                  onTap: () => setState(() => _index = 2),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     final pages = [
       HomeScreen(onTabChange: (index) => setState(() => _index = index)),
       const BookScreen(),
@@ -1704,6 +1761,61 @@ class _MainShellState extends State<MainShell> {
       ),
     );
   }
+}
+
+class GuestExitScreen extends StatelessWidget {
+  const GuestExitScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => AppScrollPage(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 36),
+        const Icon(
+          CupertinoIcons.person_crop_circle_badge_plus,
+          size: 58,
+          color: AppColors.purple,
+        ),
+        const SizedBox(height: 18),
+        const Text(
+          'You are browsing as a guest',
+          style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 10),
+        const Text(
+          'Guests can explore courts and open matches. Sign in to book, join, chat, earn points, redeem gifts, and unlock achievements.',
+          style: TextStyle(color: AppColors.muted, height: 1.5),
+        ),
+        const SizedBox(height: 28),
+        PrimaryButton(
+          label: 'Sign in or create account',
+          onPressed: () async {
+            await SocialAuth.signOutEverywhere();
+            if (context.mounted) {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const AuthGate()),
+                (_) => false,
+              );
+            }
+          },
+        ),
+        const SizedBox(height: 12),
+        SecondaryButton(
+          label: 'Exit guest mode',
+          onPressed: () async {
+            await SocialAuth.signOutEverywhere();
+            if (context.mounted) {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+                (_) => false,
+              );
+            }
+          },
+        ),
+      ],
+    ),
+  );
 }
 
 class HomeScreen extends StatelessWidget {
@@ -2165,9 +2277,15 @@ class RewardsScreen extends StatelessWidget {
           StreamBuilder<List<Offer>>(
             stream: CatalogService.instance.offers(),
             builder: (context, snapshot) {
-              final list = (snapshot.hasData && snapshot.data!.isNotEmpty)
-                  ? snapshot.data!
-                  : kFallbackOffers;
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final list = snapshot.data ?? const <Offer>[];
+              if (list.isEmpty) {
+                return const CardBox(
+                  child: Text('No rewards are available right now.'),
+                );
+              }
               return Column(
                 children: [
                   for (final offer in list)
@@ -3336,6 +3454,7 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
     return Scaffold(
       body: AppScrollPage(
         child: Column(
@@ -3346,89 +3465,42 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
               onBack: () => Navigator.of(context).pop(),
             ),
             const SizedBox(height: 16),
-            if (widget.matchId == null)
+            if (widget.matchId == null || user == null || user.isAnonymous)
               const CardBox(
                 child: Text(
-                  'Open a live match you joined to use its group chat.',
+                  'Sign in and join a live match to use its group chat.',
                 ),
               )
             else
-              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: AppRepository.instance.matchMessages(widget.matchId!),
+              StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                stream: AppRepository.instance.match(widget.matchId!),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator());
                   }
                   if (snapshot.hasError) {
-                    return CardBox(
-                      child: Text('Chat unavailable. ${snapshot.error}'),
-                    );
-                  }
-                  final messages = snapshot.data?.docs ?? const [];
-                  if (messages.isEmpty) {
                     return const CardBox(
-                      child: Text('No messages yet. Start the conversation.'),
+                      child: Text('The match could not be loaded. Try again.'),
                     );
                   }
-                  final uid = FirebaseAuth.instance.currentUser?.uid;
-                  return Column(
-                    children: messages.map((doc) {
-                      final data = doc.data();
-                      final mine = data['userId'] == uid;
-                      return Align(
-                        alignment: mine
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: mine ? AppColors.purple : Colors.white,
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          child: Text(
-                            data['body']?.toString() ?? '',
-                            style: TextStyle(
-                              color: mine ? Colors.white : AppColors.ink,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
+                  final players = List<String>.from(
+                    snapshot.data?.data()?['players'] as List? ?? const [],
+                  );
+                  if (!players.contains(user.uid)) {
+                    return const CardBox(
+                      child: Text(
+                        'Chat becomes available after you join this match.',
+                      ),
+                    );
+                  }
+                  return _ParticipantChat(
+                    matchId: widget.matchId!,
+                    controller: _message,
+                    sending: _sending,
+                    onSend: _send,
                   );
                 },
               ),
-            const SizedBox(height: 12),
-            AppTextField(
-              controller: _message,
-              label: 'Message the players',
-              icon: CupertinoIcons.chat_bubble,
-            ),
-            const SizedBox(height: 12),
-            PrimaryButton(
-              label: _sending ? 'Sending...' : 'Send',
-              onPressed: () async {
-                final body = _message.text.trim();
-                if (body.isEmpty || widget.matchId == null || _sending) return;
-                setState(() => _sending = true);
-                try {
-                  await AppRepository.instance.sendMatchMessage(
-                    widget.matchId!,
-                    body,
-                  );
-                  _message.clear();
-                } catch (error) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text(error.toString())));
-                  }
-                } finally {
-                  if (mounted) setState(() => _sending = false);
-                }
-              },
-            ),
             const SizedBox(height: 8),
             SecondaryButton(
               label: 'Report or Block Player',
@@ -3444,6 +3516,107 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
       ),
     );
   }
+
+  Future<void> _send() async {
+    final body = _message.text.trim();
+    if (body.isEmpty || widget.matchId == null || _sending) return;
+    setState(() => _sending = true);
+    try {
+      await AppRepository.instance.sendMatchMessage(widget.matchId!, body);
+      _message.clear();
+    } catch (error) {
+      if (mounted) {
+        await showAdaptiveMessage(
+          context,
+          title: 'Message not sent',
+          message: error.toString().replaceFirst(
+            'DomainValidationException: ',
+            '',
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+}
+
+class _ParticipantChat extends StatelessWidget {
+  const _ParticipantChat({
+    required this.matchId,
+    required this.controller,
+    required this.sending,
+    required this.onSend,
+  });
+  final String matchId;
+  final TextEditingController controller;
+  final bool sending;
+  final VoidCallback onSend;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: AppRepository.instance.matchMessages(matchId),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return const CardBox(
+              child: Text('Messages could not be loaded. Try again.'),
+            );
+          }
+          final messages = snapshot.data?.docs ?? const [];
+          if (messages.isEmpty) {
+            return const CardBox(
+              child: Text('No messages yet. Start the conversation.'),
+            );
+          }
+          final uid = FirebaseAuth.instance.currentUser?.uid;
+          return Column(
+            children: messages.map((doc) {
+              final data = doc.data();
+              final mine = data['userId'] == uid;
+              return Align(
+                alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: mine
+                        ? AppColors.purple
+                        : Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Text(
+                    data['body']?.toString() ?? '',
+                    style: TextStyle(
+                      color: mine
+                          ? Colors.white
+                          : Theme.of(context).colorScheme.onSurface,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          );
+        },
+      ),
+      const SizedBox(height: 12),
+      AppTextField(
+        controller: controller,
+        label: 'Message the players',
+        icon: CupertinoIcons.chat_bubble,
+      ),
+      const SizedBox(height: 12),
+      PrimaryButton(
+        label: sending ? 'Sending...' : 'Send',
+        onPressed: sending ? null : onSend,
+      ),
+    ],
+  );
 }
 
 class PostMatchRatingScreen extends StatefulWidget {

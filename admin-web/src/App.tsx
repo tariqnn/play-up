@@ -6,6 +6,7 @@ import {
 } from "react";
 import {
   signInWithEmailAndPassword,
+  sendPasswordResetEmail,
   signOut,
   User,
 } from "firebase/auth";
@@ -24,6 +25,9 @@ import {
   Activity,
   Building2,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  CircleDollarSign,
   Dumbbell,
   Edit3,
   LayoutDashboard,
@@ -36,6 +40,7 @@ import {
   Star,
   Trash2,
   Users,
+  UserPlus,
   X,
 } from "lucide-react";
 import {
@@ -103,6 +108,7 @@ const modules: Module[] = [
       "suspended",
     ],
   },
+  { label: "Owner Accounts", icon: UserPlus },
   {
     label: "Matchmaking",
     collection: "matches",
@@ -290,6 +296,10 @@ export default function App() {
         </header>
         {active === 0 ? (
           <Dashboard />
+        ) : current.label === "Academies" ? (
+          <AcademyPortfolio />
+        ) : current.label === "Owner Accounts" ? (
+          <OwnerAccounts />
         ) : current.collection ? (
           <DataModule
             module={current}
@@ -300,6 +310,140 @@ export default function App() {
       </main>
     </div>
   );
+}
+
+type LiveRow = Record<string, unknown> & { id: string };
+
+function OwnerAccounts() {
+  const [academies, setAcademies] = useState<LiveRow[]>([]);
+  const [courts, setCourts] = useState<LiveRow[]>([]);
+  const [ownerType, setOwnerType] = useState("academy");
+  const [academyId, setAcademyId] = useState("");
+  const [courtId, setCourtId] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [resetEmail, setResetEmail] = useState("");
+  useEffect(() => {
+    const a = onSnapshot(collection(db,"academies"), snap => setAcademies(snap.docs.map(d=>({id:d.id,...d.data()}))));
+    const c = onSnapshot(collection(db,"courts"), snap => setCourts(snap.docs.map(d=>({id:d.id,...d.data()}))));
+    return () => {a();c();};
+  },[]);
+  const availableCourts = courts.filter(c => c.academyId === academyId);
+  async function create(e: FormEvent) {
+    e.preventDefault(); setBusy(true); setError(""); setMessage("");
+    try {
+      await httpsCallable(functions,"createManagedOwnerAccount")({ownerType,academyId,courtId:ownerType==="court"?courtId:null,displayName,email});
+      setResetEmail(email);
+      try {
+        await sendPasswordResetEmail(auth,email);
+        setMessage(`Account created. A secure password setup email was sent to ${email}.`);
+      } catch {
+        setMessage(`Account created for ${email}.`);
+        setError("The password email was not sent. Use Resend setup email below.");
+      }
+      setDisplayName(""); setEmail(""); setCourtId("");
+    } catch(err) {
+      setError(err instanceof Error ? err.message : "The owner account could not be created.");
+    } finally { setBusy(false); }
+  }
+  return <section className="content owner-workspace">
+    <div className="portfolio-head"><div><span className="eyebrow">IDENTITY & ACCESS</span><h2>Create owner account</h2><p>Assign access to an academy or a specific court. The owner receives a secure email to choose their password.</p></div></div>
+    <div className="owner-layout">
+      <form className="table-card owner-form" onSubmit={create}>
+        <div className="owner-type"><button type="button" className={ownerType==="academy"?"selected":""} onClick={()=>{setOwnerType("academy");setCourtId("")}}><Building2/><strong>Academy owner</strong><span>Manage the full academy and all its courts</span></button><button type="button" className={ownerType==="court"?"selected":""} onClick={()=>setOwnerType("court")}><Dumbbell/><strong>Court owner</strong><span>Assigned to one specific court</span></button></div>
+        <label>Full name<input value={displayName} onChange={e=>setDisplayName(e.target.value)} required autoComplete="name"/></label>
+        <label>Email address<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required autoComplete="email"/></label>
+        <label>Academy<select value={academyId} onChange={e=>{setAcademyId(e.target.value);setCourtId("")}} required><option value="">Select an academy</option>{academies.map(a=><option key={a.id} value={a.id}>{String(a.name??a.id)}</option>)}</select></label>
+        {ownerType==="court"&&<label>Court<select value={courtId} onChange={e=>setCourtId(e.target.value)} required disabled={!academyId}><option value="">Select a court</option>{availableCourts.map(c=><option key={c.id} value={c.id}>{String(c.name??c.id)}</option>)}</select></label>}
+        {error&&<div className="error">{error}{resetEmail&&<button type="button" className="retry-email" onClick={async()=>{setError("");try{await sendPasswordResetEmail(auth,resetEmail);setMessage(`Password setup email sent to ${resetEmail}.`)}catch{setError("Email still could not be sent. Check Firebase email-template configuration.")}}}>Resend setup email</button>}</div>}{message&&<div className="success">{message}</div>}
+        <button className="primary-action owner-submit" disabled={busy}>{busy?"Creating account…":"Create account and send email"}</button>
+      </form>
+      <div className="process-card"><ShieldCheck size={30}/><h3>Secure onboarding</h3><ol><li>PlayUp creates the owner identity.</li><li>The owner receives Firebase's password setup email.</li><li>They choose a private password.</li><li>The app routes them directly to owner operations after sign-in.</li></ol><p>No temporary password is shown or stored by the administrator.</p></div>
+    </div>
+  </section>;
+}
+
+function money(minor: number, currency: string) {
+  return new Intl.NumberFormat(undefined, {style: "currency", currency, maximumFractionDigits: 2}).format(minor / 100);
+}
+
+function AcademyPortfolio() {
+  const [academies, setAcademies] = useState<LiveRow[]>([]);
+  const [courts, setCourts] = useState<LiveRow[]>([]);
+  const [bookings, setBookings] = useState<LiveRow[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    const academyStop = onSnapshot(collection(db, "academies"), snap => setAcademies(snap.docs.map(d => ({id:d.id, ...d.data()}))));
+    const courtStop = onSnapshot(collection(db, "courts"), snap => setCourts(snap.docs.map(d => ({id:d.id, ...d.data()}))));
+    const bookingStop = onSnapshot(collection(db, "bookings"), snap => setBookings(snap.docs.map(d => ({id:d.id, ...d.data()}))));
+    return () => { academyStop(); courtStop(); bookingStop(); };
+  }, []);
+  const rows = academies.filter(a => String(a.name ?? "").toLowerCase().includes(query.toLowerCase()));
+  const current = academies.find(a => a.id === selected);
+  const totals = (academyId: string) => {
+    const academyBookings = bookings.filter(b => b.academyId === academyId);
+    const collected = academyBookings.filter(b => b.paymentStatus === "collected").reduce((sum,b) => sum + Number(b.totalMinor ?? 0), 0);
+    const pending = academyBookings.filter(b => b.paymentStatus !== "collected" && b.status !== "cancelled").reduce((sum,b) => sum + Number(b.totalMinor ?? 0), 0);
+    const percent = Number(academies.find(a => a.id === academyId)?.platformCommissionPercent ?? 0);
+    return {academyBookings, collected, pending, percent, commission: Math.round(collected * percent / 100)};
+  };
+  if (current) {
+    const currency = String(current.currency ?? "JOD");
+    const t = totals(current.id);
+    const academyCourts = courts.filter(c => c.academyId === current.id);
+    async function savePercent(value: string) {
+      const percent = Math.min(100, Math.max(0, Number(value) || 0));
+      setSaving(true);
+      try { await setDoc(doc(db,"academies",current!.id), {platformCommissionPercent: percent, updatedAt: serverTimestamp()}, {merge:true}); }
+      finally { setSaving(false); }
+    }
+    return <section className="content academy-record">
+      <button className="back-link" onClick={() => setSelected(null)}><ChevronLeft size={18}/> All academies</button>
+      <div className="record-hero">
+        <div><span className="eyebrow">ACADEMY ACCOUNT</span><h2>{String(current.name ?? "Academy")}</h2><p>{String(current.address ?? "Location not configured")}</p></div>
+        <span className={`status ${current.status === "active" ? "good" : ""}`}>{String(current.status ?? "unknown")}</span>
+      </div>
+      <div className="record-metrics">
+        <article><span>Collected revenue</span><strong>{money(t.collected,currency)}</strong><small>Cash confirmed</small></article>
+        <article><span>Pending revenue</span><strong>{money(t.pending,currency)}</strong><small>Awaiting collection</small></article>
+        <article className="accent"><span>PlayUp revenue</span><strong>{money(t.commission,currency)}</strong><small>{t.percent}% of collected revenue</small></article>
+        <article><span>Bookings</span><strong>{t.academyBookings.length}</strong><small>{academyCourts.length} courts</small></article>
+      </div>
+      <div className="workspace-grid">
+        <div className="table-card">
+          <div className="section-title"><div><h3>Courts</h3><p>Performance for every venue</p></div></div>
+          <div className="court-records">{academyCourts.map(c => {
+            const courtBookings=t.academyBookings.filter(b=>b.courtId===c.id);
+            const gross=courtBookings.filter(b=>b.paymentStatus==="collected").reduce((s,b)=>s+Number(b.totalMinor??0),0);
+            return <article key={c.id}><div className="court-thumb">{c.imageUrl ? <img src={String(c.imageUrl)} /> : <Dumbbell/>}</div><div><strong>{String(c.name??"Court")}</strong><span>{String(c.sport??"Sport")} · {courtBookings.length} bookings</span></div><b>{money(gross,currency)}</b></article>;
+          })}{!academyCourts.length && <div className="empty">No courts have been added.</div>}</div>
+        </div>
+        <div className="commission-card">
+          <CircleDollarSign size={30}/><h3>Commission agreement</h3><p>Set the percentage PlayUp receives from this academy's collected booking revenue.</p>
+          <label>Platform percentage<div className="percent-input"><input type="number" min="0" max="100" step="0.1" defaultValue={t.percent} onBlur={e=>savePercent(e.target.value)}/><span>%</span></div></label>
+          <small>{saving ? "Saving…" : "Saved automatically"}</small>
+          <div className="formula"><span>Collected</span><b>{money(t.collected,currency)}</b><span>PlayUp share</span><b>{money(t.commission,currency)}</b></div>
+        </div>
+      </div>
+    </section>;
+  }
+  const commissionByCurrency = academies.reduce<Record<string,number>>((result,a) => {
+    const currency=String(a.currency??"JOD");
+    result[currency]=(result[currency]??0)+totals(a.id).commission;
+    return result;
+  },{});
+  return <section className="content">
+    <div className="portfolio-head"><div><span className="eyebrow">PARTNER CRM</span><h2>Academy portfolio</h2><p>Open any academy to inspect its courts, bookings, cash collection, and PlayUp commission.</p></div><div className="portfolio-total"><span>PlayUp collected revenue</span>{Object.entries(commissionByCurrency).map(([currency,value])=><strong key={currency}>{money(value,currency)}</strong>)}{!Object.keys(commissionByCurrency).length&&<strong>—</strong>}</div></div>
+    <div className="table-card">
+      <div className="table-head"><div><h2>Academy accounts</h2><p>{rows.length} live partners</p></div><label className="search"><Search size={18}/><input placeholder="Search academies" value={query} onChange={e=>setQuery(e.target.value)}/></label></div>
+      <div className="academy-list">{rows.map(a=>{const t=totals(a.id);const currency=String(a.currency??"JOD");return <button key={a.id} onClick={()=>setSelected(a.id)}><div className="academy-logo">{String(a.name??"A").charAt(0)}</div><div className="academy-name"><strong>{String(a.name??"Academy")}</strong><span>{courts.filter(c=>c.academyId===a.id).length} courts · {t.academyBookings.length} bookings</span></div><div><span>Collected</span><b>{money(t.collected,currency)}</b></div><div><span>Commission</span><b>{t.percent}% · {money(t.commission,currency)}</b></div><span className={`status ${a.status === "active" ? "good" : ""}`}>{String(a.status??"unknown")}</span><ChevronRight size={20}/></button>})}{!rows.length&&<div className="empty">No academies match this search.</div>}</div>
+    </div>
+  </section>;
 }
 
 function Login() {

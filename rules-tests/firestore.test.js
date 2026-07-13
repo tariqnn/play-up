@@ -18,6 +18,7 @@ test.before(async () => {
     await setDoc(doc(db, 'users/player'), {role: 'player', permissions: [], suspended: false});
     await setDoc(doc(db, 'users/staff-a'), {role: 'academyStaff', academyId: 'academy-a', permissions: [], suspended: false});
     await setDoc(doc(db, 'courts/court-a'), {academyId: 'academy-a', name: 'A'});
+    await setDoc(doc(db, 'academies/academy-a'), {name: 'Academy A', platformCommissionPercent: 12});
     await setDoc(doc(db, 'courts/court-b'), {academyId: 'academy-b', name: 'B'});
     await setDoc(doc(db, 'bookings/booking-b'), {academyId: 'academy-b', userId: 'player', status: 'confirmed'});
     await setDoc(doc(db, 'matches/match-a'), {players: ['player'], status: 'open'});
@@ -65,4 +66,16 @@ test('dashboard layouts are private per user', async () => {
   await assertSucceeds(setDoc(doc(db, 'dashboardLayouts/player'), {platform: {visible: []}}));
   await assertFails(getDoc(doc(db, 'dashboardLayouts/owner-a')));
   assert.ok(true);
+});
+
+test('guest can browse matches but cannot read participant chat', async () => {
+  const db = env.authenticatedContext('guest-anonymous').firestore();
+  await assertSucceeds(getDoc(doc(db, 'matches/match-a')));
+  await assertFails(getDoc(doc(db, 'matches/match-a/messages/message-a')));
+});
+
+test('academy owner cannot change the platform commission percentage', async () => {
+  const db = env.authenticatedContext('owner-a').firestore();
+  await assertFails(updateDoc(doc(db, 'academies/academy-a'), {platformCommissionPercent: 0}));
+  await assertSucceeds(updateDoc(doc(db, 'academies/academy-a'), {name: 'Updated academy'}));
 });

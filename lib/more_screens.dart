@@ -1692,8 +1692,34 @@ class _RedeemOfferButtonState extends State<_RedeemOfferButton> {
   bool busy = false;
   Future<void> redeem() async {
     if (busy) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) {
+      await showAdaptiveMessage(
+        context,
+        title: 'Account required',
+        message: 'Sign in to earn points and redeem gifts.',
+      );
+      return;
+    }
     setState(() => busy = true);
     try {
+      final profile = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      final balance = (profile.data()?['points'] as num?)?.toInt() ?? 0;
+      if (!mounted) return;
+      final cost =
+          int.tryParse(widget.points.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+      if (cost > 0 && balance < cost) {
+        await showAdaptiveMessage(
+          context,
+          title: 'Not enough points',
+          message:
+              'You have $balance points. You need ${cost - balance} more points to redeem this gift.',
+        );
+        return;
+      }
       final result = await AppRepository.instance.redeemOffer(widget.offerId);
       if (!mounted) return;
       await Navigator.of(context).push(
