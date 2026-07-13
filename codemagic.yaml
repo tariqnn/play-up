@@ -1,0 +1,57 @@
+workflows:
+  ios-testflight:
+    name: PlayUp iOS - TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: playup_app_store
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.playup.playup
+    cache:
+      cache_paths:
+        - $FLUTTER_ROOT/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+        - pattern: uat-admin-platform-readiness
+          include: true
+          source: true
+      cancel_previous_builds: true
+    scripts:
+      - name: Install Flutter dependencies
+        script: flutter pub get
+      - name: Run static analysis
+        script: flutter analyze
+      - name: Run automated tests
+        script: flutter test
+      - name: Install CocoaPods dependencies
+        script: |
+          find ios -name "Podfile" -execdir pod install \;
+      - name: Configure iOS code signing
+        script: xcode-project use-profiles
+      - name: Build signed IPA
+        script: |
+          flutter build ipa --release \
+            --build-number=$PROJECT_BUILD_NUMBER \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - build/ios/archive/*.xcarchive
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        expire_build_submitted_for_review: true
+

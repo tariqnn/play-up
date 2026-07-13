@@ -49,6 +49,10 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Use Face ID to securely unlock your PlayUp account.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
