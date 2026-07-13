@@ -4,7 +4,7 @@ workflows:
     instance_type: mac_mini_m2
     max_build_duration: 60
     integrations:
-      app_store_connect: playup_app_store
+      app_store_connect: mine
     environment:
       flutter: stable
       xcode: latest
