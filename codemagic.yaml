@@ -11,7 +11,7 @@ workflows:
       cocoapods: default
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.playup.playup
+        bundle_identifier: com.playup.playu
     cache:
       cache_paths:
         - $FLUTTER_ROOT/.pub-cache
@@ -54,4 +54,3 @@ workflows:
         auth: integration
         submit_to_testflight: true
         expire_build_submitted_for_review: true
-

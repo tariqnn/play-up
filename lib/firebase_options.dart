@@ -70,6 +70,6 @@ class DefaultFirebaseOptions {
     messagingSenderId: '634238605050',
     projectId: 'sports-app-257a0',
     storageBucket: 'sports-app-257a0.firebasestorage.app',
-    iosBundleId: 'com.playup.playup',
+    iosBundleId: 'com.playup.playu',
   );
 }
