@@ -66,7 +66,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyAJtuLBHQTkS1rhaPIilzn8ymQq21oL9PQ',
-    appId: '1:634238605050:ios:ccdb730b5bd408e045db43',
+    appId: '1:634238605050:ios:943ed92d3b2e434045db43',
     messagingSenderId: '634238605050',
     projectId: 'sports-app-257a0',
     storageBucket: 'sports-app-257a0.firebasestorage.app',

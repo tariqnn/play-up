@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 
 import 'main.dart';
+import 'location_service.dart';
 import 'more_screens.dart';
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,8 @@ class Offer {
     required this.partner,
     required this.points,
     required this.gradientKey,
+    required this.category,
+    required this.active,
   });
 
   final String id;
@@ -51,17 +54,23 @@ class Offer {
   final String partner;
   final String points;
   final String gradientKey;
+  final String category;
+  final bool active;
 
   List<Color> get colors => gradientFor(gradientKey);
 }
 
 class EventItem {
   const EventItem({
+    this.id = '',
+    this.academyId = '',
     required this.title,
     required this.date,
     required this.prize,
   });
 
+  final String id;
+  final String academyId;
   final String title;
   final String date;
   final String prize;
@@ -74,11 +83,16 @@ class EventItem {
 
 const _courtSeed = <Map<String, dynamic>>[
   {
-    'name': 'Infinity Sports Center',
-    'subtitle': 'Indoor Basketball',
+    'name': 'Amman Sports City Court',
+    'subtitle': 'Indoor Basketball - Sports City, Amman',
+    'sport': 'Basketball',
     'rating': '4.8 (128)',
-    'distance': '1.2 km',
-    'price': 'AED 210 / hr',
+    'basePriceMinor': 3500,
+    'currency': 'JOD',
+    'address': 'Sports City, Amman',
+    'latitude': 31.9862,
+    'longitude': 35.9024,
+    'active': true,
     'gradient': 'teal',
     'icon': 'court',
     'image':
@@ -86,11 +100,16 @@ const _courtSeed = <Map<String, dynamic>>[
     'sort': 1,
   },
   {
-    'name': 'Dubai Sports World',
-    'subtitle': 'Indoor Basketball',
+    'name': 'Abdoun Padel Club',
+    'subtitle': 'Outdoor Padel - Abdoun, Amman',
+    'sport': 'Padel',
     'rating': '4.7 (96)',
-    'distance': '2.1 km',
-    'price': 'AED 180 / hr',
+    'basePriceMinor': 2800,
+    'currency': 'JOD',
+    'address': 'Abdoun, Amman',
+    'latitude': 31.9418,
+    'longitude': 35.9296,
+    'active': true,
     'gradient': 'purple',
     'icon': 'hex',
     'image':
@@ -98,11 +117,16 @@ const _courtSeed = <Map<String, dynamic>>[
     'sort': 2,
   },
   {
-    'name': 'Hoops Basketball Academy',
-    'subtitle': 'Indoor Academy',
+    'name': 'Al Hussein Volleyball Hall',
+    'subtitle': 'Indoor Volleyball - Al Hussein Youth City',
+    'sport': 'Volleyball',
     'rating': '4.6 (74)',
-    'distance': '2.8 km',
-    'price': 'AED 200 / hr',
+    'basePriceMinor': 3000,
+    'currency': 'JOD',
+    'address': 'Al Hussein Youth City, Amman',
+    'latitude': 31.9847,
+    'longitude': 35.9075,
+    'active': true,
     'gradient': 'green',
     'icon': 'players',
     'image':
@@ -113,10 +137,16 @@ const _courtSeed = <Map<String, dynamic>>[
 
 const _academySeed = <Map<String, dynamic>>[
   {
-    'name': 'Infinity Sports Center',
+    'name': 'Amman Sports Academy',
     'sports': 'Basketball • Padel • Volleyball',
     'rating': '4.8 (128)',
-    'distance': '1.2 km',
+    'address': 'Sports City, Amman',
+    'latitude': 31.9862,
+    'longitude': 35.9024,
+    'phone': '+962 6 000 0000',
+    'email': 'hello@ammansports.example',
+    'description': 'Community courts, coaching, and weekly social matches.',
+    'trainingPackages': ['Junior basketball', 'Adult padel', 'Team training'],
     'featured': true,
     'gradient': 'teal',
     'icon': 'court',
@@ -125,10 +155,15 @@ const _academySeed = <Map<String, dynamic>>[
     'sort': 1,
   },
   {
-    'name': 'Dubai Sports World',
+    'name': 'Abdoun Padel Academy',
     'sports': 'Basketball • Football',
     'rating': '4.7 (96)',
-    'distance': '2.1 km',
+    'address': 'Abdoun, Amman',
+    'latitude': 31.9418,
+    'longitude': 35.9296,
+    'phone': '+962 6 000 0001',
+    'description': 'Padel coaching and open-play packages for every level.',
+    'trainingPackages': ['Beginner padel', 'Private coaching'],
     'featured': false,
     'gradient': 'purple',
     'icon': 'hex',
@@ -137,10 +172,15 @@ const _academySeed = <Map<String, dynamic>>[
     'sort': 2,
   },
   {
-    'name': 'Hoops Basketball Academy',
+    'name': 'Jordan Hoops Academy',
     'sports': 'Basketball • 3x3',
     'rating': '4.6 (74)',
-    'distance': '2.8 km',
+    'address': 'Khalda, Amman',
+    'latitude': 31.9994,
+    'longitude': 35.8434,
+    'phone': '+962 6 000 0002',
+    'description': 'Skill development, youth programs, and competitive teams.',
+    'trainingPackages': ['Youth fundamentals', '3x3 development'],
     'featured': false,
     'gradient': 'green',
     'icon': 'players',
@@ -156,6 +196,8 @@ const _offerSeed = <Map<String, dynamic>>[
     'partner': 'Infinity Sports',
     'points': '500',
     'gradient': 'teal',
+    'category': 'Academy',
+    'active': true,
     'sort': 1,
   },
   {
@@ -163,6 +205,8 @@ const _offerSeed = <Map<String, dynamic>>[
     'partner': 'Padel Pro',
     'points': '700',
     'gradient': 'green',
+    'category': 'Academy',
+    'active': true,
     'sort': 2,
   },
   {
@@ -170,6 +214,8 @@ const _offerSeed = <Map<String, dynamic>>[
     'partner': 'Skyline Sports',
     'points': '1,200',
     'gradient': 'purple',
+    'category': 'Sponsors',
+    'active': true,
     'sort': 3,
   },
 ];
@@ -182,7 +228,7 @@ const _matchSeed = <Map<String, dynamic>>[
     'time': 'Today, 8:00 PM',
     'skillRange': 'Intermediate',
     'neededPlayers': 3,
-    'pricePerPlayer': 'AED 52.5',
+    'pricePerPlayer': 'JOD 5.25',
     'ranked': true,
   },
   {
@@ -192,17 +238,17 @@ const _matchSeed = <Map<String, dynamic>>[
     'time': 'Today, 9:30 PM',
     'skillRange': 'Casual',
     'neededPlayers': 2,
-    'pricePerPlayer': 'AED 60',
+    'pricePerPlayer': 'JOD 6.00',
     'ranked': false,
   },
   {
     'title': 'Volleyball Open Court',
     'sport': 'Volleyball',
-    'courtName': 'Dubai Sports World',
+    'courtName': 'Amman Sports City',
     'time': 'Tomorrow, 6:00 PM',
     'skillRange': 'Advanced',
     'neededPlayers': 4,
-    'pricePerPlayer': 'AED 40',
+    'pricePerPlayer': 'JOD 4.00',
     'ranked': true,
   },
 ];
@@ -210,13 +256,13 @@ const _matchSeed = <Map<String, dynamic>>[
 const _eventSeed = <Map<String, dynamic>>[
   {
     'title': '3x3 Eid Tournament',
-    'date': '28-30 May • Entry AED 50',
-    'prize': 'Prize pool AED 5,000',
+    'date': '28-30 May • Entry JOD 5',
+    'prize': 'Prize pool JOD 500',
     'sort': 1,
   },
   {
     'title': 'Padel Night Open',
-    'date': 'Every Friday • Entry AED 30',
+    'date': 'Every Friday • Entry JOD 3',
     'prize': 'Casual doubles',
     'sort': 2,
   },
@@ -225,18 +271,36 @@ const _eventSeed = <Map<String, dynamic>>[
 Court _courtFrom(Map<String, dynamic> d, {String id = ''}) => Court(
   id: id.isEmpty ? (d['id'] ?? '').toString() : id,
   name: (d['name'] ?? 'Court').toString(),
-  subtitle: (d['subtitle'] ?? 'Sports court').toString(),
+  subtitle: (d['subtitle'] ?? d['address'] ?? d['sport'] ?? 'Sports court')
+      .toString(),
   rating: (d['rating'] ?? '4.5').toString(),
   distance: (d['distance'] ?? '1 km').toString(),
-  price: (d['price'] ?? 'AED 150 / hr').toString(),
+  price: _courtPrice(d),
   gradient: gradientFor(d['gradient'] as String?),
   icon: iconFor(d['icon'] as String?),
-  imageUrl: (d['image'] ?? '').toString(),
+  imageUrl: (d['imageUrl'] ?? d['image'] ?? '').toString(),
   latitude: (d['latitude'] as num?)?.toDouble(),
   longitude: (d['longitude'] as num?)?.toDouble(),
+  academyId: (d['academyId'] ?? '').toString(),
+  sport: (d['sport'] ?? 'Sport').toString(),
+  currency: (d['currency'] ?? 'JOD').toString(),
+  basePriceMinor: (d['basePriceMinor'] as num?)?.toInt() ?? 0,
+  address: (d['address'] ?? '').toString(),
+  active: d['active'] != false,
+  openingHour: (d['openingHour'] as num?)?.toInt() ?? 6,
+  closingHour: (d['closingHour'] as num?)?.toInt() ?? 23,
 );
 
-Academy _academyFrom(Map<String, dynamic> d) => Academy(
+String _courtPrice(Map<String, dynamic> d) {
+  final explicit = d['price']?.toString().trim() ?? '';
+  if (explicit.isNotEmpty) return explicit;
+  final currency = (d['currency'] ?? 'JOD').toString();
+  final minor = (d['basePriceMinor'] as num?)?.toInt() ?? 0;
+  return '$currency ${(minor / 100).toStringAsFixed(2)} / hr';
+}
+
+Academy _academyFrom(String id, Map<String, dynamic> d) => Academy(
+  id: id,
   name: (d['name'] ?? 'Academy').toString(),
   sports: (d['sports'] ?? 'Multi-sport').toString(),
   rating: (d['rating'] ?? '4.5').toString(),
@@ -244,7 +308,16 @@ Academy _academyFrom(Map<String, dynamic> d) => Academy(
   featured: d['featured'] == true,
   gradient: gradientFor(d['gradient'] as String?),
   icon: iconFor(d['icon'] as String?),
-  imageUrl: (d['image'] ?? '').toString(),
+  imageUrl: (d['imageUrl'] ?? d['image'] ?? '').toString(),
+  latitude: (d['latitude'] as num?)?.toDouble(),
+  longitude: (d['longitude'] as num?)?.toDouble(),
+  address: (d['address'] ?? '').toString(),
+  phone: (d['phone'] ?? '').toString(),
+  email: (d['email'] ?? '').toString(),
+  description: (d['description'] ?? '').toString(),
+  trainingPackages: List<String>.from(
+    d['trainingPackages'] as List? ?? const [],
+  ),
 );
 
 Offer _offerFrom(String id, Map<String, dynamic> d) => Offer(
@@ -253,24 +326,17 @@ Offer _offerFrom(String id, Map<String, dynamic> d) => Offer(
   partner: (d['partner'] ?? 'PlayUp').toString(),
   points: (d['points'] ?? '500').toString(),
   gradientKey: (d['gradient'] ?? 'teal').toString(),
+  category: (d['category'] ?? 'Academy').toString(),
+  active: d['active'] != false,
 );
 
-EventItem _eventFrom(Map<String, dynamic> d) => EventItem(
+EventItem _eventFrom(Map<String, dynamic> d, {String id = ''}) => EventItem(
+  id: id,
+  academyId: (d['academyId'] ?? '').toString(),
   title: (d['title'] ?? 'Event').toString(),
   date: (d['date'] ?? '').toString(),
   prize: (d['prize'] ?? '').toString(),
 );
-
-/// Fallback lists (used when Firestore is empty, offline, or unreadable).
-final List<Court> kFallbackCourts = _courtSeed.map(_courtFrom).toList();
-final List<Academy> kFallbackAcademies = _academySeed
-    .map(_academyFrom)
-    .toList();
-final List<Offer> kFallbackOffers = [
-  for (var i = 0; i < _offerSeed.length; i++)
-    _offerFrom('seed$i', _offerSeed[i]),
-];
-final List<EventItem> kFallbackEvents = _eventSeed.map(_eventFrom).toList();
 
 // ---------------------------------------------------------------------------
 // Catalog service: live Firestore streams + admin CRUD + seeding.
@@ -286,28 +352,95 @@ class CatalogService {
       _db.collection(name);
 
   // --- UI streams (mapped to view models) ---
-  Stream<List<Court>> courts() => col('courts').snapshots().map(
-    (s) => s.docs.map((d) => _courtFrom(d.data(), id: d.id)).toList(),
-  );
+  Stream<List<Court>> courts() => col('courts').snapshots().map((s) {
+    final result = s.docs
+        .map((d) => _courtFrom(d.data(), id: d.id))
+        .where((court) => court.active)
+        .toList();
+    result.sort((a, b) => a.name.compareTo(b.name));
+    return result;
+  });
 
-  Stream<List<Academy>> academies() => col(
-    'academies',
-  ).snapshots().map((s) => s.docs.map((d) => _academyFrom(d.data())).toList());
+  Stream<List<Academy>> academies() => col('academies').snapshots().map(
+    (s) => s.docs.map((d) => _academyFrom(d.id, d.data())).toList(),
+  );
 
   Stream<List<Offer>> offers() => col('offers').snapshots().map(
-    (s) => s.docs.map((d) => _offerFrom(d.id, d.data())).toList(),
+    (s) => s.docs
+        .map((d) => _offerFrom(d.id, d.data()))
+        .where((offer) => offer.active)
+        .toList(),
   );
 
-  Stream<List<EventItem>> events() => col(
-    'events',
-  ).snapshots().map((s) => s.docs.map((d) => _eventFrom(d.data())).toList());
+  List<Court> nearbyCourts(
+    Iterable<Court> source,
+    AppLocation? location, {
+    String sport = 'All',
+    String query = '',
+    double radiusKm = 100,
+  }) {
+    final needle = query.trim().toLowerCase();
+    final result = source.where((court) {
+      final sportMatches =
+          sport == 'All' ||
+          court.sport.toLowerCase() == sport.toLowerCase() ||
+          court.subtitle.toLowerCase().contains(sport.toLowerCase());
+      final queryMatches =
+          needle.isEmpty ||
+          court.name.toLowerCase().contains(needle) ||
+          court.address.toLowerCase().contains(needle) ||
+          court.sport.toLowerCase().contains(needle);
+      final distance = court.distanceKmFrom(location);
+      return sportMatches &&
+          queryMatches &&
+          (distance == null || distance <= radiusKm);
+    }).toList();
+    result.sort((a, b) {
+      final aDistance = a.distanceKmFrom(location);
+      final bDistance = b.distanceKmFrom(location);
+      if (aDistance == null && bDistance == null) {
+        return a.name.compareTo(b.name);
+      }
+      if (aDistance == null) return 1;
+      if (bDistance == null) return -1;
+      return aDistance.compareTo(bDistance);
+    });
+    return result;
+  }
+
+  List<Academy> nearbyAcademies(
+    Iterable<Academy> source,
+    AppLocation? location, {
+    double radiusKm = 100,
+  }) {
+    final result = source.where((academy) {
+      final distance = academy.distanceKmFrom(location);
+      return distance == null || distance <= radiusKm;
+    }).toList();
+    result.sort((a, b) {
+      final aDistance = a.distanceKmFrom(location);
+      final bDistance = b.distanceKmFrom(location);
+      if (aDistance == null && bDistance == null) {
+        return a.name.compareTo(b.name);
+      }
+      if (aDistance == null) return 1;
+      if (bDistance == null) return -1;
+      return aDistance.compareTo(bDistance);
+    });
+    return result;
+  }
+
+  Stream<List<EventItem>> events() => col('events').snapshots().map(
+    (s) => s.docs.map((d) => _eventFrom(d.data(), id: d.id)).toList(),
+  );
 
   // --- Admin raw streams ---
   Stream<QuerySnapshot<Map<String, dynamic>>> raw(String collection) =>
       col(collection).snapshots();
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> topPlayers() =>
-      col('users').orderBy('xp', descending: true).limit(50).snapshots();
+  Stream<QuerySnapshot<Map<String, dynamic>>> topPlayers() => col(
+    'publicProfiles',
+  ).orderBy('xp', descending: true).limit(50).snapshots();
 
   Future<void> upsert(
     String collection,
@@ -360,15 +493,5 @@ class CatalogService {
       }
     }
     await batch.commit();
-  }
-
-  /// Seeds only if the courts collection is currently empty.
-  Future<void> seedIfEmpty() async {
-    try {
-      final snap = await col('courts').limit(1).get();
-      if (snap.docs.isEmpty) await seedAll();
-    } catch (_) {
-      // Ignore: rules/offline. Fallback lists keep the UI populated.
-    }
   }
 }

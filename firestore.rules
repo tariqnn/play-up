@@ -54,13 +54,23 @@ service cloud.firestore {
       }
     }
 
+    match /publicProfiles/{userId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /friendships/{friendshipId} {
+      allow read: if active() && request.auth.uid in resource.data.members;
+      allow write: if false;
+    }
+
     match /academies/{academyId} {
       allow read: if true;
       allow create: if permission('academies.manage');
       allow update: if permission('academies.manage') ||
         (sameAcademy(academyId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'name', 'address', 'latitude', 'longitude', 'phone', 'email',
-          'imageUrl', 'description', 'sports', 'updatedAt'
+          'imageUrl', 'description', 'sports', 'trainingPackages', 'updatedAt'
         ]));
       allow delete: if superAdmin();
     }
@@ -85,7 +95,11 @@ service cloud.firestore {
 
     match /events/{id} {
       allow read: if true;
-      allow write: if permission('platform.manage');
+      allow create: if permission('platform.manage') ||
+        (academyUser() && request.resource.data.academyId == me().data.academyId);
+      allow update, delete: if permission('platform.manage') ||
+        (academyUser() && resource.data.academyId == me().data.academyId
+          && request.resource.data.academyId == resource.data.academyId);
     }
 
     match /achievements/{id} {

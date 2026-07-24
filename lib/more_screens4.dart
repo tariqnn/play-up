@@ -2,6 +2,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'main.dart';
 
@@ -384,8 +386,9 @@ class _RewardPill extends StatelessWidget {
 // Player reviews
 // ---------------------------------------------------------------------------
 
-class PlayerReviewsScreen extends StatelessWidget {
-  const PlayerReviewsScreen({super.key});
+// ignore: unused_element
+class _LegacyPlayerReviewsScreen extends StatelessWidget {
+  const _LegacyPlayerReviewsScreen();
 
   static const _reviews = <(String, int, String, String)>[
     ('Omar K.', 5, 'Great teamwork and always on time.', '2 days ago'),
@@ -535,6 +538,112 @@ class PlayerReviewsScreen extends StatelessWidget {
                   ),
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class PlayerReviewsScreen extends StatelessWidget {
+  const PlayerReviewsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    return Scaffold(
+      body: AppScrollPage(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            PageTopBar(
+              title: 'My Reviews',
+              onBack: () => Navigator.of(context).pop(),
+            ),
+            const SizedBox(height: 16),
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: uid == null
+                  ? null
+                  : FirebaseFirestore.instance
+                        .collection('reviews')
+                        .where('userId', isEqualTo: uid)
+                        .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final reviews = snapshot.data?.docs ?? const [];
+                if (reviews.isEmpty) {
+                  return const CardBox(
+                    child: Text(
+                      'Reviews you submit after completed matches will appear here.',
+                    ),
+                  );
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${reviews.length} submitted review${reviews.length == 1 ? '' : 's'}',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    for (final review in reviews)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: CardBox(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: List.generate(
+                                  5,
+                                  (index) => Icon(
+                                    index <
+                                            ((review.data()['rating'] as num?)
+                                                    ?.toInt() ??
+                                                0)
+                                        ? CupertinoIcons.star_fill
+                                        : CupertinoIcons.star,
+                                    color: AppColors.gold,
+                                    size: 16,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                review
+                                            .data()['comment']
+                                            ?.toString()
+                                            .trim()
+                                            .isNotEmpty ==
+                                        true
+                                    ? review.data()['comment'].toString()
+                                    : 'No written comment',
+                              ),
+                              if (review.data()['tags'] is List) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  List<String>.from(
+                                    review.data()['tags'] as List,
+                                  ).join(' • '),
+                                  style: const TextStyle(
+                                    color: AppColors.muted,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
           ],
         ),
       ),

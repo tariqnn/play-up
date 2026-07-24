@@ -7,9 +7,12 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'catalog.dart';
+import 'location_service.dart';
 import 'main.dart';
+import 'more_screens2.dart';
 
 // ---------------------------------------------------------------------------
 // Shared data
@@ -56,41 +59,48 @@ class SelectablePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.selectionClick();
-        onTap();
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.purple : AppColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? AppColors.purple : AppColors.line,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) ...[
-              Icon(
-                icon,
-                size: 16,
-                color: selected ? Colors.white : AppColors.ink,
-              ),
-              const SizedBox(width: 6),
-            ],
-            Text(
-              label,
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                color: selected ? Colors.white : AppColors.ink,
-                fontSize: 13,
-              ),
+    final scheme = Theme.of(context).colorScheme;
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.purple : scheme.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? AppColors.purple : scheme.outlineVariant,
             ),
-          ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(
+                  icon,
+                  size: 16,
+                  color: selected ? Colors.white : scheme.onSurface,
+                ),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: selected ? Colors.white : scheme.onSurface,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -109,7 +119,30 @@ class SportsSelectionScreen extends StatefulWidget {
 }
 
 class _SportsSelectionScreenState extends State<SportsSelectionScreen> {
-  final _selected = <String>{'Basketball'};
+  final _selected = <String>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSports();
+  }
+
+  Future<void> _loadSports() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .get();
+    if (!mounted) return;
+    setState(() {
+      _selected
+        ..clear()
+        ..addAll(
+          List<String>.from(snapshot.data()?['sports'] as List? ?? const []),
+        );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -430,7 +463,7 @@ class LeaderboardScreen extends StatefulWidget {
 
 class _LeaderboardScreenState extends State<LeaderboardScreen> {
   int _tab = 0;
-  static const _tabs = ['Friends', 'City', 'Academy', 'All-time'];
+  static const _tabs = ['All-time', 'My city', 'My sports'];
 
   @override
   Widget build(BuildContext context) {
@@ -445,7 +478,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             ),
             const SizedBox(height: 16),
             SizedBox(
-              height: 42,
+              height: 48,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: _tabs.length,
@@ -462,8 +495,28 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               stream: CatalogService.instance.topPlayers(),
               builder: (context, snapshot) {
                 final docs = snapshot.data?.docs ?? [];
+                final uid = FirebaseAuth.instance.currentUser?.uid;
+                final mine = docs
+                    .where((doc) => doc.id == uid)
+                    .map((doc) => doc.data())
+                    .firstOrNull;
+                final myCity = (mine?['city'] ?? '').toString();
+                final mySports = List<String>.from(
+                  mine?['sports'] as List? ?? const [],
+                );
+                final filteredDocs = docs.where((doc) {
+                  if (_tab == 0) return true;
+                  if (_tab == 1) {
+                    return myCity.isNotEmpty &&
+                        doc.data()['city']?.toString() == myCity;
+                  }
+                  final sports = List<String>.from(
+                    doc.data()['sports'] as List? ?? const [],
+                  );
+                  return sports.any(mySports.contains);
+                });
                 final players = [
-                  for (final d in docs)
+                  for (final d in filteredDocs)
                     (
                       (d.data()['displayName'] ?? 'Player').toString(),
                       (d.data()['level'] as num?)?.toInt() ?? 1,
@@ -472,8 +525,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                     ),
                 ];
                 final myName =
-                    FirebaseAuth.instance.currentUser?.displayName ??
-                    'Alex Mercer';
+                    FirebaseAuth.instance.currentUser?.displayName ?? 'Player';
                 return Column(
                   children: [
                     if (players.isEmpty)
@@ -849,8 +901,9 @@ class _AchievementCard extends StatelessWidget {
   }
 }
 
-class LevelDetailScreen extends StatelessWidget {
-  const LevelDetailScreen({super.key});
+// ignore: unused_element
+class _LegacyLevelDetailScreen extends StatelessWidget {
+  const _LegacyLevelDetailScreen();
 
   static const _xpHistory = <(String, String, String)>[
     ('Completed booking', 'Today', '+150 XP'),
@@ -1035,12 +1088,206 @@ class LevelDetailScreen extends StatelessWidget {
   }
 }
 
+class LevelDetailScreen extends StatelessWidget {
+  const LevelDetailScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: AppScrollPage(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            PageTopBar(
+              title: 'Level & Rank',
+              onBack: () => Navigator.of(context).pop(),
+            ),
+            const SizedBox(height: 16),
+            StreamBuilder<Map<String, dynamic>>(
+              stream: AppRepository.instance.currentUserDoc(),
+              builder: (context, snapshot) {
+                final data = snapshot.data ?? const {};
+                final level = (data['level'] as num?)?.toInt() ?? 1;
+                final xp = (data['xp'] as num?)?.toInt() ?? 0;
+                final nextXp =
+                    (data['nextLevelXp'] as num?)?.toInt() ??
+                    ((level + 1) * 500);
+                final rank = (data['rankTitle'] ?? 'Rookie').toString();
+                final sports = List<String>.from(
+                  data['sports'] as List? ?? const [],
+                );
+                final sportRanks = Map<String, dynamic>.from(
+                  data['sportRanks'] as Map? ?? const {},
+                );
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CardBox(
+                      color: AppColors.dark,
+                      borderColor: AppColors.dark,
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              LevelBadge(text: '$level', size: 62),
+                              const SizedBox(width: 14),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    rank,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 18,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Level $level',
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 18),
+                          ProgressBar(
+                            value: nextXp <= 0 ? 0 : (xp / nextXp).clamp(0, 1),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '${formatThousands(xp)} XP • ${formatThousands((nextXp - xp).clamp(0, nextXp))} to next level',
+                            style: const TextStyle(
+                              color: AppColors.gold,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    const Text(
+                      'Your sports',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (sports.isEmpty)
+                      const CardBox(
+                        child: Text(
+                          'Choose sports in your profile to start building sport-specific ranks.',
+                        ),
+                      )
+                    else
+                      for (final sport in sports)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: CardBox(
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  CupertinoIcons.rosette,
+                                  color: AppColors.purple,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    sport,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  sportRanks[sport]?.toString() ?? 'Unranked',
+                                  style: const TextStyle(
+                                    color: AppColors.muted,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 22),
+            const Text(
+              'XP history',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 12),
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: AppRepository.instance.pointsLedger(),
+              builder: (context, snapshot) {
+                final rows = snapshot.data?.docs ?? const [];
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (rows.isEmpty) {
+                  return const CardBox(
+                    child: Text('XP activity will appear after you play.'),
+                  );
+                }
+                return Column(
+                  children: [
+                    for (final row in rows)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: CardBox(
+                          child: Row(
+                            children: [
+                              const Icon(
+                                CupertinoIcons.bolt_fill,
+                                color: AppColors.gold,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  row.data()['description']?.toString() ??
+                                      'Activity',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                '${(row.data()['delta'] as num?)?.toInt() ?? 0} XP',
+                                style: const TextStyle(
+                                  color: AppColors.green,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Academies
 // ---------------------------------------------------------------------------
 
 class Academy {
   const Academy({
+    this.id = '',
     required this.name,
     required this.sports,
     required this.rating,
@@ -1049,8 +1296,16 @@ class Academy {
     required this.gradient,
     required this.icon,
     this.imageUrl = '',
+    this.latitude,
+    this.longitude,
+    this.address = '',
+    this.phone = '',
+    this.email = '',
+    this.description = '',
+    this.trainingPackages = const [],
   });
 
+  final String id;
   final String name;
   final String sports;
   final String rating;
@@ -1059,40 +1314,50 @@ class Academy {
   final List<Color> gradient;
   final IconData icon;
   final String imageUrl;
+  final double? latitude;
+  final double? longitude;
+  final String address;
+  final String phone;
+  final String email;
+  final String description;
+  final List<String> trainingPackages;
+
+  double? distanceKmFrom(AppLocation? location) {
+    if (location == null || latitude == null || longitude == null) return null;
+    const earthRadiusKm = 6371.0;
+    final dLat = (latitude! - location.latitude) * math.pi / 180;
+    final dLon = (longitude! - location.longitude) * math.pi / 180;
+    final a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(location.latitude * math.pi / 180) *
+            math.cos(latitude! * math.pi / 180) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    return earthRadiusKm * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  }
+
+  String distanceFrom(AppLocation? location) {
+    final km = distanceKmFrom(location);
+    if (km == null) return address.isEmpty ? 'Location unavailable' : address;
+    return km < 1 ? '${(km * 1000).round()} m' : '${km.toStringAsFixed(1)} km';
+  }
 }
 
-const kAcademies = <Academy>[
-  Academy(
-    name: 'Infinity Sports Center',
-    sports: 'Basketball • Padel • Volleyball',
-    rating: '4.8 (128)',
-    distance: '1.2 km',
-    featured: true,
-    gradient: [Color(0xFF102A43), Color(0xFF1F7A8C)],
-    icon: CupertinoIcons.sportscourt,
-  ),
-  Academy(
-    name: 'Dubai Sports World',
-    sports: 'Basketball • Football',
-    rating: '4.7 (96)',
-    distance: '2.1 km',
-    featured: false,
-    gradient: [Color(0xFF281B44), Color(0xFF7B3FF2)],
-    icon: CupertinoIcons.circle_grid_hex,
-  ),
-  Academy(
-    name: 'Hoops Basketball Academy',
-    sports: 'Basketball • 3x3',
-    rating: '4.6 (74)',
-    distance: '2.8 km',
-    featured: false,
-    gradient: [Color(0xFF18230F), Color(0xFF62D84E)],
-    icon: CupertinoIcons.person_3_fill,
-  ),
-];
-
-class AcademiesListScreen extends StatelessWidget {
+class AcademiesListScreen extends StatefulWidget {
   const AcademiesListScreen({super.key});
+
+  @override
+  State<AcademiesListScreen> createState() => _AcademiesListScreenState();
+}
+
+class _AcademiesListScreenState extends State<AcademiesListScreen> {
+  final _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1106,22 +1371,48 @@ class AcademiesListScreen extends StatelessWidget {
               onBack: () => Navigator.of(context).pop(),
             ),
             const SizedBox(height: 16),
-            const SearchBox(),
+            SearchBox(controller: _search, onChanged: (_) => setState(() {})),
             const SizedBox(height: 16),
             StreamBuilder<List<Academy>>(
               stream: CatalogService.instance.academies(),
               builder: (context, snapshot) {
-                final list = (snapshot.hasData && snapshot.data!.isNotEmpty)
-                    ? snapshot.data!
-                    : kFallbackAcademies;
-                return Column(
-                  children: [
-                    for (final academy in list)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: _AcademyCard(academy: academy),
-                      ),
-                  ],
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                return ValueListenableBuilder<AppLocation?>(
+                  valueListenable: LocationService.instance.current,
+                  builder: (context, location, _) {
+                    final query = _search.text.trim().toLowerCase();
+                    final list = CatalogService.instance
+                        .nearbyAcademies(
+                          snapshot.data ?? const <Academy>[],
+                          location,
+                        )
+                        .where(
+                          (academy) =>
+                              query.isEmpty ||
+                              academy.name.toLowerCase().contains(query) ||
+                              academy.sports.toLowerCase().contains(query) ||
+                              academy.address.toLowerCase().contains(query),
+                        )
+                        .toList();
+                    if (list.isEmpty) {
+                      return const CardBox(
+                        child: Text(
+                          'No academies match this search and location.',
+                        ),
+                      );
+                    }
+                    return Column(
+                      children: [
+                        for (final academy in list)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 14),
+                            child: _AcademyCard(academy: academy),
+                          ),
+                      ],
+                    );
+                  },
                 );
               },
             ),
@@ -1253,7 +1544,9 @@ class _AcademyCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 2),
                       Text(
-                        academy.distance,
+                        academy.distanceFrom(
+                          LocationService.instance.current.value,
+                        ),
                         style: const TextStyle(color: AppColors.muted),
                       ),
                     ],
@@ -1392,7 +1685,7 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            '${academy.rating}  •  ${academy.distance}',
+                            '${academy.rating}  •  ${academy.distanceFrom(LocationService.instance.current.value)}',
                             style: const TextStyle(color: AppColors.muted),
                           ),
                         ],
@@ -1430,29 +1723,115 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              '${academy.name} offers premium indoor and outdoor courts, professional coaching, and weekly tournaments. Book a court or join an open match today.',
+              academy.description.isEmpty
+                  ? 'Contact ${academy.name} to learn about its courts, coaching, and current programs.'
+                  : academy.description,
               style: const TextStyle(color: AppColors.muted, height: 1.5),
             ),
-            const SizedBox(height: 20),
-            SectionHeader(
-              title: 'Courts',
-              onSeeAll: () => Navigator.of(context).pop(),
-            ),
-            const SizedBox(height: 12),
-            for (final court in courts.take(2))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: CourtListCard(court: court),
+            if (academy.address.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                academy.address,
+                style: const TextStyle(fontWeight: FontWeight.w700),
               ),
+            ],
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: PrimaryButton(
+                    label: 'Contact us',
+                    icon: CupertinoIcons.phone_fill,
+                    onPressed: () => _contactAcademy(academy),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                if (academy.email.isNotEmpty)
+                  Expanded(
+                    child: SecondaryButton(
+                      label: 'Email',
+                      onPressed: () => launchUrl(
+                        Uri(
+                          scheme: 'mailto',
+                          path: academy.email,
+                          queryParameters: {'subject': 'PlayUp enquiry'},
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            if (academy.trainingPackages.isNotEmpty) ...[
+              const SizedBox(height: 22),
+              const Text(
+                'Training packages',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 12),
+              for (final package in academy.trainingPackages)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: CardBox(
+                    child: Row(
+                      children: [
+                        const Icon(
+                          CupertinoIcons.star_circle_fill,
+                          color: AppColors.purple,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            package,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+            const SizedBox(height: 20),
+            const SectionHeader(title: 'Courts'),
+            const SizedBox(height: 12),
+            StreamBuilder<List<Court>>(
+              stream: CatalogService.instance.courts(),
+              builder: (context, snapshot) {
+                final list = (snapshot.data ?? const <Court>[])
+                    .where((court) => court.academyId == academy.id)
+                    .toList();
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (list.isEmpty) {
+                  return const CardBox(
+                    child: Text('No bookable courts are listed right now.'),
+                  );
+                }
+                return Column(
+                  children: [
+                    for (final court in list)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: CourtListCard(court: court),
+                      ),
+                  ],
+                );
+              },
+            ),
             const SizedBox(height: 10),
-            SectionHeader(title: 'Upcoming Events', onSeeAll: () {}),
+            const SectionHeader(title: 'Upcoming Events'),
             const SizedBox(height: 12),
             StreamBuilder<List<EventItem>>(
               stream: CatalogService.instance.events(),
               builder: (context, snapshot) {
-                final list = (snapshot.hasData && snapshot.data!.isNotEmpty)
-                    ? snapshot.data!
-                    : kFallbackEvents;
+                final list = (snapshot.data ?? const <EventItem>[])
+                    .where((event) => event.academyId == academy.id)
+                    .toList();
+                if (list.isEmpty) {
+                  return const CardBox(
+                    child: Text('No upcoming academy events are listed.'),
+                  );
+                }
                 return Column(
                   children: [
                     for (final event in list)
@@ -1468,19 +1847,29 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                 );
               },
             ),
-            const SizedBox(height: 22),
-            PrimaryButton(
-              label: 'Book a Court',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => CourtDetailsScreen(court: courts.first),
-                ),
-              ),
-            ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _contactAcademy(Academy academy) async {
+    if (academy.phone.isEmpty) {
+      await showAdaptiveMessage(
+        context,
+        title: 'Contact unavailable',
+        message: 'This academy has not published a phone number yet.',
+      );
+      return;
+    }
+    final launched = await launchUrl(Uri(scheme: 'tel', path: academy.phone));
+    if (!launched && mounted) {
+      await showAdaptiveMessage(
+        context,
+        title: 'Could not open phone',
+        message: 'Call ${academy.phone} to contact ${academy.name}.',
+      );
+    }
   }
 }
 
@@ -1534,25 +1923,7 @@ class _EventCard extends StatelessWidget {
               ],
             ),
           ),
-          SizedBox(
-            height: 36,
-            child: FilledButton(
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Registration coming soon.')),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.purple,
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: const Text(
-                'Join',
-                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
-              ),
-            ),
-          ),
+          const Icon(CupertinoIcons.chevron_right, color: AppColors.muted),
         ],
       ),
     );
@@ -1915,107 +2286,122 @@ class _QrPainter extends CustomPainter {
 }
 
 class WalletScreen extends StatelessWidget {
-  const WalletScreen({super.key});
+  const WalletScreen({super.key, this.embedded = false});
+
+  final bool embedded;
 
   @override
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    return Scaffold(
-      body: AppScrollPage(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+    final content = AppScrollPage(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!embedded)
             PageTopBar(
               title: 'Wallet',
               onBack: () => Navigator.of(context).pop(),
             ),
-            const SizedBox(height: 16),
-            StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: uid == null
-                  ? null
-                  : FirebaseFirestore.instance
-                        .collection('users')
-                        .doc(uid)
-                        .snapshots(),
-              builder: (context, snapshot) {
-                final points =
-                    (snapshot.data?.data()?['points'] as num?)?.toInt() ?? 0;
-                return CardBox(
-                  color: AppColors.dark,
-                  borderColor: AppColors.dark,
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Points balance',
-                            style: TextStyle(color: Colors.white70),
+          const SizedBox(height: 16),
+          StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            stream: uid == null
+                ? null
+                : FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(uid)
+                      .snapshots(),
+            builder: (context, snapshot) {
+              final points =
+                  (snapshot.data?.data()?['points'] as num?)?.toInt() ?? 0;
+              return CardBox(
+                color: AppColors.dark,
+                borderColor: AppColors.dark,
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Points balance',
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '$points',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 34,
+                            fontWeight: FontWeight.w900,
                           ),
-                          const SizedBox(height: 6),
-                          Text(
-                            '$points',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 34,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          const Text(
-                            'Available for eligible rewards',
-                            style: TextStyle(color: AppColors.gold),
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                      const Icon(
-                        CupertinoIcons.gift_fill,
-                        color: AppColors.gold,
-                        size: 44,
-                      ),
-                    ],
+                        ),
+                        const Text(
+                          'Available for eligible rewards',
+                          style: TextStyle(color: AppColors.gold),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    const Icon(
+                      CupertinoIcons.gift_fill,
+                      color: AppColors.gold,
+                      size: 44,
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'My coupons',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 12),
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: uid == null
+                ? null
+                : FirebaseFirestore.instance
+                      .collection('redemptions')
+                      .where('userId', isEqualTo: uid)
+                      .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final coupons = snapshot.data?.docs ?? const [];
+              if (coupons.isEmpty) {
+                return const CardBox(
+                  child: Text(
+                    'Redeemed rewards will appear here as usable coupons.',
                   ),
                 );
-              },
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: const [
-                Expanded(
-                  child: StatCard(value: 'AED 120', label: 'Credits'),
-                ),
-                SizedBox(width: 10),
-                Expanded(
-                  child: StatCard(value: '3', label: 'Coupons'),
-                ),
-                SizedBox(width: 10),
-                Expanded(
-                  child: StatCard(value: 'x1.5', label: 'Multiplier'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 22),
-            const Text(
-              'Active coupons',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 12),
-            _CouponRow(
-              title: '20% OFF Court Booking',
-              subtitle: 'Infinity Sports • Exp 30 Jun',
-            ),
-            const SizedBox(height: 10),
-            _CouponRow(
-              title: 'Free Drink After Match',
-              subtitle: 'Café Corner • Exp 15 Jul',
-            ),
-            const SizedBox(height: 22),
+              }
+              return Column(
+                children: [
+                  for (final coupon in coupons)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _CouponRow(
+                        title:
+                            coupon.data()['title']?.toString() ??
+                            'Reward coupon',
+                        subtitle:
+                            '${coupon.data()['partner'] ?? 'PlayUp'} • ${coupon.data()['status'] ?? 'active'} • ${coupon.data()['code'] ?? ''}',
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+          if (!embedded) const SizedBox(height: 22),
+          if (!embedded)
             const Text(
               'Points history',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
             ),
-            const SizedBox(height: 12),
+          const SizedBox(height: 12),
+          if (!embedded)
             StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: AppRepository.instance.pointsLedger(),
               builder: (context, snapshot) {
@@ -2069,10 +2455,10 @@ class WalletScreen extends StatelessWidget {
                 );
               },
             ),
-          ],
-        ),
+        ],
       ),
     );
+    return embedded ? content : Scaffold(body: content);
   }
 }
 
@@ -2289,7 +2675,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           .get();
       final data = snap.data() ?? {};
       _name.text = (data['displayName'] ?? 'Alex Mercer').toString();
-      _city.text = (data['city'] ?? 'Dubai, UAE').toString();
+      _city.text = (data['city'] ?? 'Location not set').toString();
       _bio.text = (data['bio'] ?? '').toString();
     }
     if (mounted) setState(() => _loading = false);
@@ -2422,13 +2808,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
   int _tab = 0;
   static const _tabs = ['Friends', 'Requests', 'Suggested'];
 
-  static const _friends = <(String, int, String)>[
-    ('Omar Khalid', 11, 'Basketball'),
-    ('Sara Nasser', 18, 'Padel'),
-    ('Zayd Ali', 10, 'Volleyball'),
-    ('Lina HADDAD', 9, 'Basketball'),
-  ];
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2454,70 +2833,177 @@ class _FriendsScreenState extends State<FriendsScreen> {
               ],
             ),
             const SizedBox(height: 18),
-            for (final f in _friends)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: CardBox(
-                  child: Row(
-                    children: [
-                      Avatar(name: f.$1.characters.first, size: 46),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              f.$1,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            Text(
-                              'Level ${f.$2}  •  ${f.$3}',
-                              style: const TextStyle(
-                                color: AppColors.muted,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: AppRepository.instance.friendships(),
+              builder: (context, friendshipSnapshot) {
+                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: AppRepository.instance.publicPlayers(),
+                  builder: (context, playerSnapshot) {
+                    if (friendshipSnapshot.connectionState ==
+                            ConnectionState.waiting ||
+                        playerSnapshot.connectionState ==
+                            ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final uid = FirebaseAuth.instance.currentUser?.uid;
+                    final friendships =
+                        friendshipSnapshot.data?.docs ?? const [];
+                    final profiles = {
+                      for (final doc in playerSnapshot.data?.docs ?? const [])
+                        doc.id: doc.data(),
+                    };
+                    final connectedIds = <String>{
+                      for (final doc in friendships)
+                        ...List<String>.from(
+                          doc.data()['members'] as List? ?? const [],
                         ),
-                      ),
-                      _friendAction(context),
-                    ],
-                  ),
-                ),
-              ),
+                    };
+                    final rows = <Widget>[];
+                    if (_tab == 0) {
+                      for (final doc in friendships.where(
+                        (doc) => doc.data()['status'] == 'accepted',
+                      )) {
+                        final members = List<String>.from(
+                          doc.data()['members'] as List? ?? const [],
+                        );
+                        final playerId = members.firstWhere(
+                          (id) => id != uid,
+                          orElse: () => '',
+                        );
+                        rows.add(
+                          _friendRow(
+                            profiles[playerId] ?? const {},
+                            label: 'Invite',
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const CreateMatchScreen(),
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                    } else if (_tab == 1) {
+                      for (final doc in friendships.where(
+                        (doc) =>
+                            doc.data()['status'] == 'pending' &&
+                            doc.data()['requestedTo'] == uid,
+                      )) {
+                        final requester =
+                            doc.data()['requestedBy']?.toString() ?? '';
+                        rows.add(
+                          _friendRow(
+                            profiles[requester] ??
+                                {'displayName': doc.data()['requesterName']},
+                            label: 'Accept',
+                            onTap: () => _respond(doc.id, true),
+                          ),
+                        );
+                      }
+                    } else {
+                      for (final entry in profiles.entries.where(
+                        (entry) =>
+                            entry.key != uid &&
+                            !connectedIds.contains(entry.key),
+                      )) {
+                        rows.add(
+                          _friendRow(
+                            entry.value,
+                            label: 'Add',
+                            onTap: () => _send(entry.key),
+                          ),
+                        );
+                      }
+                    }
+                    if (rows.isEmpty) {
+                      return CardBox(
+                        child: Text(
+                          _tab == 0
+                              ? 'Friends you connect with will appear here.'
+                              : _tab == 1
+                              ? 'You have no pending friend requests.'
+                              : 'No new player suggestions are available.',
+                        ),
+                      );
+                    }
+                    return Column(
+                      children: [
+                        for (final row in rows)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: row,
+                          ),
+                      ],
+                    );
+                  },
+                );
+              },
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _friendAction(BuildContext context) {
-    final label = _tab == 1
-        ? 'Accept'
-        : _tab == 2
-        ? 'Add'
-        : 'Invite';
-    return SizedBox(
-      height: 36,
-      child: FilledButton(
-        onPressed: () => ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$label sent.'))),
-        style: FilledButton.styleFrom(
-          backgroundColor: AppColors.purple,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+  Widget _friendRow(
+    Map<String, dynamic> profile, {
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    final name = (profile['displayName'] ?? 'Player').toString();
+    final sports = List<String>.from(profile['sports'] as List? ?? const []);
+    return CardBox(
+      child: Row(
+        children: [
+          Avatar(name: name, size: 46),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: const TextStyle(fontWeight: FontWeight.w900)),
+                Text(
+                  'Level ${profile['level'] ?? 1} • ${sports.isEmpty ? 'Sports not set' : sports.join(', ')}',
+                  style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                ),
+              ],
+            ),
           ),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
-        ),
+          FilledButton(onPressed: onTap, child: Text(label)),
+        ],
       ),
     );
+  }
+
+  Future<void> _send(String playerId) async {
+    try {
+      await AppRepository.instance.sendFriendRequest(playerId);
+    } catch (error) {
+      if (!mounted) return;
+      await showAdaptiveMessage(
+        context,
+        title: 'Could not add friend',
+        message: error.toString().replaceFirst(
+          'DomainValidationException: ',
+          '',
+        ),
+      );
+    }
+  }
+
+  Future<void> _respond(String friendshipId, bool accept) async {
+    try {
+      await AppRepository.instance.respondFriendRequest(friendshipId, accept);
+    } catch (error) {
+      if (!mounted) return;
+      await showAdaptiveMessage(
+        context,
+        title: 'Could not update request',
+        message: error.toString().replaceFirst(
+          'DomainValidationException: ',
+          '',
+        ),
+      );
+    }
   }
 }
 

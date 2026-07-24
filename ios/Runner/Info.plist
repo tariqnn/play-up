@@ -61,7 +61,10 @@
 	<array>
 		<dict>
 			<key>CFBundleURLSchemes</key>
-			<array><string>playup</string></array>
+			<array>
+				<string>playup</string>
+				<string>com.googleusercontent.apps.634238605050-sq6kl8t8dac9lkriodamkaj80fqh07re</string>
+			</array>
 		</dict>
 	</array>
 	<key>UILaunchStoryboardName</key>

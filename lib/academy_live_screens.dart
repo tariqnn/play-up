@@ -34,7 +34,7 @@ class LiveCourtManagementScreen extends StatelessWidget {
               child: ListTile(
                 title: Text(data['name']?.toString() ?? 'Court'),
                 subtitle: Text(
-                  '${data['sport'] ?? 'Sport'} • ${data['currency'] ?? 'AED'} ${((data['basePriceMinor'] as num? ?? 0) / 100).toStringAsFixed(2)} / hr',
+                  '${data['sport'] ?? 'Sport'} • ${data['currency'] ?? 'JOD'} ${((data['basePriceMinor'] as num? ?? 0) / 100).toStringAsFixed(2)} / hr',
                 ),
                 trailing: IconButton(
                   tooltip: 'Edit court',
@@ -312,7 +312,7 @@ class LiveAcademyAnalyticsScreen extends StatelessWidget {
           childAspectRatio: 1.5,
           children: [
             _Metric('Bookings', '${rows.length}'),
-            _Metric('Revenue', 'AED ${(revenue / 100).toStringAsFixed(2)}'),
+            _Metric('Revenue', 'JOD ${(revenue / 100).toStringAsFixed(2)}'),
             _Metric('Completed', '${completed.length}'),
             _Metric('Cancelled', '$cancelled'),
           ],

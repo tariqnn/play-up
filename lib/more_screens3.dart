@@ -369,9 +369,9 @@ class MapViewScreen extends StatelessWidget {
                     minChildSize: 0.2,
                     maxChildSize: 0.85,
                     builder: (context, controller) => Container(
-                      decoration: const BoxDecoration(
-                        color: AppColors.surface,
-                        borderRadius: BorderRadius.vertical(
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        borderRadius: const BorderRadius.vertical(
                           top: Radius.circular(28),
                         ),
                       ),
@@ -477,7 +477,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
             ),
             const SizedBox(height: 16),
             SizedBox(
-              height: 42,
+              height: 48,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: _sorts.length,
@@ -490,19 +490,53 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
               ),
             ),
             const SizedBox(height: 18),
-            Text(
-              '${courts.length} courts • sorted by $_sort',
-              style: const TextStyle(
-                color: AppColors.muted,
-                fontWeight: FontWeight.w700,
-              ),
+            StreamBuilder<List<Court>>(
+              stream: CatalogService.instance.courts(),
+              builder: (context, snapshot) {
+                final results = CatalogService.instance.nearbyCourts(
+                  snapshot.data ?? const <Court>[],
+                  LocationService.instance.current.value,
+                  query: _search.text,
+                );
+                if (_sort == 'Cheapest') {
+                  results.sort(
+                    (a, b) => a.basePriceMinor.compareTo(b.basePriceMinor),
+                  );
+                } else if (_sort == 'Top rated') {
+                  results.sort((a, b) => b.rating.compareTo(a.rating));
+                } else if (_sort == 'Available now') {
+                  results.removeWhere(
+                    (court) => !court.isOpenAt(DateTime.now()),
+                  );
+                }
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (results.isEmpty) {
+                  return const CardBox(
+                    child: Text('No courts match this search.'),
+                  );
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${results.length} courts • sorted by $_sort',
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    for (final court in results)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: CourtListCard(court: court),
+                      ),
+                  ],
+                );
+              },
             ),
-            const SizedBox(height: 12),
-            for (final court in courts)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: CourtListCard(court: court),
-              ),
           ],
         ),
       ),
@@ -1166,7 +1200,7 @@ class AcademyAnalyticsScreen extends StatelessWidget {
               crossAxisSpacing: 10,
               childAspectRatio: 2.1,
               children: const [
-                StatCard(value: 'AED 15.2k', label: 'Revenue (7d)'),
+                StatCard(value: 'JOD 15.2k', label: 'Revenue (7d)'),
                 StatCard(value: '128', label: 'Total bookings'),
                 StatCard(value: '76%', label: 'Occupancy'),
                 StatCard(value: '42', label: 'Returning players'),

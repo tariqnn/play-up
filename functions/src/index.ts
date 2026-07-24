@@ -2,7 +2,7 @@ import {initializeApp} from "firebase-admin/app";
 import {FieldValue, Timestamp, getFirestore} from "firebase-admin/firestore";
 import {getAuth} from "firebase-admin/auth";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
-import {onDocumentCreated} from "firebase-functions/v2/firestore";
+import {onDocumentCreated, onDocumentWritten} from "firebase-functions/v2/firestore";
 import {setGlobalOptions} from "firebase-functions/v2/options";
 import {assertTransition, calculateTotal, overlaps} from "./domain";
 import {randomBytes} from "node:crypto";
@@ -10,6 +10,25 @@ import {randomBytes} from "node:crypto";
 initializeApp();
 setGlobalOptions({region: "me-central1", maxInstances: 20});
 const db = getFirestore();
+
+export const syncPublicProfile = onDocumentWritten("users/{userId}", async (event) => {
+  const data = event.data?.after.data();
+  const ref = db.collection("publicProfiles").doc(event.params.userId);
+  if (!data || data.suspended === true) {
+    await ref.delete().catch(() => undefined);
+    return;
+  }
+  await ref.set({
+    displayName: data.displayName ?? "Player",
+    city: data.city ?? "Location not set",
+    level: data.level ?? 1,
+    rankTitle: data.rankTitle ?? "Rookie",
+    xp: data.xp ?? 0,
+    rating: data.rating ?? 0,
+    sports: data.sports ?? [],
+    updatedAt: FieldValue.serverTimestamp(),
+  }, {merge: true});
+});
 
 function requireAuth(request: {auth?: {uid: string} | null}): string {
   if (!request.auth) throw new HttpsError("unauthenticated", "Sign in is required.");
@@ -53,7 +72,7 @@ export const quoteBooking = onCall(async (request) => {
     if (promotion.academyId && promotion.academyId !== court.academyId) throw new HttpsError("failed-precondition", "Promotion does not apply to this academy.");
   }
   return {
-    currency: court.currency ?? "AED",
+    currency: court.currency ?? "JOD",
     ...calculateTotal({
       basePriceMinor: court.basePriceMinor,
       durationMinutes,
@@ -92,7 +111,7 @@ export const createBooking = onCall(async (request) => {
     const record = {
       userId: uid, academyId: court.academyId, courtId, courtName: court.name,
       sport: court.sport, startUtc: Timestamp.fromDate(start), endUtc: Timestamp.fromDate(end),
-      status: "pending", currency: court.currency ?? "AED", ...price,
+      status: "pending", currency: court.currency ?? "JOD", ...price,
       paymentMethod: "cash", paymentStatus: "pending",
       matchmaking: request.data?.matchmaking === true, playerCapacity, participants: [uid],
       createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
@@ -203,7 +222,7 @@ export const transitionBooking = onCall(async (request) => {
 
 export const joinMatch = onCall(async (request) => {
   const uid = requireAuth(request);
-  await profile(uid);
+  const user = await profile(uid);
   const matchId = text(request.data?.matchId, "matchId");
   const ref = db.collection("matches").doc(matchId);
   await db.runTransaction(async (tx) => {
@@ -213,10 +232,69 @@ export const joinMatch = onCall(async (request) => {
     const players: string[] = match.players ?? [];
     if (players.includes(uid)) throw new HttpsError("already-exists", "You already joined this match.");
     if (players.length >= match.capacity) throw new HttpsError("resource-exhausted", "Match is full.");
-    tx.update(ref, {players: FieldValue.arrayUnion(uid), neededPlayers: FieldValue.increment(-1), updatedAt: FieldValue.serverTimestamp()});
+    tx.update(ref, {
+      players: FieldValue.arrayUnion(uid),
+      playerNames: FieldValue.arrayUnion(user.displayName ?? "Player"),
+      neededPlayers: FieldValue.increment(-1),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
     tx.create(db.collection("notifications").doc(), {userId: match.hostId, type: "matchJoined", title: "A player joined your match", matchId, read: false, createdAt: FieldValue.serverTimestamp()});
   });
   return {ok: true};
+});
+
+export const sendFriendRequest = onCall(async (request) => {
+  const uid = requireAuth(request);
+  const sender = await profile(uid);
+  const playerId = text(request.data?.playerId, "playerId");
+  if (playerId === uid) throw new HttpsError("invalid-argument", "You cannot add yourself.");
+  if (!(await db.collection("users").doc(playerId).get()).exists) {
+    throw new HttpsError("not-found", "Player not found.");
+  }
+  const friendshipId = [uid, playerId].sort().join("_");
+  const ref = db.collection("friendships").doc(friendshipId);
+  if ((await ref.get()).exists) {
+    throw new HttpsError("already-exists", "A friend connection already exists.");
+  }
+  await ref.set({
+    members: [uid, playerId],
+    requestedBy: uid,
+    requestedTo: playerId,
+    requesterName: sender.displayName ?? "Player",
+    status: "pending",
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  await db.collection("notifications").add({
+    userId: playerId,
+    type: "friendRequest",
+    title: `${sender.displayName ?? "A player"} sent you a friend request`,
+    friendshipId,
+    read: false,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  return {friendshipId};
+});
+
+export const respondFriendRequest = onCall(async (request) => {
+  const uid = requireAuth(request);
+  await profile(uid);
+  const friendshipId = text(request.data?.friendshipId, "friendshipId");
+  const accept = request.data?.accept === true;
+  const ref = db.collection("friendships").doc(friendshipId);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const friendship = snap.data();
+    if (!friendship || friendship.status !== "pending" || friendship.requestedTo !== uid) {
+      throw new HttpsError("failed-precondition", "This request is no longer available.");
+    }
+    tx.update(ref, {
+      status: accept ? "accepted" : "declined",
+      respondedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+  return {accepted: accept};
 });
 
 export const leaveMatch = onCall(async (request) => {
@@ -269,17 +347,76 @@ export const createMatch = onCall(async (request) => {
   if (start <= new Date()) throw new HttpsError("invalid-argument", "Match must be in the future.");
   const court = (await db.collection("courts").doc(courtId).get()).data();
   if (!court || court.active === false) throw new HttpsError("not-found", "Court is unavailable.");
+  const bookingDocs = await db.collection("bookings").where("courtId", "==", courtId).get();
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  const unavailable = bookingDocs.docs.some((doc) => {
+    const booking = doc.data();
+    if (!["pending", "confirmed"].includes(booking.status)) return false;
+    const bookingStart = (booking.startUtc as Timestamp).toDate();
+    const bookingEnd = (booking.endUtc as Timestamp).toDate();
+    return overlaps(start, end, bookingStart, bookingEnd);
+  });
+  if (unavailable) throw new HttpsError("already-exists", "This court was just booked. Choose another court or time.");
   const ref = db.collection("matches").doc();
-  await ref.set({
-    hostId: uid, hostName: user.displayName ?? "Player", title, sport,
-    academyId: court.academyId, courtId, courtName: court.name,
-    startUtc: Timestamp.fromDate(start), skillRange: text(request.data?.skill, "skill"),
-    type: request.data?.type === "Ranked" ? "Ranked" : "Casual",
-    ranked: request.data?.type === "Ranked", status: "open", capacity,
-    players: [uid], neededPlayers: capacity - 1,
-    createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+  const bookingRef = db.collection("bookings").doc();
+  const lockRef = db.collection("bookingLocks").doc(`${courtId}_${start.valueOf()}`);
+  await db.runTransaction(async (tx) => {
+    if ((await tx.get(lockRef)).exists) {
+      throw new HttpsError("already-exists", "This court was just booked. Choose another court or time.");
+    }
+    const price = calculateTotal({basePriceMinor: court.basePriceMinor, durationMinutes: 60});
+    tx.create(lockRef, {
+      bookingId: bookingRef.id, userId: uid, courtId,
+      startUtc: Timestamp.fromDate(start), endUtc: Timestamp.fromDate(end),
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    tx.create(bookingRef, {
+      userId: uid, academyId: court.academyId, courtId, courtName: court.name,
+      sport, startUtc: Timestamp.fromDate(start), endUtc: Timestamp.fromDate(end),
+      status: "pending", currency: court.currency ?? "JOD", ...price,
+      paymentMethod: "cash", paymentStatus: "pending", matchmaking: true,
+      playerCapacity: capacity, participants: [uid], matchId: ref.id,
+      createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.create(ref, {
+      hostId: uid, hostName: user.displayName ?? "Player", title, sport,
+      academyId: court.academyId, courtId, courtName: court.name, bookingId: bookingRef.id,
+      startUtc: Timestamp.fromDate(start), skillRange: text(request.data?.skill, "skill"),
+      type: request.data?.type === "Competitive" ? "Competitive" : "Casual",
+      ranked: request.data?.type === "Competitive", status: "open", capacity,
+      currency: court.currency ?? "JOD", totalMinor: price.totalMinor,
+      players: [uid], playerNames: [user.displayName ?? "Player"], neededPlayers: capacity - 1,
+      createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    });
   });
   return {matchId: ref.id};
+});
+
+export const listAvailableCourts = onCall(async (request) => {
+  const uid = requireAuth(request);
+  await profile(uid);
+  const sport = text(request.data?.sport, "sport");
+  const start = date(request.data?.startUtc, "startUtc");
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  if (start <= new Date()) throw new HttpsError("invalid-argument", "Choose a future match time.");
+  const courts = await db.collection("courts")
+    .where("active", "==", true)
+    .where("sport", "==", sport)
+    .get();
+  const available = await Promise.all(courts.docs.map(async (courtDoc) => {
+    const court = courtDoc.data();
+    const blocked = [...(court.blockedPeriods ?? []), ...(court.maintenancePeriods ?? [])]
+      .some((period) => overlaps(start, end, period.start.toDate(), period.end.toDate()));
+    if (blocked) return null;
+    const bookings = await db.collection("bookings").where("courtId", "==", courtDoc.id).get();
+    const conflict = bookings.docs.some((bookingDoc) => {
+      const booking = bookingDoc.data();
+      return ["pending", "confirmed"].includes(booking.status)
+        && overlaps(start, end, booking.startUtc.toDate(), booking.endUtc.toDate());
+    });
+    return conflict ? null : courtDoc.id;
+  }));
+  return {courtIds: available.filter((id): id is string => id !== null)};
 });
 
 export const createTournament = onCall(async (request) => {
@@ -339,10 +476,10 @@ export const seedUat = onCall(async (request) => {
   const academyA = db.collection("academies").doc("uat-academy-a");
   const academyB = db.collection("academies").doc("uat-academy-b");
   const batch = db.batch();
-  batch.set(academyA, {name: "UAT North Academy", status: "active", currency: "AED", createdAt: FieldValue.serverTimestamp()});
-  batch.set(academyB, {name: "UAT South Academy", status: "active", currency: "AED", createdAt: FieldValue.serverTimestamp()});
-  batch.set(db.collection("courts").doc("uat-court-a1"), {academyId: academyA.id, name: "North Padel 1", sport: "Padel", active: true, basePriceMinor: 18000, currency: "AED", openingHour: 6, closingHour: 23, blockedPeriods: [], maintenancePeriods: [], createdAt: FieldValue.serverTimestamp()});
-  batch.set(db.collection("courts").doc("uat-court-b1"), {academyId: academyB.id, name: "South Basketball 1", sport: "Basketball", active: true, basePriceMinor: 21000, currency: "AED", openingHour: 6, closingHour: 23, blockedPeriods: [], maintenancePeriods: [], createdAt: FieldValue.serverTimestamp()});
+  batch.set(academyA, {name: "Amman North Academy", status: "active", currency: "JOD", createdAt: FieldValue.serverTimestamp()});
+  batch.set(academyB, {name: "Amman South Academy", status: "active", currency: "JOD", createdAt: FieldValue.serverTimestamp()});
+  batch.set(db.collection("courts").doc("uat-court-a1"), {academyId: academyA.id, name: "North Padel 1", sport: "Padel", active: true, basePriceMinor: 1800, currency: "JOD", openingHour: 6, closingHour: 23, blockedPeriods: [], maintenancePeriods: [], createdAt: FieldValue.serverTimestamp()});
+  batch.set(db.collection("courts").doc("uat-court-b1"), {academyId: academyB.id, name: "South Basketball 1", sport: "Basketball", active: true, basePriceMinor: 2100, currency: "JOD", openingHour: 6, closingHour: 23, blockedPeriods: [], maintenancePeriods: [], createdAt: FieldValue.serverTimestamp()});
   batch.set(db.collection("sports").doc("padel"), {name: "Padel", active: true});
   batch.set(db.collection("sports").doc("basketball"), {name: "Basketball", active: true});
   batch.set(db.collection("promotions").doc("uat-welcome"), {code: "UATWELCOME", active: true, discountType: "percentage", discountValue: 10, usageLimit: 100, usageCount: 0, startsAt: Timestamp.fromDate(new Date("2026-01-01T00:00:00Z")), endsAt: Timestamp.fromDate(new Date("2027-12-31T23:59:59Z"))});

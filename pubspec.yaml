@@ -58,6 +58,8 @@ dependencies:
   latlong2: ^0.10.1
   http: ^1.6.0
   image_picker: ^1.2.3
+  url_launcher: ^6.3.2
+  crypto: ^3.0.6
 
 dev_dependencies:
   flutter_test:

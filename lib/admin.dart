@@ -645,7 +645,7 @@ class AdminCourtsScreen extends StatelessWidget {
         AdminField('subtitle', 'Sport / type'),
         AdminField('rating', 'Rating (e.g. 4.8 (128))'),
         AdminField('distance', 'Distance (e.g. 1.2 km)'),
-        AdminField('price', 'Price (e.g. AED 210 / hr)'),
+        AdminField('price', 'Price (e.g. JOD 21 / hr)'),
         AdminField('image', 'Image URL (https://...)'),
       ],
     );

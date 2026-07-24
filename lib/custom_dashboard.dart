@@ -35,7 +35,7 @@ const platformWidgets = <DashboardWidgetSpec>[
     'revenue',
     'Booking revenue',
     Icons.payments_outlined,
-    'AED 48.2K',
+    'JOD 48.2K',
   ),
   DashboardWidgetSpec(
     'pending',
@@ -70,7 +70,7 @@ const academyWidgets = <DashboardWidgetSpec>[
     'revenue',
     'Revenue',
     Icons.payments_outlined,
-    'AED 3,780',
+    'JOD 3,780',
   ),
   DashboardWidgetSpec(
     'utilization',

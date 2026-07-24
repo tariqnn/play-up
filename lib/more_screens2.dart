@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,12 +7,14 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:intl/intl.dart';
 
 import 'main.dart';
+import 'catalog.dart';
 import 'more_screens.dart';
 import 'more_screens3.dart';
 import 'more_screens4.dart';
 import 'custom_dashboard.dart';
 import 'academy_live_screens.dart';
 import 'academy_service.dart';
+import 'booking_domain.dart';
 import 'tournament_screens.dart';
 
 /// Live open matches from Firestore, falling back to bundled samples when
@@ -41,6 +44,10 @@ class OpenMatch {
     required this.needed,
     required this.pricePerPlayer,
     required this.ranked,
+    this.playerIds = const [],
+    this.hostId = '',
+    this.startUtc,
+    this.playerNames = const [],
   });
 
   factory OpenMatch.fromMap(Map<String, dynamic> d, {String? id}) {
@@ -62,9 +69,13 @@ class OpenMatch {
       joined: players,
       needed: needed,
       pricePerPlayer: totalMinor > 0
-          ? '${d['currency'] ?? 'AED'} ${(totalMinor / 100 / capacity).toStringAsFixed(2)}'
+          ? '${d['currency'] ?? 'JOD'} ${(totalMinor / 100 / capacity).toStringAsFixed(2)}'
           : 'Cash at venue',
       ranked: d['ranked'] == true,
+      playerIds: List<String>.from(d['players'] as List? ?? const []),
+      hostId: (d['hostId'] ?? '').toString(),
+      startUtc: start,
+      playerNames: List<String>.from(d['playerNames'] as List? ?? const []),
     );
   }
 
@@ -79,58 +90,11 @@ class OpenMatch {
   final int needed;
   final String pricePerPlayer;
   final bool ranked;
+  final List<String> playerIds;
+  final String hostId;
+  final DateTime? startUtc;
+  final List<String> playerNames;
 }
-
-const kOpenMatches = <OpenMatch>[
-  OpenMatch(
-    title: 'Court Commanders 5v5',
-    sport: 'Basketball',
-    host: 'Omar K.',
-    court: 'Infinity Sports Center',
-    time: 'Today, 8:00 PM',
-    skill: 'Intermediate',
-    joined: 7,
-    needed: 3,
-    pricePerPlayer: 'AED 52.5',
-    ranked: true,
-  ),
-  OpenMatch(
-    title: 'Padel Night Doubles',
-    sport: 'Padel',
-    host: 'Sara N.',
-    court: 'Padel Pro Club',
-    time: 'Today, 9:30 PM',
-    skill: 'Casual',
-    joined: 2,
-    needed: 2,
-    pricePerPlayer: 'AED 60',
-    ranked: false,
-  ),
-  OpenMatch(
-    title: 'Volleyball Open Court',
-    sport: 'Volleyball',
-    host: 'Zayd A.',
-    court: 'Dubai Sports World',
-    time: 'Tomorrow, 6:00 PM',
-    skill: 'Advanced',
-    joined: 8,
-    needed: 4,
-    pricePerPlayer: 'AED 40',
-    ranked: true,
-  ),
-  OpenMatch(
-    title: 'Friday Football 7s',
-    sport: 'Football',
-    host: 'Mazen R.',
-    court: 'Skyline Sports',
-    time: 'Fri, 7:00 PM',
-    skill: 'Competitive',
-    joined: 10,
-    needed: 4,
-    pricePerPlayer: 'AED 45',
-    ranked: false,
-  ),
-];
 
 class OpenMatchesScreen extends StatefulWidget {
   const OpenMatchesScreen({super.key});
@@ -162,7 +126,7 @@ class _OpenMatchesScreenState extends State<OpenMatchesScreen> {
             ),
             const SizedBox(height: 16),
             SizedBox(
-              height: 42,
+              height: 48,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: _filters.length,
@@ -193,11 +157,24 @@ class _OpenMatchesScreenState extends State<OpenMatchesScreen> {
                     title: 'No matches found',
                     message: 'Try a different filter or create your own match.',
                     action: 'Create Match',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const CreateMatchScreen(),
-                      ),
-                    ),
+                    onTap: () async {
+                      final user = FirebaseAuth.instance.currentUser;
+                      if (user == null || user.isAnonymous) {
+                        await showAdaptiveMessage(
+                          context,
+                          title: 'Account required',
+                          message:
+                              'Sign in to reserve a court and publish a match.',
+                        );
+                        return;
+                      }
+                      if (!context.mounted) return;
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const CreateMatchScreen(),
+                        ),
+                      );
+                    },
                   );
                 }
                 return Column(
@@ -428,7 +405,14 @@ class MatchDetailsScreen extends StatelessWidget {
               runSpacing: 10,
               children: [
                 for (var i = 0; i < match.joined; i++)
-                  const Avatar(name: 'P', size: 46),
+                  Avatar(
+                    name:
+                        i < match.playerNames.length &&
+                            match.playerNames[i].trim().isNotEmpty
+                        ? match.playerNames[i]
+                        : 'Player ${i + 1}',
+                    size: 46,
+                  ),
                 for (var i = 0; i < match.needed; i++)
                   Container(
                     width: 46,
@@ -461,7 +445,7 @@ class MatchDetailsScreen extends StatelessWidget {
                           style: const TextStyle(fontWeight: FontWeight.w900),
                         ),
                         const Text(
-                          'Level 11 • 98% reliability',
+                          'Match organizer',
                           style: TextStyle(
                             color: AppColors.muted,
                             fontSize: 12,
@@ -471,11 +455,14 @@ class MatchDetailsScreen extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => MatchChatScreen(matchId: match.id),
-                      ),
-                    ),
+                    onPressed: match.id == null
+                        ? null
+                        : () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  MatchChatScreen(matchId: match.id),
+                            ),
+                          ),
                     icon: const Icon(
                       CupertinoIcons.chat_bubble_2_fill,
                       color: AppColors.purple,
@@ -490,33 +477,49 @@ class MatchDetailsScreen extends StatelessWidget {
               onPressed: match.needed == 0 || match.id == null
                   ? null
                   : () async {
-                      final messenger = ScaffoldMessenger.of(context);
                       try {
                         await AppRepository.instance.joinExistingMatch(
                           match.id!,
                         );
                         if (!context.mounted) return;
-                        Navigator.of(context).push(
+                        final updated = await FirebaseFirestore.instance
+                            .collection('matches')
+                            .doc(match.id!)
+                            .get();
+                        if (!context.mounted) return;
+                        Navigator.of(context).pushReplacement(
                           MaterialPageRoute(
-                            builder: (_) => const MatchFoundScreen(),
+                            builder: (_) => MatchDetailsScreen(
+                              match: OpenMatch.fromMap(
+                                updated.data() ?? const {},
+                                id: updated.id,
+                              ),
+                            ),
                           ),
                         );
                       } catch (error) {
-                        messenger.showSnackBar(
-                          SnackBar(content: Text(error.toString())),
+                        if (!context.mounted) return;
+                        await showAdaptiveMessage(
+                          context,
+                          title: 'Could not join match',
+                          message: error.toString().replaceFirst(
+                            'DomainValidationException: ',
+                            '',
+                          ),
                         );
                       }
                     },
             ),
             const SizedBox(height: 10),
-            SecondaryButton(
-              label: 'Open Chat',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => MatchChatScreen(matchId: match.id),
+            if (match.id != null)
+              SecondaryButton(
+                label: 'Open Chat',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => MatchChatScreen(matchId: match.id),
+                  ),
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -534,23 +537,46 @@ class CreateMatchScreen extends StatefulWidget {
 class _CreateMatchScreenState extends State<CreateMatchScreen> {
   int _step = 0;
   String _sport = 'Basketball';
-  String _courtChoice = 'Book a new court';
+  Court? _court;
   String _type = 'Casual';
   String _skill = 'Intermediate';
   int _players = 6;
+  DateTime _start = DateTime.now().add(const Duration(days: 1));
   bool _publishing = false;
+  late Future<Set<String>> _availableIds;
 
   static const _steps = ['Sport', 'Court', 'Type', 'Rules'];
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshAvailability();
+  }
+
+  void _refreshAvailability() {
+    _availableIds = AppRepository.instance.availableCourtIds(
+      sport: _sport,
+      startUtc: _start,
+    );
+  }
 
   Future<void> _publish() async {
     setState(() => _publishing = true);
     try {
-      final matchId = await AppRepository.instance.joinMatch(
-        '$_sport $_type Match',
+      final court = _court;
+      if (court == null) {
+        throw const DomainValidationException(
+          'Choose an available court before publishing.',
+        );
+      }
+      final matchId = await AppRepository.instance.createMatch(
+        title: '$_sport $_type Match',
         sport: _sport,
         type: _type,
-        neededPlayers: _players,
+        capacity: _players,
         skill: _skill,
+        court: court,
+        startUtc: _start,
       );
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -560,9 +586,14 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       );
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
+        await showAdaptiveMessage(
           context,
-        ).showSnackBar(SnackBar(content: Text(error.toString())));
+          title: 'Could not publish match',
+          message: error.toString().replaceFirst(
+            'DomainValidationException: ',
+            '',
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _publishing = false);
@@ -570,6 +601,15 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   }
 
   void _next() {
+    if (_step == 1 && _court == null) {
+      showAdaptiveMessage(
+        context,
+        title: 'Choose a court',
+        message:
+            'Select one of the courts available for your sport and match time.',
+      );
+      return;
+    }
     if (_step < _steps.length - 1) {
       setState(() => _step++);
     } else {
@@ -643,32 +683,105 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                   label: sport.label,
                   icon: sport.icon,
                   selected: _sport == sport.label,
-                  onTap: () => setState(() => _sport = sport.label),
+                  onTap: () => setState(() {
+                    _sport = sport.label;
+                    _court = null;
+                    _refreshAvailability();
+                  }),
                 ),
             ],
           ),
         );
       case 1:
         return _StepSection(
-          title: 'Choose a court',
+          title: 'Choose an available court',
           child: Column(
             children: [
-              for (final choice in const [
-                'Book a new court',
-                'Use an existing booking',
-                'Let players vote on the court',
-              ]) ...[
-                GestureDetector(
-                  onTap: () => setState(() => _courtChoice = choice),
-                  child: OptionTile(
-                    icon: CupertinoIcons.sportscourt,
-                    title: choice,
-                    subtitle: 'Tap to select',
-                    selected: _courtChoice == choice,
-                  ),
+              const CardBox(
+                child: Text(
+                  'Publishing reserves the selected court for one hour. Payment is collected by the academy at the venue.',
                 ),
-                const SizedBox(height: 10),
-              ],
+              ),
+              const SizedBox(height: 12),
+              CardBox(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Match date and time',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(DateFormat('EEE, d MMM yyyy • h:mm a').format(_start)),
+                    const SizedBox(height: 10),
+                    SecondaryButton(
+                      label: 'Change date and time',
+                      onPressed: _chooseStart,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              FutureBuilder<Set<String>>(
+                future: _availableIds,
+                builder: (context, availabilitySnapshot) {
+                  if (availabilitySnapshot.connectionState ==
+                      ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (availabilitySnapshot.hasError) {
+                    return CardBox(
+                      child: Column(
+                        children: [
+                          const Text('Court availability could not be loaded.'),
+                          const SizedBox(height: 10),
+                          SecondaryButton(
+                            label: 'Try again',
+                            onPressed: () => setState(_refreshAvailability),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  final ids = availabilitySnapshot.data ?? const <String>{};
+                  return StreamBuilder<List<Court>>(
+                    stream: CatalogService.instance.courts(),
+                    builder: (context, courtSnapshot) {
+                      final courts = (courtSnapshot.data ?? const <Court>[])
+                          .where(
+                            (court) =>
+                                ids.contains(court.id) &&
+                                court.isOpenAt(_start),
+                          )
+                          .toList();
+                      if (courts.isEmpty) {
+                        return const CardBox(
+                          child: Text(
+                            'No courts are available for this sport and time. Change the time or choose another sport.',
+                          ),
+                        );
+                      }
+                      return Column(
+                        children: [
+                          for (final court in courts) ...[
+                            GestureDetector(
+                              onTap: () => setState(() => _court = court),
+                              child: OptionTile(
+                                icon: CupertinoIcons.sportscourt,
+                                title: court.name,
+                                subtitle:
+                                    '${court.address.isEmpty ? court.subtitle : court.address} • ${court.price}',
+                                selected: _court?.id == court.id,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                          ],
+                        ],
+                      );
+                    },
+                  );
+                },
+              ),
             ],
           ),
         );
@@ -679,12 +792,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
             spacing: 10,
             runSpacing: 10,
             children: [
-              for (final type in const [
-                'Casual',
-                'Ranked',
-                'Training',
-                'Tournament',
-              ])
+              for (final type in const ['Casual', 'Competitive'])
                 SelectablePill(
                   label: type,
                   selected: _type == type,
@@ -703,7 +811,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                   children: [
                     const Expanded(
                       child: Text(
-                        'Players needed',
+                        'Total players (including you)',
                         style: TextStyle(fontWeight: FontWeight.w800),
                       ),
                     ),
@@ -735,6 +843,14 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                 const Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
+                    'Choose the full match capacity. One place is reserved for you.',
+                    style: TextStyle(color: AppColors.muted, fontSize: 12),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
                     'Skill range',
                     style: TextStyle(fontWeight: FontWeight.w800),
                   ),
@@ -744,7 +860,12 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    for (final level in kSkillLevels)
+                    for (final level in const [
+                      'Open to all',
+                      'Beginner',
+                      'Intermediate',
+                      'Advanced',
+                    ])
                       SelectablePill(
                         label: level,
                         selected: _skill == level,
@@ -757,6 +878,42 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
           ),
         );
     }
+  }
+
+  Future<void> _chooseStart() async {
+    final date = await showDatePicker(
+      context: context,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 90)),
+      initialDate: _start,
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_start),
+    );
+    if (time == null) return;
+    final selected = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+    if (!selected.isAfter(DateTime.now())) {
+      if (!mounted) return;
+      await showAdaptiveMessage(
+        context,
+        title: 'Choose a future time',
+        message: 'Match time must be later than now.',
+      );
+      return;
+    }
+    setState(() {
+      _start = selected;
+      _court = null;
+      _refreshAvailability();
+    });
   }
 }
 
@@ -1559,7 +1716,7 @@ class LiveAcademyDashboardSummary extends StatelessWidget {
                       ),
                       _OwnerMetric(
                         label: 'Cash collected',
-                        value: 'AED ${(revenue / 100).toStringAsFixed(0)}',
+                        value: 'JOD ${(revenue / 100).toStringAsFixed(0)}',
                         icon: CupertinoIcons.money_dollar_circle,
                       ),
                       _OwnerMetric(
@@ -1642,44 +1799,62 @@ class CourtManagementScreen extends StatelessWidget {
               onBack: () => Navigator.of(context).pop(),
             ),
             const SizedBox(height: 16),
-            for (final court in courts)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: CardBox(
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              court.name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
+            StreamBuilder<List<Court>>(
+              stream: CatalogService.instance.courts(),
+              builder: (context, snapshot) {
+                final courts = snapshot.data ?? const <Court>[];
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (courts.isEmpty) {
+                  return const CardBox(
+                    child: Text('No courts have been configured.'),
+                  );
+                }
+                return Column(
+                  children: [
+                    for (final court in courts)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: CardBox(
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      court.name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${court.subtitle} • ${court.price}',
+                                      style: const TextStyle(
+                                        color: AppColors.muted,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                            Text(
-                              '${court.subtitle} • ${court.price}',
-                              style: const TextStyle(
-                                color: AppColors.muted,
-                                fontSize: 12,
+                              IconButton(
+                                onPressed: () =>
+                                    _showAddCourt(context, name: court.name),
+                                icon: const Icon(
+                                  CupertinoIcons.pencil,
+                                  color: AppColors.purple,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
-                      IconButton(
-                        onPressed: () =>
-                            _showAddCourt(context, name: court.name),
-                        icon: const Icon(
-                          CupertinoIcons.pencil,
-                          color: AppColors.purple,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+                  ],
+                );
+              },
+            ),
           ],
         ),
       ),

@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:app_links/app_links.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -164,6 +166,9 @@ String friendlyAuthError(Object error) {
         return 'No internet connection. Check your network and try again.';
       case 'user-disabled':
         return 'This account has been disabled. Contact support.';
+      case 'configuration-not-found':
+        return error.message ??
+            'This sign-in provider is not configured for this app build.';
       case 'requires-recent-login':
         return 'Please sign in again to confirm this action.';
       default:
@@ -199,6 +204,8 @@ class SocialAuth {
   /// returns an ID token that Firebase Auth accepts.
   static const _serverClientId =
       '634238605050-qdp7hs2bsu4t1c7s8q9s34iajajamn7u.apps.googleusercontent.com';
+  static const _iosClientId =
+      '634238605050-sq6kl8t8dac9lkriodamkaj80fqh07re.apps.googleusercontent.com';
 
   /// True only on iOS, where "Sign in with Apple" is native. Hidden elsewhere.
   static bool get appleAvailable => defaultTargetPlatform == TargetPlatform.iOS;
@@ -215,7 +222,18 @@ class SocialAuth {
   static Future<UserCredential> google() async {
     final signIn = GoogleSignIn.instance;
     if (!_googleReady) {
-      await signIn.initialize(serverClientId: _serverClientId);
+      final isIos = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+      if (isIos && _iosClientId.isEmpty) {
+        throw FirebaseAuthException(
+          code: 'configuration-not-found',
+          message:
+              'Google sign-in needs the iOS OAuth client for com.playup.playu.',
+        );
+      }
+      await signIn.initialize(
+        clientId: isIos ? _iosClientId : null,
+        serverClientId: _serverClientId,
+      );
       _googleReady = true;
     }
     final account = await signIn.authenticate();
@@ -231,16 +249,22 @@ class SocialAuth {
   }
 
   static Future<UserCredential> apple() async {
+    final rawNonce = base64Url
+        .encode(
+          List<int>.generate(32, (_) => math.Random.secure().nextInt(256)),
+        )
+        .replaceAll('=', '');
+    final hashedNonce = sha256.convert(utf8.encode(rawNonce)).toString();
     final appleCredential = await SignInWithApple.getAppleIDCredential(
       scopes: [
         AppleIDAuthorizationScopes.email,
         AppleIDAuthorizationScopes.fullName,
       ],
+      nonce: hashedNonce,
     );
-    final oauthCredential = OAuthProvider('apple.com').credential(
-      idToken: appleCredential.identityToken,
-      accessToken: appleCredential.authorizationCode,
-    );
+    final oauthCredential = OAuthProvider(
+      'apple.com',
+    ).credential(idToken: appleCredential.identityToken, rawNonce: rawNonce);
     final result = await FirebaseAuth.instance.signInWithCredential(
       oauthCredential,
     );
@@ -657,32 +681,32 @@ class AppRepository {
           if (user.email != null) 'email': user.email,
           'displayName': name,
         }, SetOptions(merge: true));
-        return;
+      } else {
+        await ref.set({
+          'uid': user.uid,
+          'displayName': name,
+          'email': user.email,
+          'isGuest': user.isAnonymous,
+          'city':
+              LocationService.instance.current.value?.label ??
+              'Location not set',
+          'level': 1,
+          'rankTitle': 'Rookie',
+          'xp': 0,
+          'nextLevelXp': 500,
+          'points': 100,
+          'rating': 0.0,
+          'reliability': 100,
+          'matches': 0,
+          'winRate': 0,
+          'sports': <String>[],
+          'role': 'player',
+          'permissions': <String>[],
+          'suspended': false,
+          'createdAt': FieldValue.serverTimestamp(),
+          'lastSeenAt': FieldValue.serverTimestamp(),
+        });
       }
-      // New players start at the bottom of the ladder — everything they see
-      // afterwards is earned, not fake.
-      await ref.set({
-        'uid': user.uid,
-        'displayName': name,
-        'email': user.email,
-        'isGuest': user.isAnonymous,
-        'city': 'Dubai, UAE',
-        'level': 1,
-        'rankTitle': 'Rookie',
-        'xp': 0,
-        'nextLevelXp': 500,
-        'points': 100, // welcome bonus
-        'rating': 0.0,
-        'reliability': 100,
-        'matches': 0,
-        'winRate': 0,
-        'sports': <String>[],
-        'role': 'player',
-        'permissions': <String>[],
-        'suspended': false,
-        'createdAt': FieldValue.serverTimestamp(),
-        'lastSeenAt': FieldValue.serverTimestamp(),
-      });
     } catch (error) {
       debugPrint('ensureUserProfile skipped: $error');
     }
@@ -746,6 +770,24 @@ class AppRepository {
         .snapshots();
   }
 
+  Stream<List<OpenMatch>> myUpcomingMatches() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return Stream.value(const []);
+    return _matches
+        .where('players', arrayContains: uid)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => OpenMatch.fromMap(doc.data(), id: doc.id))
+              .where(
+                (match) =>
+                    match.startUtc == null ||
+                    match.startUtc!.isAfter(DateTime.now()),
+              )
+              .toList(),
+        );
+  }
+
   Future<String> createBooking({
     required Court court,
     required bool matchmaking,
@@ -790,12 +832,14 @@ class AppRepository {
     }
   }
 
-  Future<String> joinMatch(
-    String title, {
-    String sport = 'Basketball',
-    String type = 'Casual',
-    int neededPlayers = 2,
-    String skill = 'Intermediate',
+  Future<String> createMatch({
+    required String title,
+    required String sport,
+    required String type,
+    required int capacity,
+    required String skill,
+    required Court court,
+    required DateTime startUtc,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || user.isAnonymous) {
@@ -807,12 +851,9 @@ class AppRepository {
         'sport': sport,
         'type': type,
         'skill': skill,
-        'capacity': neededPlayers,
-        'courtId': 'uat-court-a1',
-        'startUtc': DateTime.now()
-            .toUtc()
-            .add(const Duration(hours: 3))
-            .toIso8601String(),
+        'capacity': capacity,
+        'courtId': court.id,
+        'startUtc': startUtc.toUtc().toIso8601String(),
       });
       return (response.data as Map)['matchId'].toString();
     } catch (error) {
@@ -822,6 +863,29 @@ class AppRepository {
         );
       }
       rethrow;
+    }
+  }
+
+  Future<Set<String>> availableCourtIds({
+    required String sport,
+    required DateTime startUtc,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) return const {};
+    try {
+      final response = await _functions
+          .httpsCallable('listAvailableCourts')
+          .call({
+            'sport': sport,
+            'startUtc': startUtc.toUtc().toIso8601String(),
+          });
+      return Set<String>.from(
+        (response.data as Map)['courtIds'] as List? ?? const [],
+      );
+    } on FirebaseFunctionsException catch (error) {
+      throw DomainValidationException(
+        error.message ?? 'Court availability could not be loaded.',
+      );
     }
   }
 
@@ -867,6 +931,46 @@ class AppRepository {
         .orderBy('createdAt', descending: true)
         .limit(100)
         .snapshots();
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> friendships() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return const Stream.empty();
+    return _db
+        .collection('friendships')
+        .where('members', arrayContains: uid)
+        .snapshots();
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> publicPlayers() => _db
+      .collection('publicProfiles')
+      .orderBy('xp', descending: true)
+      .limit(50)
+      .snapshots();
+
+  Future<void> sendFriendRequest(String playerId) async {
+    try {
+      await _functions.httpsCallable('sendFriendRequest').call({
+        'playerId': playerId,
+      });
+    } on FirebaseFunctionsException catch (error) {
+      throw DomainValidationException(
+        error.message ?? 'Friend request could not be sent.',
+      );
+    }
+  }
+
+  Future<void> respondFriendRequest(String friendshipId, bool accept) async {
+    try {
+      await _functions.httpsCallable('respondFriendRequest').call({
+        'friendshipId': friendshipId,
+        'accept': accept,
+      });
+    } on FirebaseFunctionsException catch (error) {
+      throw DomainValidationException(
+        error.message ?? 'Friend request could not be updated.',
+      );
+    }
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> matchMessages(String matchId) =>
@@ -990,6 +1094,14 @@ class Court {
     this.id = '',
     this.latitude,
     this.longitude,
+    this.academyId = '',
+    this.sport = 'Sport',
+    this.currency = 'JOD',
+    this.basePriceMinor = 0,
+    this.address = '',
+    this.active = true,
+    this.openingHour = 6,
+    this.closingHour = 23,
   });
 
   final String name;
@@ -1003,11 +1115,17 @@ class Court {
   final String id;
   final double? latitude;
   final double? longitude;
+  final String academyId;
+  final String sport;
+  final String currency;
+  final int basePriceMinor;
+  final String address;
+  final bool active;
+  final int openingHour;
+  final int closingHour;
 
-  String distanceFrom(AppLocation? location) {
-    if (location == null || latitude == null || longitude == null) {
-      return 'Location needed';
-    }
+  double? distanceKmFrom(AppLocation? location) {
+    if (location == null || latitude == null || longitude == null) return null;
     const earthRadiusKm = 6371.0;
     final dLat = (latitude! - location.latitude) * math.pi / 180;
     final dLon = (longitude! - location.longitude) * math.pi / 180;
@@ -1017,40 +1135,18 @@ class Court {
             math.cos(latitude! * math.pi / 180) *
             math.sin(dLon / 2) *
             math.sin(dLon / 2);
-    final km = earthRadiusKm * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return earthRadiusKm * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  }
+
+  String distanceFrom(AppLocation? location) {
+    final km = distanceKmFrom(location);
+    if (km == null) return 'Location needed';
     return km < 1 ? '${(km * 1000).round()} m' : '${km.toStringAsFixed(1)} km';
   }
-}
 
-const courts = [
-  Court(
-    name: 'Infinity Sports Center',
-    subtitle: 'Indoor Basketball',
-    rating: '4.8 (128)',
-    distance: '1.2 km',
-    price: 'AED 210 / hr',
-    gradient: [Color(0xFF102A43), Color(0xFF1F7A8C)],
-    icon: CupertinoIcons.sportscourt,
-  ),
-  Court(
-    name: 'Dubai Sports World',
-    subtitle: 'Indoor Basketball',
-    rating: '4.7 (96)',
-    distance: '2.1 km',
-    price: 'AED 180 / hr',
-    gradient: [Color(0xFF281B44), Color(0xFF7B3FF2)],
-    icon: CupertinoIcons.circle_grid_hex,
-  ),
-  Court(
-    name: 'Hoops Basketball Academy',
-    subtitle: 'Indoor Academy',
-    rating: '4.6 (74)',
-    distance: '2.8 km',
-    price: 'AED 200 / hr',
-    gradient: [Color(0xFF18230F), Color(0xFF62D84E)],
-    icon: CupertinoIcons.person_3_fill,
-  ),
-];
+  bool isOpenAt(DateTime localTime) =>
+      active && localTime.hour >= openingHour && localTime.hour < closingHour;
+}
 
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
@@ -1396,7 +1492,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   Expanded(
                     child: ProviderButton(
                       label: 'Continue with Apple',
-                      icon: CupertinoIcons.device_phone_portrait,
+                      icon: Icons.apple,
                       onTap: _loading ? () {} : () => _social(SocialAuth.apple),
                     ),
                   ),
@@ -1597,7 +1693,7 @@ class BookCourtsOnboarding extends StatelessWidget {
                         ),
                         const SizedBox(height: 6),
                         const Text(
-                          'AED 210 / hr',
+                          'JOD 21 / hr',
                           style: TextStyle(fontWeight: FontWeight.w800),
                         ),
                       ],
@@ -1654,9 +1750,6 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
-    // Populate the catalog on first run (no-op if already seeded or if
-    // write rules reject it — the UI falls back to bundled data either way).
-    CatalogService.instance.seedIfEmpty();
     unawaited(DeepLinkService.consumePending());
   }
 
@@ -1873,17 +1966,56 @@ class HomeScreen extends StatelessWidget {
             },
           ),
           const SizedBox(height: 18),
-          DarkFeatureCard(
-            title: 'Next Match',
-            subtitle: 'Basketball 5v5',
-            meta: 'Today, 8:00 PM  •  Dubai Sports World',
-            cta: 'Join',
-            onPressed: () => Navigator.of(
-              context,
-            ).push(MaterialPageRoute(builder: (_) => const MatchFoundScreen())),
+          StreamBuilder<List<OpenMatch>>(
+            stream: AppRepository.instance.myUpcomingMatches(),
+            builder: (context, snapshot) {
+              final uid = FirebaseAuth.instance.currentUser?.uid;
+              final now = DateTime.now();
+              final matches =
+                  (snapshot.data ?? const <OpenMatch>[])
+                      .where(
+                        (match) =>
+                            uid != null &&
+                            (match.hostId == uid ||
+                                match.playerIds.contains(uid)) &&
+                            (match.startUtc == null ||
+                                match.startUtc!.isAfter(now)),
+                      )
+                      .toList()
+                    ..sort(
+                      (a, b) =>
+                          (a.startUtc ?? now).compareTo(b.startUtc ?? now),
+                    );
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const CardBox(
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (matches.isEmpty) {
+                return DarkFeatureCard(
+                  title: 'Your next match',
+                  subtitle: 'No upcoming match yet',
+                  meta: 'Browse live matches available near you',
+                  cta: 'Find match',
+                  onPressed: () => onTabChange(2),
+                );
+              }
+              final match = matches.first;
+              return DarkFeatureCard(
+                title: 'Your next match',
+                subtitle: match.title,
+                meta: '${match.time} • ${match.court}',
+                cta: 'View',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => MatchDetailsScreen(match: match),
+                  ),
+                ),
+              );
+            },
           ),
           const SizedBox(height: 22),
-          SectionHeader(title: 'Quick Actions', onSeeAll: () {}),
+          const SectionHeader(title: 'Quick Actions'),
           const SizedBox(height: 12),
           Row(
             children: [
@@ -1916,13 +2048,20 @@ class HomeScreen extends StatelessWidget {
                 child: QuickAction(
                   icon: CupertinoIcons.paperplane,
                   label: 'Invite Friends',
-                  onTap: () {},
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const FriendsScreen()),
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 22),
-          SectionHeader(title: 'Your Progress', onSeeAll: () {}),
+          SectionHeader(
+            title: 'Your Progress',
+            onSeeAll: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const LevelDetailScreen()),
+            ),
+          ),
           const SizedBox(height: 12),
           const ProgressSummaryCard(),
           const SizedBox(height: 22),
@@ -1936,16 +2075,29 @@ class HomeScreen extends StatelessWidget {
             child: StreamBuilder<List<Court>>(
               stream: CatalogService.instance.courts(),
               builder: (context, snapshot) {
-                final list = (snapshot.hasData && snapshot.data!.isNotEmpty)
-                    ? snapshot.data!
-                    : kFallbackCourts;
-                return ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemBuilder: (_, index) =>
-                      CourtCarouselCard(court: list[index]),
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(width: 12),
-                  itemCount: list.length,
+                return ValueListenableBuilder<AppLocation?>(
+                  valueListenable: LocationService.instance.current,
+                  builder: (context, location, _) {
+                    final list = CatalogService.instance.nearbyCourts(
+                      snapshot.data ?? const <Court>[],
+                      location,
+                    );
+                    if (list.isEmpty) {
+                      return const CardBox(
+                        child: Text(
+                          'No nearby courts are available for this location.',
+                        ),
+                      );
+                    }
+                    return ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemBuilder: (_, index) =>
+                          CourtCarouselCard(court: list[index]),
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(width: 12),
+                      itemCount: list.length,
+                    );
+                  },
                 );
               },
             ),
@@ -1961,17 +2113,30 @@ class HomeScreen extends StatelessWidget {
           StreamBuilder<List<Academy>>(
             stream: CatalogService.instance.academies(),
             builder: (context, snapshot) {
-              final list = (snapshot.hasData && snapshot.data!.isNotEmpty)
-                  ? snapshot.data!
-                  : kFallbackAcademies;
-              return Column(
-                children: [
-                  for (final academy in list.take(2))
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 14),
-                      child: AcademyHomeCard(academy: academy),
-                    ),
-                ],
+              return ValueListenableBuilder<AppLocation?>(
+                valueListenable: LocationService.instance.current,
+                builder: (context, location, _) {
+                  final list = CatalogService.instance.nearbyAcademies(
+                    snapshot.data ?? const <Academy>[],
+                    location,
+                  );
+                  if (list.isEmpty) {
+                    return const CardBox(
+                      child: Text(
+                        'No nearby academies are available for this location.',
+                      ),
+                    );
+                  }
+                  return Column(
+                    children: [
+                      for (final academy in list.take(2))
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 14),
+                          child: AcademyHomeCard(academy: academy),
+                        ),
+                    ],
+                  );
+                },
               );
             },
           ),
@@ -2089,8 +2254,22 @@ class AcademyHomeCard extends StatelessWidget {
   }
 }
 
-class BookScreen extends StatelessWidget {
+class BookScreen extends StatefulWidget {
   const BookScreen({super.key});
+
+  @override
+  State<BookScreen> createState() => _BookScreenState();
+}
+
+class _BookScreenState extends State<BookScreen> {
+  final _search = TextEditingController();
+  String _sport = 'All';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2115,42 +2294,75 @@ class BookScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 18),
-          GestureDetector(
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const SearchResultsScreen()),
-            ),
-            child: const SearchBox(),
-          ),
+          SearchBox(controller: _search, onChanged: (_) => setState(() {})),
           const SizedBox(height: 14),
           SizedBox(
-            height: 42,
+            height: 48,
             child: ListView(
               scrollDirection: Axis.horizontal,
-              children: const [
-                SportChip(label: 'All'),
-                SportChip(label: 'Basketball', selected: true),
-                SportChip(label: 'Padel'),
-                SportChip(label: 'Volleyball'),
-                SportChip(label: '3x3'),
+              children: [
+                for (final sport in const [
+                  'All',
+                  'Basketball',
+                  'Padel',
+                  'Volleyball',
+                  '3x3',
+                ])
+                  SportChip(
+                    label: sport,
+                    selected: _sport == sport,
+                    onTap: () => setState(() => _sport = sport),
+                  ),
               ],
             ),
           ),
           const SizedBox(height: 22),
-          SectionHeader(title: 'Nearby Courts', onSeeAll: () {}),
+          SectionHeader(
+            title: 'Nearby Courts',
+            onSeeAll: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const MapViewScreen())),
+          ),
           const SizedBox(height: 12),
           StreamBuilder<List<Court>>(
             stream: CatalogService.instance.courts(),
             builder: (context, snapshot) {
-              final list = (snapshot.hasData && snapshot.data!.isNotEmpty)
-                  ? snapshot.data!
-                  : kFallbackCourts;
-              return ListView.separated(
-                physics: const NeverScrollableScrollPhysics(),
-                shrinkWrap: true,
-                itemBuilder: (_, index) => CourtListCard(court: list[index]),
-                separatorBuilder: (context, index) =>
-                    const SizedBox(height: 12),
-                itemCount: list.length,
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              return ValueListenableBuilder<AppLocation?>(
+                valueListenable: LocationService.instance.current,
+                builder: (context, location, _) {
+                  final list = CatalogService.instance.nearbyCourts(
+                    snapshot.data ?? const <Court>[],
+                    location,
+                    sport: _sport,
+                    query: _search.text,
+                  );
+                  if (list.isEmpty) {
+                    return EmptyState(
+                      icon: CupertinoIcons.sportscourt,
+                      title: 'No courts found',
+                      message:
+                          'Try another sport, search, or update your location.',
+                      action: 'Open map',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const MapViewScreen(),
+                        ),
+                      ),
+                    );
+                  }
+                  return ListView.separated(
+                    physics: const NeverScrollableScrollPhysics(),
+                    shrinkWrap: true,
+                    itemBuilder: (_, index) =>
+                        CourtListCard(court: list[index]),
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 12),
+                    itemCount: list.length,
+                  );
+                },
               );
             },
           ),
@@ -2160,8 +2372,15 @@ class BookScreen extends StatelessWidget {
   }
 }
 
-class PlayScreen extends StatelessWidget {
+class PlayScreen extends StatefulWidget {
   const PlayScreen({super.key});
+
+  @override
+  State<PlayScreen> createState() => _PlayScreenState();
+}
+
+class _PlayScreenState extends State<PlayScreen> {
+  String _sport = 'All';
 
   @override
   Widget build(BuildContext context) {
@@ -2169,28 +2388,40 @@ class PlayScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const HeaderRow(
+          HeaderRow(
             title: 'Find your\nnext match',
-            subtitle: 'Ranked and casual games near you',
-            trailing: Icon(CupertinoIcons.slider_horizontal_3, size: 26),
+            subtitle: 'Competitive and casual games near you',
+            trailing: IconButton(
+              tooltip: 'Filter matches',
+              onPressed: () => _showFilters(context),
+              icon: const Icon(CupertinoIcons.slider_horizontal_3, size: 26),
+            ),
           ),
           const SizedBox(height: 18),
-          DarkFeatureCard(
-            title: 'Best match for you',
-            subtitle: '95% Match Quality',
-            meta: 'Basketball 5v5  •  Intermediate  •  1.2 km',
-            cta: 'View',
-            onPressed: () => Navigator.of(
-              context,
-            ).push(MaterialPageRoute(builder: (_) => const MatchFoundScreen())),
+          SizedBox(
+            height: 48,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                for (final sport in const [
+                  'All',
+                  'Basketball',
+                  'Padel',
+                  'Volleyball',
+                ])
+                  SportChip(
+                    label: sport,
+                    selected: _sport == sport,
+                    onTap: () => setState(() => _sport = sport),
+                  ),
+              ],
+            ),
           ),
           const SizedBox(height: 20),
           PrimaryButton(
             label: 'Create Match',
             icon: CupertinoIcons.plus,
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const CreateMatchScreen()),
-            ),
+            onPressed: () => _createMatch(context),
           ),
           const SizedBox(height: 10),
           SecondaryButton(
@@ -2213,7 +2444,9 @@ class PlayScreen extends StatelessWidget {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
-              final list = snapshot.data ?? const <OpenMatch>[];
+              final list = (snapshot.data ?? const <OpenMatch>[])
+                  .where((m) => _sport == 'All' || m.sport == _sport)
+                  .toList();
               if (list.isEmpty) {
                 return const CardBox(
                   child: Text(
@@ -2223,6 +2456,19 @@ class PlayScreen extends StatelessWidget {
               }
               return Column(
                 children: [
+                  DarkFeatureCard(
+                    title: 'Recommended live match',
+                    subtitle: list.first.title,
+                    meta:
+                        '${list.first.sport} • ${list.first.skill} • ${list.first.time}',
+                    cta: 'View',
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => MatchDetailsScreen(match: list.first),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
                   for (final match in list.take(3))
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
@@ -2236,10 +2482,72 @@ class PlayScreen extends StatelessWidget {
       ),
     );
   }
+
+  Future<void> _showFilters(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              const SizedBox(
+                width: double.infinity,
+                child: Text(
+                  'Filter by sport',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                ),
+              ),
+              for (final sport in const [
+                'All',
+                'Basketball',
+                'Padel',
+                'Volleyball',
+              ])
+                SelectablePill(
+                  label: sport,
+                  selected: _sport == sport,
+                  onTap: () {
+                    setState(() => _sport = sport);
+                    Navigator.pop(sheetContext);
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _createMatch(BuildContext context) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) {
+      await showAdaptiveMessage(
+        context,
+        title: 'Account required',
+        message: 'Sign in to reserve a court and publish a match.',
+      );
+      return;
+    }
+    if (!context.mounted) return;
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const CreateMatchScreen()));
+  }
 }
 
-class RewardsScreen extends StatelessWidget {
+class RewardsScreen extends StatefulWidget {
   const RewardsScreen({super.key});
+
+  @override
+  State<RewardsScreen> createState() => _RewardsScreenState();
+}
+
+class _RewardsScreenState extends State<RewardsScreen> {
+  String _filter = 'All Offers';
 
   @override
   Widget build(BuildContext context) {
@@ -2262,59 +2570,76 @@ class RewardsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           SizedBox(
-            height: 42,
+            height: 48,
             child: ListView(
               scrollDirection: Axis.horizontal,
-              children: const [
-                SportChip(label: 'All Offers', selected: true, dark: true),
-                SportChip(label: 'Academy'),
-                SportChip(label: 'Sponsors'),
-                SportChip(label: 'My Coupons'),
+              children: [
+                for (final filter in const [
+                  'All Offers',
+                  'Academy',
+                  'Sponsors',
+                  'My Coupons',
+                ])
+                  SportChip(
+                    label: filter,
+                    selected: _filter == filter,
+                    dark: true,
+                    onTap: () => setState(() => _filter = filter),
+                  ),
               ],
             ),
           ),
           const SizedBox(height: 18),
-          StreamBuilder<List<Offer>>(
-            stream: CatalogService.instance.offers(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final list = snapshot.data ?? const <Offer>[];
-              if (list.isEmpty) {
-                return const CardBox(
-                  child: Text('No rewards are available right now.'),
-                );
-              }
-              return Column(
-                children: [
-                  for (final offer in list)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: GestureDetector(
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => OfferDetailsScreen(
-                              offerId: offer.id,
-                              title: offer.title,
-                              partner: offer.partner,
-                              points: offer.points,
-                              colors: offer.colors,
+          if (_filter == 'My Coupons')
+            const WalletScreen(embedded: true)
+          else
+            StreamBuilder<List<Offer>>(
+              stream: CatalogService.instance.offers(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final list = (snapshot.data ?? const <Offer>[])
+                    .where(
+                      (offer) =>
+                          _filter == 'All Offers' ||
+                          offer.category.toLowerCase() == _filter.toLowerCase(),
+                    )
+                    .toList();
+                if (list.isEmpty) {
+                  return const CardBox(
+                    child: Text('No rewards are available right now.'),
+                  );
+                }
+                return Column(
+                  children: [
+                    for (final offer in list)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: GestureDetector(
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => OfferDetailsScreen(
+                                offerId: offer.id,
+                                title: offer.title,
+                                partner: offer.partner,
+                                points: offer.points,
+                                colors: offer.colors,
+                              ),
                             ),
                           ),
-                        ),
-                        child: OfferCard(
-                          title: offer.title,
-                          partner: offer.partner,
-                          points: offer.points,
-                          colors: offer.colors,
+                          child: OfferCard(
+                            title: offer.title,
+                            partner: offer.partner,
+                            points: offer.points,
+                            colors: offer.colors,
+                          ),
                         ),
                       ),
-                    ),
-                ],
-              );
-            },
-          ),
+                  ],
+                );
+              },
+            ),
         ],
       ),
     );
@@ -2444,35 +2769,50 @@ class ProfileScreen extends StatelessWidget {
             },
           ),
           const SizedBox(height: 22),
-          const Text(
-            'My Sports',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+          SectionHeader(
+            title: 'My Sports',
+            onSeeAll: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const SportsSelectionScreen()),
+            ),
           ),
           const SizedBox(height: 12),
-          const Row(
-            children: [
-              Expanded(
-                child: SportSquare(
-                  icon: Icons.sports_basketball,
-                  label: 'Basketball',
-                ),
-              ),
-              SizedBox(width: 10),
-              Expanded(
-                child: SportSquare(icon: CupertinoIcons.circle, label: 'Padel'),
-              ),
-              SizedBox(width: 10),
-              Expanded(
-                child: SportSquare(
-                  icon: CupertinoIcons.sportscourt,
-                  label: 'Volleyball',
-                ),
-              ),
-              SizedBox(width: 10),
-              Expanded(
-                child: SportSquare(icon: CupertinoIcons.person_3, label: '3x3'),
-              ),
-            ],
+          InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const SportsSelectionScreen()),
+            ),
+            child: StreamBuilder<Map<String, dynamic>>(
+              stream: AppRepository.instance.currentUserDoc(),
+              builder: (context, snapshot) {
+                final selected = List<String>.from(
+                  snapshot.data?['sports'] as List? ?? const [],
+                );
+                if (selected.isEmpty) {
+                  return const CardBox(
+                    child: Text('Tap to choose the sports you play.'),
+                  );
+                }
+                return Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    for (final sport in selected)
+                      SizedBox(
+                        width: 92,
+                        child: SportSquare(
+                          icon:
+                              kSportOptions
+                                  .where((option) => option.label == sport)
+                                  .map((option) => option.icon)
+                                  .firstOrNull ??
+                              CupertinoIcons.sportscourt,
+                          label: sport,
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
           ),
           const SizedBox(height: 22),
           SectionHeader(
@@ -2646,17 +2986,13 @@ class CourtDetailsScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 22),
-            SectionHeader(title: 'Available Slots', onSeeAll: () {}),
+            const SectionHeader(title: 'Booking hours'),
             const SizedBox(height: 12),
-            const Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                SlotChip(time: '6:00 PM', price: 'AED 210'),
-                SlotChip(time: '7:00 PM', price: 'AED 210'),
-                SlotChip(time: '8:00 PM', price: 'AED 210', selected: true),
-                SlotChip(time: '9:00 PM', price: 'AED 210'),
-              ],
+            CardBox(
+              child: Text(
+                'Open daily from ${court.openingHour.toString().padLeft(2, '0')}:00 to ${court.closingHour.toString().padLeft(2, '0')}:00. Choose a date to see live availability.',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
             ),
             const SizedBox(height: 26),
             Row(
@@ -3027,13 +3363,13 @@ class MatchFoundScreen extends StatelessWidget {
                           Expanded(
                             child: PriceBlock(
                               label: 'Total Price',
-                              value: 'AED 210',
+                              value: 'JOD 21',
                             ),
                           ),
                           Expanded(
                             child: PriceBlock(
                               label: 'Per Player',
-                              value: 'AED 52.5',
+                              value: 'JOD 5.25',
                             ),
                           ),
                         ],
@@ -3320,11 +3656,26 @@ class MyBookingsScreen extends StatelessWidget {
                       const SizedBox(height: 12),
                   itemBuilder: (context, index) {
                     final data = docs[index].data();
+                    final court = Court(
+                      id: (data['courtId'] ?? '').toString(),
+                      academyId: (data['academyId'] ?? '').toString(),
+                      name: (data['courtName'] ?? 'Court').toString(),
+                      subtitle: (data['sport'] ?? 'Sports court').toString(),
+                      sport: (data['sport'] ?? 'Sport').toString(),
+                      rating: '—',
+                      distance: '',
+                      price:
+                          '${data['currency'] ?? 'JOD'} ${(((data['totalMinor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2)}',
+                      currency: (data['currency'] ?? 'JOD').toString(),
+                      basePriceMinor:
+                          (data['totalMinor'] as num?)?.toInt() ?? 0,
+                      gradient: const [Color(0xFF102A43), Color(0xFF1F7A8C)],
+                      icon: CupertinoIcons.sportscourt,
+                    );
                     return GestureDetector(
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (_) =>
-                              BookingDetailsScreen(court: courts.first),
+                          builder: (_) => BookingDetailsScreen(court: court),
                         ),
                       ),
                       child: BookingTile(data: data),
@@ -3798,9 +4149,8 @@ class SettingsScreen extends StatelessWidget {
             SettingsTile(
               icon: CupertinoIcons.creditcard,
               title: 'Payment Methods',
-              onTap: () => _simpleSheet(
-                context,
-                'Card and wallet management will connect to your payment provider.',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PaymentMethodsScreen()),
               ),
             ),
             const SizedBox(height: 18),
@@ -3833,6 +4183,7 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+  // ignore: unused_element
   void _simpleSheet(BuildContext context, String message) {
     showModalBottomSheet<void>(
       context: context,
@@ -4142,10 +4493,10 @@ class PageTopBar extends StatelessWidget {
 }
 
 class SectionHeader extends StatelessWidget {
-  const SectionHeader({super.key, required this.title, required this.onSeeAll});
+  const SectionHeader({super.key, required this.title, this.onSeeAll});
 
   final String title;
-  final VoidCallback onSeeAll;
+  final VoidCallback? onSeeAll;
 
   @override
   Widget build(BuildContext context) {
@@ -4157,7 +4508,8 @@ class SectionHeader extends StatelessWidget {
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
           ),
         ),
-        TextButton(onPressed: onSeeAll, child: const Text('See All')),
+        if (onSeeAll != null)
+          TextButton(onPressed: onSeeAll, child: const Text('See All')),
       ],
     );
   }
@@ -4545,32 +4897,44 @@ class SportChip extends StatelessWidget {
     required this.label,
     this.selected = false,
     this.dark = false,
+    this.onTap,
   });
 
   final String label;
   final bool selected;
   final bool dark;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(right: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-      decoration: BoxDecoration(
-        color: selected
-            ? (dark ? AppColors.dark : AppColors.purple)
-            : Colors.white,
+    final scheme = Theme.of(context).colorScheme;
+    return Semantics(
+      button: onTap != null,
+      selected: selected,
+      child: InkWell(
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: selected ? Colors.transparent : AppColors.line,
-        ),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: selected ? Colors.white : AppColors.ink,
-          fontWeight: FontWeight.w700,
-          fontSize: 13,
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          margin: const EdgeInsets.only(right: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: selected
+                ? (dark ? AppColors.dark : AppColors.purple)
+                : scheme.surface,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: selected ? Colors.transparent : scheme.outlineVariant,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.white : scheme.onSurface,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
         ),
       ),
     );
@@ -4635,7 +4999,7 @@ class MatchQualityCard extends StatelessWidget {
           const DetailRow(label: 'Time', value: 'Today, 8:00 PM', light: true),
           const DetailRow(
             label: 'Location',
-            value: 'Dubai Sports World',
+            value: 'Amman Sports City',
             light: true,
           ),
         ],
@@ -5096,26 +5460,35 @@ class _TabItem extends StatelessWidget {
 }
 
 class SearchBox extends StatelessWidget {
-  const SearchBox({super.key});
+  const SearchBox({super.key, this.controller, this.onChanged});
+
+  final TextEditingController? controller;
+  final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEFF1F5),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: const Row(
-        children: [
-          Icon(CupertinoIcons.search, color: AppColors.muted, size: 20),
-          SizedBox(width: 10),
-          Text(
-            'Search for courts or academies',
-            style: TextStyle(color: AppColors.muted),
-          ),
-        ],
+    return TextField(
+      controller: controller,
+      onChanged: onChanged,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: 'Search courts or academies',
+        prefixIcon: const Icon(CupertinoIcons.search),
+        suffixIcon: controller?.text.isNotEmpty == true
+            ? IconButton(
+                tooltip: 'Clear search',
+                onPressed: () {
+                  controller!.clear();
+                  onChanged?.call('');
+                },
+                icon: const Icon(CupertinoIcons.clear_circled_solid),
+              )
+            : null,
+        filled: true,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
       ),
     );
   }
@@ -5141,6 +5514,7 @@ class AppTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return TextField(
       controller: controller,
       obscureText: obscureText,
@@ -5152,14 +5526,14 @@ class AppTextField extends StatelessWidget {
         labelText: label,
         prefixIcon: Icon(icon),
         filled: true,
-        fillColor: Colors.white,
+        fillColor: scheme.surface,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(color: AppColors.line),
+          borderSide: BorderSide(color: scheme.outlineVariant),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(color: AppColors.line),
+          borderSide: BorderSide(color: scheme.outlineVariant),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
@@ -5266,6 +5640,73 @@ class AuthHeroBanner extends StatelessWidget {
   }
 }
 
+class PaymentMethodsScreen extends StatelessWidget {
+  const PaymentMethodsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: AppScrollPage(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            PageTopBar(
+              title: 'Payment Methods',
+              onBack: () => Navigator.of(context).pop(),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'Available now',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 12),
+            const CardBox(
+              child: Row(
+                children: [
+                  Icon(
+                    CupertinoIcons.money_dollar_circle_fill,
+                    color: AppColors.green,
+                    size: 32,
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Pay at the venue',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                        Text(
+                          'Your booking is reserved and the academy records payment at check-in.',
+                          style: TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    CupertinoIcons.checkmark_seal_fill,
+                    color: AppColors.green,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            const CardBox(
+              child: Text(
+                'No card or wallet is stored by PlayUp. Online payments will only appear here after a payment provider is securely configured.',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class ProviderButton extends StatelessWidget {
   const ProviderButton({
     super.key,
@@ -5284,6 +5725,7 @@ class ProviderButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: () {
         HapticFeedback.selectionClick();
@@ -5294,9 +5736,9 @@ class ProviderButton extends StatelessWidget {
         height: 58,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: scheme.surface,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppColors.line),
+          border: Border.all(color: scheme.outlineVariant),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -5774,7 +6216,7 @@ class MatchTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 5),
                 const Text(
-                  'Needs 2 players  •  AED 52.5 each',
+                  'Needs 2 players  •  JOD 5.25 each',
                   style: TextStyle(color: AppColors.muted, fontSize: 13),
                 ),
               ],
@@ -5843,10 +6285,23 @@ class OfferCard extends StatelessWidget {
               ],
             ),
           ),
-          FilledButton(
-            onPressed: () {},
-            style: FilledButton.styleFrom(backgroundColor: AppColors.purple),
-            child: const Text('Redeem'),
+          const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'View',
+                style: TextStyle(
+                  color: AppColors.purple,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              SizedBox(width: 4),
+              Icon(
+                CupertinoIcons.chevron_right,
+                color: AppColors.purple,
+                size: 16,
+              ),
+            ],
           ),
         ],
       ),
