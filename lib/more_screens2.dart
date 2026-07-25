@@ -542,15 +542,25 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   String _skill = 'Intermediate';
   int _players = 6;
   DateTime _start = DateTime.now().add(const Duration(days: 1));
+  bool _externalVenue = false;
   bool _publishing = false;
   late Future<Set<String>> _availableIds;
+  late Future<bool> _canUseExternalVenues;
+  final _venueNote = TextEditingController();
 
-  static const _steps = ['Sport', 'Court', 'Type', 'Rules'];
+  static const _steps = ['Sport', 'Venue', 'Type', 'Rules'];
 
   @override
   void initState() {
     super.initState();
+    _canUseExternalVenues = AppRepository.instance.canCreateExternalMatches();
     _refreshAvailability();
+  }
+
+  @override
+  void dispose() {
+    _venueNote.dispose();
+    super.dispose();
   }
 
   void _refreshAvailability() {
@@ -564,7 +574,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     setState(() => _publishing = true);
     try {
       final court = _court;
-      if (court == null) {
+      if (!_externalVenue && court == null) {
         throw const DomainValidationException(
           'Choose an available court before publishing.',
         );
@@ -577,6 +587,8 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         skill: _skill,
         court: court,
         startUtc: _start,
+        externalVenue: _externalVenue,
+        venueNote: _venueNote.text.trim(),
       );
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -601,12 +613,20 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   }
 
   void _next() {
-    if (_step == 1 && _court == null) {
+    if (_step == 1 && !_externalVenue && _court == null) {
       showAdaptiveMessage(
         context,
         title: 'Choose a court',
         message:
             'Select one of the courts available for your sport and match time.',
+      );
+      return;
+    }
+    if (_step == 1 && _externalVenue && _venueNote.text.trim().length < 3) {
+      showAdaptiveMessage(
+        context,
+        title: 'Add venue',
+        message: 'Write the court or venue that will be used.',
       );
       return;
     }
@@ -694,15 +714,49 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         );
       case 1:
         return _StepSection(
-          title: 'Choose an available court',
+          title: 'Choose the venue',
           child: Column(
             children: [
-              const CardBox(
-                child: Text(
-                  'Publishing reserves the selected court for one hour. Payment is collected by the academy at the venue.',
-                ),
+              FutureBuilder<bool>(
+                future: _canUseExternalVenues,
+                builder: (context, snapshot) {
+                  final canUseExternal = snapshot.data ?? false;
+                  if (!canUseExternal) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => setState(() => _externalVenue = false),
+                            child: OptionTile(
+                              icon: CupertinoIcons.sportscourt,
+                              title: 'PlayUp court',
+                              subtitle: 'Reserve a listed court',
+                              selected: !_externalVenue,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => setState(() {
+                              _externalVenue = true;
+                              _court = null;
+                            }),
+                            child: OptionTile(
+                              icon: CupertinoIcons.text_bubble,
+                              title: 'External venue',
+                              subtitle: 'Add the court as a note',
+                              selected: _externalVenue,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
-              const SizedBox(height: 12),
               CardBox(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -722,66 +776,81 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              FutureBuilder<Set<String>>(
-                future: _availableIds,
-                builder: (context, availabilitySnapshot) {
-                  if (availabilitySnapshot.connectionState ==
-                      ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (availabilitySnapshot.hasError) {
-                    return CardBox(
-                      child: Column(
-                        children: [
-                          const Text('Court availability could not be loaded.'),
-                          const SizedBox(height: 10),
-                          SecondaryButton(
-                            label: 'Try again',
-                            onPressed: () => setState(_refreshAvailability),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-                  final ids = availabilitySnapshot.data ?? const <String>{};
-                  return StreamBuilder<List<Court>>(
-                    stream: CatalogService.instance.courts(),
-                    builder: (context, courtSnapshot) {
-                      final courts = (courtSnapshot.data ?? const <Court>[])
-                          .where(
-                            (court) =>
-                                ids.contains(court.id) &&
-                                court.isOpenAt(_start),
-                          )
-                          .toList();
-                      if (courts.isEmpty) {
-                        return const CardBox(
-                          child: Text(
-                            'No courts are available for this sport and time. Change the time or choose another sport.',
-                          ),
-                        );
-                      }
-                      return Column(
-                        children: [
-                          for (final court in courts) ...[
-                            GestureDetector(
-                              onTap: () => setState(() => _court = court),
-                              child: OptionTile(
-                                icon: CupertinoIcons.sportscourt,
-                                title: court.name,
-                                subtitle:
-                                    '${court.address.isEmpty ? court.subtitle : court.address} • ${court.price}',
-                                selected: _court?.id == court.id,
-                              ),
+              if (_externalVenue) ...[
+                AppTextField(
+                  controller: _venueNote,
+                  label: 'Court or venue note',
+                  icon: CupertinoIcons.location,
+                ),
+                const SizedBox(height: 12),
+                const CardBox(
+                  child: Text(
+                    'This does not reserve a PlayUp court. Players will see your venue note on the match.',
+                  ),
+                ),
+              ] else
+                FutureBuilder<Set<String>>(
+                  future: _availableIds,
+                  builder: (context, availabilitySnapshot) {
+                    if (availabilitySnapshot.connectionState ==
+                        ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (availabilitySnapshot.hasError) {
+                      return CardBox(
+                        child: Column(
+                          children: [
+                            const Text(
+                              'Court availability could not be loaded.',
                             ),
                             const SizedBox(height: 10),
+                            SecondaryButton(
+                              label: 'Try again',
+                              onPressed: () => setState(_refreshAvailability),
+                            ),
                           ],
-                        ],
+                        ),
                       );
-                    },
-                  );
-                },
-              ),
+                    }
+                    final ids = availabilitySnapshot.data ?? const <String>{};
+                    return StreamBuilder<List<Court>>(
+                      stream: CatalogService.instance.courts(),
+                      builder: (context, courtSnapshot) {
+                        final courts = (courtSnapshot.data ?? const <Court>[])
+                            .where(
+                              (court) =>
+                                  ids.contains(court.id) &&
+                                  court.isOpenAt(_start),
+                            )
+                            .toList();
+                        if (courts.isEmpty) {
+                          return const CardBox(
+                            child: Text(
+                              'No courts are available for this sport and time. Change the time or choose another sport.',
+                            ),
+                          );
+                        }
+                        return Column(
+                          children: [
+                            for (final court in courts) ...[
+                              GestureDetector(
+                                onTap: () => setState(() => _court = court),
+                                child: OptionTile(
+                                  icon: CupertinoIcons.sportscourt,
+                                  title: court.name,
+                                  subtitle:
+                                      '${court.address.isEmpty ? court.subtitle : court.address} • ${court.price}',
+                                  selected: _court?.id == court.id,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                            ],
+                          ],
+                        );
+                      },
+                    );
+                  },
+                ),
             ],
           ),
         );
@@ -1094,24 +1163,26 @@ class SlotSelectionScreen extends StatefulWidget {
 
 class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
   int _dayIndex = 0;
-  int _slotIndex = 2;
+  int _slotIndex = 0;
   int _duration = 60;
 
-  static const _slots = [
-    '6:00 PM',
-    '7:00 PM',
-    '8:00 PM',
-    '9:00 PM',
-    '10:00 PM',
-  ];
-
-  DateTime _startFor(DateTime now, int slotIndex) {
+  List<DateTime> _slotStarts(DateTime now) {
     final day = DateTime(
       now.year,
       now.month,
       now.day,
     ).add(Duration(days: _dayIndex));
-    return DateTime(day.year, day.month, day.day, 18 + slotIndex);
+    final startHour = widget.court.openingHour;
+    final lastStart = widget.court.closingHour - 1;
+    return [
+      for (var hour = startHour; hour <= lastStart; hour++)
+        DateTime(day.year, day.month, day.day, hour),
+    ];
+  }
+
+  DateTime _selectedStart(DateTime now) {
+    final starts = _slotStarts(now);
+    return starts[_slotIndex.clamp(0, starts.length - 1)];
   }
 
   bool _isBooked(
@@ -1130,21 +1201,78 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
     });
   }
 
+  String _band(DateTime start) {
+    if (start.hour < 12) return 'Morning';
+    if (start.hour < 17) return 'Afternoon';
+    return 'Evening';
+  }
+
+  String _priceLabel() {
+    final total = ((widget.court.basePriceMinor * _duration) / 60).round();
+    if (total <= 0) return widget.court.price;
+    return '${widget.court.currency} ${(total / 100).toStringAsFixed(2)}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
+    final starts = _slotStarts(now);
+    if (_slotIndex >= starts.length) {
+      _slotIndex = starts.isEmpty ? 0 : starts.length - 1;
+    }
+    final selectedStart = _selectedStart(now);
+    final selectedEnd = selectedStart.add(Duration(minutes: _duration));
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       body: AppScrollPage(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             PageTopBar(
-              title: 'Select Slot',
+              title: 'Choose Time',
               onBack: () => Navigator.of(context).pop(),
             ),
+            const SizedBox(height: 16),
+            const StepIndicator(active: 0),
             const SizedBox(height: 18),
+            CardBox(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  SportImageThumb(
+                    size: 58,
+                    gradient: widget.court.gradient,
+                    imageUrl: widget.court.imageUrl,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.court.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${widget.court.sport} - ${widget.court.price}',
+                          style: TextStyle(
+                            color: scheme.onSurfaceVariant,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
             const Text(
-              'Choose a date',
+              'Date',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 12),
@@ -1156,54 +1284,43 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
                 separatorBuilder: (context, index) => const SizedBox(width: 10),
                 itemBuilder: (context, index) {
                   final day = now.add(Duration(days: index));
-                  const weekday = [
-                    'Mon',
-                    'Tue',
-                    'Wed',
-                    'Thu',
-                    'Fri',
-                    'Sat',
-                    'Sun',
-                  ];
                   final selected = index == _dayIndex;
-                  return GestureDetector(
-                    onTap: () => setState(() => _dayIndex = index),
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(18),
+                    onTap: () => setState(() {
+                      _dayIndex = index;
+                      _slotIndex = 0;
+                    }),
                     child: Container(
-                      width: 58,
+                      width: 64,
                       decoration: BoxDecoration(
-                        color: selected
-                            ? AppColors.purple
-                            : Theme.of(context).colorScheme.surface,
+                        color: selected ? AppColors.purple : scheme.surface,
                         borderRadius: BorderRadius.circular(18),
                         border: Border.all(
                           color: selected
                               ? AppColors.purple
-                              : Theme.of(context).colorScheme.outlineVariant,
+                              : scheme.outlineVariant,
                         ),
                       ),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            weekday[day.weekday - 1],
+                            DateFormat('EEE').format(day),
                             style: TextStyle(
                               color: selected
                                   ? Colors.white70
-                                  : Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
+                                  : scheme.onSurfaceVariant,
                               fontSize: 12,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
                           const SizedBox(height: 4),
                           Text(
                             '${day.day}',
                             style: TextStyle(
-                              color: selected
-                                  ? Colors.white
-                                  : Theme.of(context).colorScheme.onSurface,
-                              fontSize: 18,
+                              color: selected ? Colors.white : scheme.onSurface,
+                              fontSize: 19,
                               fontWeight: FontWeight.w900,
                             ),
                           ),
@@ -1214,9 +1331,37 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
                 },
               ),
             ),
-            const SizedBox(height: 22),
+            const SizedBox(height: 20),
+            CardBox(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Duration',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final d in const [60, 90, 120])
+                        SelectablePill(
+                          label: d % 60 == 0
+                              ? '${d ~/ 60} hr'
+                              : '${(d / 60).toStringAsFixed(1)} hr',
+                          selected: _duration == d,
+                          onTap: () => setState(() => _duration = d),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
             const Text(
-              'Available times',
+              'Times',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 12),
@@ -1227,82 +1372,106 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
                   .snapshots(),
               builder: (context, snapshot) {
                 final locks = snapshot.data?.docs ?? const [];
-                return Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
+                final groups = <String, List<int>>{};
+                for (var i = 0; i < starts.length; i++) {
+                  groups.putIfAbsent(_band(starts[i]), () => []).add(i);
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    for (var i = 0; i < _slots.length; i++)
-                      Builder(
-                        builder: (context) {
-                          final booked = _isBooked(_startFor(now, i), locks);
-                          return GestureDetector(
-                            onTap: booked
-                                ? null
-                                : () => setState(() => _slotIndex = i),
-                            child: SlotChip(
-                              time: _slots[i],
-                              price: widget.court.price
-                                  .split(' ')
-                                  .take(2)
-                                  .join(' '),
-                              selected: i == _slotIndex && !booked,
-                              booked: booked,
-                            ),
-                          );
-                        },
+                    for (final entry in groups.entries) ...[
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4, bottom: 10),
+                        child: Text(
+                          entry.key,
+                          style: TextStyle(
+                            color: scheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
                       ),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          for (final i in entry.value)
+                            Builder(
+                              builder: (context) {
+                                final booked = _isBooked(starts[i], locks);
+                                return GestureDetector(
+                                  onTap: booked
+                                      ? null
+                                      : () => setState(() => _slotIndex = i),
+                                  child: SlotChip(
+                                    time: DateFormat.jm().format(starts[i]),
+                                    price: _priceLabel(),
+                                    selected: i == _slotIndex && !booked,
+                                    booked: booked,
+                                  ),
+                                );
+                              },
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                    ],
                   ],
                 );
               },
             ),
-            const SizedBox(height: 22),
-            const Text(
-              'Duration',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                for (final d in const [30, 60, 90, 120])
-                  SelectablePill(
-                    label: '$d min',
-                    selected: _duration == d,
-                    onTap: () => setState(() => _duration = d),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 26),
-            CardBox(
-              child: Column(
-                children: [
-                  DetailRow(label: 'Court', value: widget.court.name),
-                  DetailRow(
-                    label: 'Time',
-                    value: '${_slots[_slotIndex]} • $_duration min',
-                  ),
-                  DetailRow(label: 'Price', value: widget.court.price),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-            PrimaryButton(
-              label: 'Continue',
-              onPressed: () {
-                final start = _startFor(now, _slotIndex);
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => BookingSetupScreen(
-                      court: widget.court,
-                      startUtc: start.toUtc(),
-                      endUtc: start.add(Duration(minutes: _duration)).toUtc(),
-                    ),
-                  ),
-                );
-              },
-            ),
+            const SizedBox(height: 112),
           ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        child: CardBox(
+          radius: 22,
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      DateFormat('EEE, d MMM').format(selectedStart),
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${DateFormat.jm().format(selectedStart)} - ${DateFormat.jm().format(selectedEnd)}',
+                      style: TextStyle(
+                        color: scheme.onSurfaceVariant,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 142,
+                child: PrimaryButton(
+                  label: _priceLabel(),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => BookingSetupScreen(
+                          court: widget.court,
+                          startUtc: selectedStart.toUtc(),
+                          endUtc: selectedEnd.toUtc(),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

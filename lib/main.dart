@@ -206,7 +206,7 @@ class SocialAuth {
   static const _serverClientId =
       '634238605050-qdp7hs2bsu4t1c7s8q9s34iajajamn7u.apps.googleusercontent.com';
   static const _iosClientId =
-      '634238605050-sq6kl8t8dac9lkriodamkaj80fqh07re.apps.googleusercontent.com';
+      '634238605050-5tv31kt4cjhfg5ihif4kh4fsmn1uafm9.apps.googleusercontent.com';
 
   /// Apple requires an enabled Firebase provider plus Apple Developer
   /// credentials. Keep the button out of production builds until both exist.
@@ -848,6 +848,26 @@ class AppRepository {
         .snapshots();
   }
 
+  Stream<QuerySnapshot<Map<String, dynamic>>> myBookingParticipation() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return const Stream.empty();
+    return _bookings
+        .where('participants', arrayContains: uid)
+        .orderBy('startUtc')
+        .snapshots();
+  }
+
+  Future<bool> canCreateExternalMatches() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return false;
+    final profile = (await _users.doc(uid).get()).data() ?? const {};
+    final permissions = List<String>.from(
+      profile['permissions'] as List? ?? const [],
+    );
+    return profile['role'] == 'superAdmin' ||
+        permissions.contains('matchmaking.manage');
+  }
+
   Stream<QuerySnapshot<Map<String, dynamic>>> openMatches() {
     return _matches
         .where('status', isEqualTo: 'open')
@@ -913,8 +933,7 @@ class AppRepository {
       return bookingId;
     } catch (error) {
       if (error is DomainValidationException) rethrow;
-      if (error is FirebaseFunctionsException &&
-          _callableUnavailable(error)) {
+      if (error is FirebaseFunctionsException && _callableUnavailable(error)) {
         return _createBookingDirect(
           court: court,
           matchmaking: matchmaking,
@@ -1025,7 +1044,52 @@ class AppRepository {
         });
       }
     });
+    unawaited(
+      _createBookingNotice(
+        userId: user.uid,
+        bookingId: bookingRef.id,
+        courtName: court.name,
+        startUtc: start,
+        type: 'bookingCreated',
+        title: 'Booking requested',
+      ),
+    );
+    unawaited(
+      _createBookingNotice(
+        userId: user.uid,
+        bookingId: bookingRef.id,
+        courtName: court.name,
+        startUtc: start,
+        type: 'bookingReminder',
+        title: 'Upcoming booking reminder',
+      ),
+    );
     return bookingRef.id;
+  }
+
+  Future<void> _createBookingNotice({
+    required String userId,
+    required String bookingId,
+    required String courtName,
+    required DateTime startUtc,
+    required String type,
+    required String title,
+  }) async {
+    try {
+      await _db.collection('notifications').add({
+        'userId': userId,
+        'type': type,
+        'title': title,
+        'body':
+            '$courtName at ${DateFormat('EEE, d MMM - h:mm a').format(startUtc.toLocal())}',
+        'bookingId': bookingId,
+        'startUtc': Timestamp.fromDate(startUtc),
+        'read': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (error) {
+      debugPrint('booking notification skipped: $error');
+    }
   }
 
   Future<String> createMatch({
@@ -1034,12 +1098,37 @@ class AppRepository {
     required String type,
     required int capacity,
     required String skill,
-    required Court court,
+    Court? court,
     required DateTime startUtc,
+    bool externalVenue = false,
+    String venueNote = '',
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || user.isAnonymous) {
       throw const DomainValidationException('Sign in to create a match.');
+    }
+    if (externalVenue) {
+      if (!await canCreateExternalMatches()) {
+        throw const DomainValidationException(
+          'This account is not enabled for external match hosting.',
+        );
+      }
+      if (venueNote.trim().length < 3) {
+        throw const DomainValidationException('Add the court or venue note.');
+      }
+      return _createMatchDirect(
+        title: title,
+        sport: sport,
+        type: type,
+        capacity: capacity,
+        skill: skill,
+        startUtc: startUtc,
+        externalVenue: true,
+        venueNote: venueNote,
+      );
+    }
+    if (court == null) {
+      throw const DomainValidationException('Choose an available court.');
     }
     try {
       final response = await _functions.httpsCallable('createMatch').call({
@@ -1053,6 +1142,17 @@ class AppRepository {
       });
       return (response.data as Map)['matchId'].toString();
     } catch (error) {
+      if (error is FirebaseFunctionsException && _callableUnavailable(error)) {
+        return _createMatchDirect(
+          title: title,
+          sport: sport,
+          type: type,
+          capacity: capacity,
+          skill: skill,
+          court: court,
+          startUtc: startUtc,
+        );
+      }
       if (error is FirebaseFunctionsException) {
         throw DomainValidationException(
           error.message ?? 'The match could not be created.',
@@ -1060,6 +1160,140 @@ class AppRepository {
       }
       rethrow;
     }
+  }
+
+  Future<String> _createMatchDirect({
+    required String title,
+    required String sport,
+    required String type,
+    required int capacity,
+    required String skill,
+    required DateTime startUtc,
+    Court? court,
+    bool externalVenue = false,
+    String venueNote = '',
+  }) async {
+    final user = FirebaseAuth.instance.currentUser!;
+    final start = startUtc.toUtc();
+    final end = start.add(const Duration(hours: 1));
+    if (!start.isAfter(DateTime.now().toUtc())) {
+      throw const DomainValidationException('Choose a future match time.');
+    }
+    if (capacity < 2 || capacity > 30) {
+      throw const DomainValidationException('Capacity must be 2-30 players.');
+    }
+    final profile = (await _users.doc(user.uid).get()).data() ?? const {};
+    final hostName = (profile['displayName'] ?? user.displayName ?? 'Player')
+        .toString();
+    final matchRef = _matches.doc();
+    if (externalVenue) {
+      await matchRef.set({
+        'hostId': user.uid,
+        'hostName': hostName,
+        'title': title,
+        'sport': sport,
+        'academyId': '',
+        'courtId': '',
+        'courtName': venueNote.trim(),
+        'venueNote': venueNote.trim(),
+        'source': 'external',
+        'startUtc': Timestamp.fromDate(start),
+        'skillRange': skill,
+        'type': type == 'Competitive' ? 'Competitive' : 'Casual',
+        'ranked': type == 'Competitive',
+        'status': 'open',
+        'capacity': capacity,
+        'currency': 'JOD',
+        'totalMinor': 0,
+        'players': [user.uid],
+        'playerNames': [hostName],
+        'neededPlayers': capacity - 1,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return matchRef.id;
+    }
+    final selectedCourt = court!;
+    final bookingRef = _bookings.doc();
+    final lockRef = _db
+        .collection('bookingLocks')
+        .doc(BookingPolicy.slotKey(selectedCourt.id, start));
+    await _db.runTransaction((transaction) async {
+      final lock = await transaction.get(lockRef);
+      if (lock.exists) {
+        throw const DomainValidationException(
+          'This court was just booked. Choose another time.',
+        );
+      }
+      final price = selectedCourt.basePriceMinor;
+      transaction.set(lockRef, {
+        'bookingId': bookingRef.id,
+        'userId': user.uid,
+        'courtId': selectedCourt.id,
+        'startUtc': Timestamp.fromDate(start),
+        'endUtc': Timestamp.fromDate(end),
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      transaction.set(bookingRef, {
+        'userId': user.uid,
+        'academyId': selectedCourt.academyId,
+        'courtId': selectedCourt.id,
+        'courtName': selectedCourt.name,
+        'sport': sport,
+        'startUtc': Timestamp.fromDate(start),
+        'endUtc': Timestamp.fromDate(end),
+        'durationMinutes': 60,
+        'status': 'pending',
+        'currency': selectedCourt.currency,
+        'subtotalMinor': price,
+        'discountMinor': 0,
+        'totalMinor': price,
+        'paymentMethod': 'cash',
+        'paymentStatus': 'pending',
+        'matchmaking': true,
+        'playerCapacity': capacity,
+        'participants': [user.uid],
+        'lockIds': [lockRef.id],
+        'matchId': matchRef.id,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      transaction.set(matchRef, {
+        'hostId': user.uid,
+        'hostName': hostName,
+        'title': title,
+        'sport': sport,
+        'academyId': selectedCourt.academyId,
+        'courtId': selectedCourt.id,
+        'courtName': selectedCourt.name,
+        'bookingId': bookingRef.id,
+        'source': 'playupCourt',
+        'startUtc': Timestamp.fromDate(start),
+        'skillRange': skill,
+        'type': type == 'Competitive' ? 'Competitive' : 'Casual',
+        'ranked': type == 'Competitive',
+        'status': 'open',
+        'capacity': capacity,
+        'currency': selectedCourt.currency,
+        'totalMinor': price,
+        'players': [user.uid],
+        'playerNames': [hostName],
+        'neededPlayers': capacity - 1,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+    unawaited(
+      _createBookingNotice(
+        userId: user.uid,
+        bookingId: bookingRef.id,
+        courtName: selectedCourt.name,
+        startUtc: start,
+        type: 'bookingReminder',
+        title: 'Upcoming match reminder',
+      ),
+    );
+    return matchRef.id;
   }
 
   Future<Set<String>> availableCourtIds({
@@ -1079,6 +1313,35 @@ class AppRepository {
         (response.data as Map)['courtIds'] as List? ?? const [],
       );
     } on FirebaseFunctionsException catch (error) {
+      if (_callableUnavailable(error)) {
+        final start = startUtc.toUtc();
+        final end = start.add(const Duration(hours: 1));
+        final courts = await _db
+            .collection('courts')
+            .where('active', isEqualTo: true)
+            .where('sport', isEqualTo: sport)
+            .get();
+        final locks = await _db.collection('bookingLocks').get();
+        return courts.docs
+            .where((court) {
+              return !locks.docs.any((lock) {
+                final data = lock.data();
+                if (data['courtId'] != court.id) return false;
+                final lockStart = (data['startUtc'] as Timestamp?)
+                    ?.toDate()
+                    .toUtc();
+                final lockEnd = (data['endUtc'] as Timestamp?)
+                    ?.toDate()
+                    .toUtc();
+                return lockStart != null &&
+                    lockEnd != null &&
+                    start.isBefore(lockEnd) &&
+                    end.isAfter(lockStart);
+              });
+            })
+            .map((court) => court.id)
+            .toSet();
+      }
       throw DomainValidationException(
         error.message ?? 'Court availability could not be loaded.',
       );
@@ -1093,6 +1356,38 @@ class AppRepository {
     try {
       await _functions.httpsCallable('joinMatch').call({'matchId': matchId});
     } on FirebaseFunctionsException catch (error) {
+      if (_callableUnavailable(error)) {
+        final profile = (await _users.doc(user.uid).get()).data() ?? const {};
+        final name = (profile['displayName'] ?? user.displayName ?? 'Player')
+            .toString();
+        await _db.runTransaction((transaction) async {
+          final ref = _matches.doc(matchId);
+          final snap = await transaction.get(ref);
+          final data = snap.data();
+          if (data == null || data['status'] != 'open') {
+            throw const DomainValidationException('Match is not open.');
+          }
+          final players = List<String>.from(
+            data['players'] as List? ?? const [],
+          );
+          if (players.contains(user.uid)) {
+            throw const DomainValidationException(
+              'You already joined this match.',
+            );
+          }
+          final capacity = (data['capacity'] as num?)?.toInt() ?? 0;
+          if (players.length >= capacity) {
+            throw const DomainValidationException('Match is full.');
+          }
+          transaction.update(ref, {
+            'players': FieldValue.arrayUnion([user.uid]),
+            'playerNames': FieldValue.arrayUnion([name]),
+            'neededPlayers': FieldValue.increment(-1),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        });
+        return;
+      }
       throw DomainValidationException(
         error.message ?? 'Could not join this match.',
       );
@@ -1307,6 +1602,17 @@ class AppRepository {
       transaction.update(inviteRef, {
         'uses': FieldValue.increment(1),
         'updatedAt': FieldValue.serverTimestamp(),
+      });
+      transaction.set(_db.collection('notifications').doc(), {
+        'userId': user.uid,
+        'type': 'bookingReminder',
+        'title': 'Upcoming booking reminder',
+        'body':
+            '${booking['courtName'] ?? 'Court'} at ${DateFormat('EEE, d MMM - h:mm a').format((booking['startUtc'] as Timestamp).toDate().toLocal())}',
+        'bookingId': bookingRef.id,
+        'startUtc': booking['startUtc'],
+        'read': false,
+        'createdAt': FieldValue.serverTimestamp(),
       });
     });
   }
@@ -2435,11 +2741,14 @@ class HomeScreen extends StatelessWidget {
                         icon: const Icon(CupertinoIcons.bell),
                       ),
                       const SizedBox(width: 8),
-                      Avatar(
-                        name: firstName.isEmpty
-                            ? 'A'
-                            : firstName.characters.first.toUpperCase(),
-                        size: 42,
+                      GestureDetector(
+                        onTap: () => onTabChange(4),
+                        child: Avatar(
+                          name: firstName.isEmpty
+                              ? 'A'
+                              : firstName.characters.first.toUpperCase(),
+                          size: 42,
+                        ),
                       ),
                     ],
                   ),
@@ -2537,15 +2846,6 @@ class HomeScreen extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 22),
-          SectionHeader(
-            title: 'Your Progress',
-            onSeeAll: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const LevelDetailScreen()),
-            ),
-          ),
-          const SizedBox(height: 12),
-          const ProgressSummaryCard(),
           const SizedBox(height: 22),
           SectionHeader(
             title: 'Recommended Courts',
@@ -3252,6 +3552,15 @@ class ProfileScreen extends StatelessWidget {
           ),
           const SizedBox(height: 22),
           SectionHeader(
+            title: 'Your Progress',
+            onSeeAll: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const LevelDetailScreen()),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const ProgressSummaryCard(),
+          const SizedBox(height: 22),
+          SectionHeader(
             title: 'My Sports',
             onSeeAll: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const SportsSelectionScreen()),
@@ -3306,6 +3615,13 @@ class ProfileScreen extends StatelessWidget {
           const SizedBox(height: 12),
           const LiveAchievementBadges(),
           const SizedBox(height: 22),
+          SettingsTile(
+            icon: CupertinoIcons.calendar,
+            title: 'My Bookings',
+            onTap: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const MyBookingsScreen())),
+          ),
           SettingsTile(
             icon: CupertinoIcons.chart_bar_alt_fill,
             title: 'Leaderboard',
@@ -3519,116 +3835,152 @@ class _BookingSetupScreenState extends State<BookingSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final localStart = widget.startUtc.toLocal();
+    final localEnd = widget.endUtc.toLocal();
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       body: AppScrollPage(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             PageTopBar(
-              title: 'New Booking',
+              title: 'Booking Setup',
               onBack: () => Navigator.of(context).pop(),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 16),
             const StepIndicator(active: 1),
-            const SizedBox(height: 22),
-            const Text(
-              'How do you want to play?',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 12),
-            GestureDetector(
-              onTap: () => setState(() => _mode = 'self'),
-              child: OptionTile(
-                icon: CupertinoIcons.person,
-                title: 'Book for Myself',
-                subtitle: 'I will bring my own players',
-                selected: _mode == 'self',
-              ),
-            ),
-            const SizedBox(height: 10),
-            GestureDetector(
-              onTap: () => setState(() => _mode = 'invite'),
-              child: OptionTile(
-                icon: CupertinoIcons.person_2,
-                title: 'Invite Friends',
-                subtitle: 'Create a shareable link after booking',
-                selected: _mode == 'invite',
-              ),
-            ),
-            const SizedBox(height: 10),
-            GestureDetector(
-              onTap: () => setState(() => _mode = 'matchmaking'),
-              child: OptionTile(
-                icon: CupertinoIcons.sparkles,
-                title: 'Find Players (Matchmaking)',
-                subtitle: 'Publish this booking to eligible players',
-                selected: _mode == 'matchmaking',
-              ),
-            ),
-            const SizedBox(height: 22),
-            const Text(
-              'Match Details',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 18),
             CardBox(
+              color: AppColors.dark,
+              borderColor: AppColors.dark,
+              padding: const EdgeInsets.all(16),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Players Needed',
-                          style: TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                      CounterButton(
-                        icon: CupertinoIcons.minus,
-                        onTap: () => setState(
-                          () => _players = math.max(1, _players - 1),
-                        ),
-                      ),
-                      SizedBox(
-                        width: 44,
-                        child: Center(
-                          child: Text(
-                            '$_players',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                      ),
-                      CounterButton(
-                        icon: CupertinoIcons.plus,
-                        onTap: () => setState(() => _players++),
-                      ),
-                    ],
+                  Text(
+                    widget.court.name,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
-                  const SizedBox(height: 16),
-                  const SelectRow(label: 'Skill Range', value: 'Intermediate'),
-                  const SizedBox(height: 12),
-                  const SelectRow(label: 'Match Type', value: 'Competitive'),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${DateFormat('EEE, d MMM').format(localStart)} - ${DateFormat.jm().format(localStart)} to ${DateFormat.jm().format(localEnd)}',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: .72),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ],
               ),
             ),
-            const SizedBox(height: 28),
-            PrimaryButton(
-              label: 'Continue to Payment',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => PaymentScreen(
-                    court: widget.court,
-                    startUtc: widget.startUtc,
-                    endUtc: widget.endUtc,
-                    playerCapacity: _players,
-                    matchmaking: _mode == 'matchmaking',
-                  ),
+            const SizedBox(height: 20),
+            const Text(
+              'Play mode',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 12),
+            for (final option in const [
+              (
+                'self',
+                CupertinoIcons.person,
+                'Solo booking',
+                'You manage players yourself',
+              ),
+              (
+                'invite',
+                CupertinoIcons.person_2,
+                'Invite friends',
+                'Share a link after booking',
+              ),
+              (
+                'matchmaking',
+                CupertinoIcons.sparkles,
+                'Find players',
+                'Publish it as an open match',
+              ),
+            ]) ...[
+              GestureDetector(
+                onTap: () => setState(() => _mode = option.$1),
+                child: OptionTile(
+                  icon: option.$2,
+                  title: option.$3,
+                  subtitle: option.$4,
+                  selected: _mode == option.$1,
                 ),
               ),
+              const SizedBox(height: 10),
+            ],
+            const SizedBox(height: 10),
+            CardBox(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Players',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Maximum people in this booking',
+                          style: TextStyle(
+                            color: scheme.onSurfaceVariant,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  CounterButton(
+                    icon: CupertinoIcons.minus,
+                    onTap: () =>
+                        setState(() => _players = math.max(1, _players - 1)),
+                  ),
+                  SizedBox(
+                    width: 48,
+                    child: Center(
+                      child: Text(
+                        '$_players',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                  CounterButton(
+                    icon: CupertinoIcons.plus,
+                    onTap: () => setState(() => _players++),
+                  ),
+                ],
+              ),
             ),
+            const SizedBox(height: 112),
           ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        child: PrimaryButton(
+          label: 'Review Booking',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => PaymentScreen(
+                court: widget.court,
+                startUtc: widget.startUtc,
+                endUtc: widget.endUtc,
+                playerCapacity: _players,
+                matchmaking: _mode == 'matchmaking',
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -3908,6 +4260,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
           builder: (_) => BookingConfirmationScreen(
             bookingId: bookingId,
             court: widget.court,
+            startUtc: widget.startUtc,
+            endUtc: widget.endUtc,
           ),
         ),
       );
@@ -3924,61 +4278,81 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final localStart = widget.startUtc.toLocal();
+    final localEnd = widget.endUtc.toLocal();
+    final total =
+        ((widget.court.basePriceMinor *
+                    widget.endUtc.difference(widget.startUtc).inMinutes) /
+                60)
+            .round();
+    final totalLabel = total > 0
+        ? '${widget.court.currency} ${(total / 100).toStringAsFixed(2)}'
+        : widget.court.price;
     return Scaffold(
       body: AppScrollPage(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             PageTopBar(
-              title: 'Review booking',
+              title: 'Review',
               onBack: () => Navigator.of(context).pop(),
             ),
-            const SizedBox(height: 22),
+            const SizedBox(height: 16),
+            const StepIndicator(active: 2),
+            const SizedBox(height: 18),
             CardBox(
+              padding: EdgeInsets.zero,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Booking Summary',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                  SportImageCard(
+                    height: 144,
+                    icon: widget.court.icon,
+                    gradient: widget.court.gradient,
+                    imageUrl: widget.court.imageUrl,
                   ),
-                  const SizedBox(height: 14),
-                  DetailRow(label: 'Court', value: widget.court.name),
-                  DetailRow(
-                    label: 'Date',
-                    value: DateFormat(
-                      'EEE, d MMM',
-                    ).format(widget.startUtc.toLocal()),
-                  ),
-                  DetailRow(
-                    label: 'Time',
-                    value:
-                        '${DateFormat.jm().format(widget.startUtc.toLocal())} - ${DateFormat.jm().format(widget.endUtc.toLocal())}',
-                  ),
-                  DetailRow(label: 'Price', value: widget.court.price),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            CardBox(
-              child: Column(
-                children: [
-                  const OptionTile(
-                    icon: CupertinoIcons.money_dollar,
-                    title: 'Cash at venue',
-                    subtitle:
-                        'Payment remains pending until academy staff collect cash',
-                    selected: true,
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        DetailRow(label: 'Court', value: widget.court.name),
+                        DetailRow(
+                          label: 'Date',
+                          value: DateFormat('EEE, d MMM').format(localStart),
+                        ),
+                        DetailRow(
+                          label: 'Time',
+                          value:
+                              '${DateFormat.jm().format(localStart)} - ${DateFormat.jm().format(localEnd)}',
+                        ),
+                        DetailRow(
+                          label: 'Players',
+                          value: '${widget.playerCapacity}',
+                        ),
+                        DetailRow(label: 'Total', value: totalLabel),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 24),
-            PrimaryButton(
-              label: _loading ? 'Confirming...' : 'Confirm Booking',
-              onPressed: _loading ? () {} : _confirm,
+            const SizedBox(height: 14),
+            const OptionTile(
+              icon: CupertinoIcons.money_dollar,
+              title: 'Cash at venue',
+              subtitle: 'Academy staff collect payment at check-in',
+              selected: true,
             ),
+            const SizedBox(height: 112),
           ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        child: PrimaryButton(
+          label: _loading ? 'Confirming...' : 'Confirm Booking',
+          onPressed: _loading ? () {} : _confirm,
         ),
       ),
     );
@@ -3990,13 +4364,19 @@ class BookingConfirmationScreen extends StatelessWidget {
     super.key,
     required this.bookingId,
     required this.court,
+    this.startUtc,
+    this.endUtc,
   });
 
   final String bookingId;
   final Court court;
+  final DateTime? startUtc;
+  final DateTime? endUtc;
 
   @override
   Widget build(BuildContext context) {
+    final localStart = startUtc?.toLocal();
+    final localEnd = endUtc?.toLocal();
     return Scaffold(
       body: AppScrollPage(
         child: Column(
@@ -4030,8 +4410,18 @@ class BookingConfirmationScreen extends StatelessWidget {
               child: Column(
                 children: [
                   DetailRow(label: 'Court', value: court.name),
-                  const DetailRow(label: 'Date', value: 'Today, 20 May'),
-                  const DetailRow(label: 'Time', value: '8:00 PM - 9:00 PM'),
+                  DetailRow(
+                    label: 'Date',
+                    value: localStart == null
+                        ? 'Pending'
+                        : DateFormat('EEE, d MMM').format(localStart),
+                  ),
+                  DetailRow(
+                    label: 'Time',
+                    value: localStart == null || localEnd == null
+                        ? 'Pending'
+                        : '${DateFormat.jm().format(localStart)} - ${DateFormat.jm().format(localEnd)}',
+                  ),
                   const DetailRow(label: 'Payment', value: 'Cash - Pending'),
                 ],
               ),
@@ -4096,7 +4486,7 @@ class MyBookingsScreen extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: AppRepository.instance.myBookings(),
+              stream: AppRepository.instance.myBookingParticipation(),
               builder: (context, snapshot) {
                 final docs = snapshot.data?.docs ?? [];
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -5699,68 +6089,111 @@ class CourtListCard extends StatelessWidget {
         MaterialPageRoute(builder: (_) => CourtDetailsScreen(court: court)),
       ),
       child: CardBox(
-        padding: const EdgeInsets.all(10),
-        child: Row(
+        padding: EdgeInsets.zero,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SportImageThumb(
-              size: 92,
-              gradient: court.gradient,
-              imageUrl: court.imageUrl,
+            Stack(
+              children: [
+                SportImageCard(
+                  height: 156,
+                  icon: court.icon,
+                  gradient: court.gradient,
+                  imageUrl: court.imageUrl,
+                ),
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: StreamBuilder<bool>(
+                    stream: AppRepository.instance.isFavorite(court.id),
+                    builder: (context, snapshot) {
+                      final favorite = snapshot.data ?? false;
+                      return CircleIconButton(
+                        icon: favorite
+                            ? CupertinoIcons.heart_fill
+                            : CupertinoIcons.heart,
+                        onTap: court.id.isEmpty
+                            ? null
+                            : () => AppRepository.instance.toggleFavorite(
+                                court,
+                                !favorite,
+                              ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 12),
-            Expanded(
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    court.name,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 15,
-                    ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          court.name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 17,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        court.price,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                   Text(
                     court.subtitle,
                     style: const TextStyle(
                       color: AppColors.muted,
-                      fontSize: 12,
+                      fontSize: 13,
                     ),
                   ),
-                  const SizedBox(height: 7),
-                  Text(
-                    '★ ${court.rating}   ${court.distanceFrom(LocationService.instance.current.value)}',
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 7),
-                  Text(
-                    court.price,
-                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      const Icon(
+                        CupertinoIcons.star_fill,
+                        color: AppColors.gold,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        court.rating,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(width: 12),
+                      const Icon(
+                        CupertinoIcons.location_solid,
+                        color: AppColors.muted,
+                        size: 15,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          court.distanceFrom(
+                            LocationService.instance.current.value,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ),
-            StreamBuilder<bool>(
-              stream: AppRepository.instance.isFavorite(court.id),
-              builder: (context, snapshot) {
-                final favorite = snapshot.data ?? false;
-                return IconButton(
-                  tooltip: favorite ? 'Remove favorite' : 'Save favorite',
-                  onPressed: court.id.isEmpty
-                      ? null
-                      : () => AppRepository.instance.toggleFavorite(
-                          court,
-                          !favorite,
-                        ),
-                  icon: Icon(
-                    favorite ? CupertinoIcons.heart_fill : CupertinoIcons.heart,
-                    color: favorite ? AppColors.danger : AppColors.ink,
-                  ),
-                );
-              },
             ),
           ],
         ),
@@ -6277,6 +6710,16 @@ class BookingTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final start = (data['startUtc'] as Timestamp?)?.toDate().toLocal();
+    final end = (data['endUtc'] as Timestamp?)?.toDate().toLocal();
+    final status = (data['status'] ?? 'confirmed').toString();
+    final timeLabel = start == null
+        ? 'Time pending'
+        : '${DateFormat('EEE, d MMM').format(start)} - ${DateFormat.jm().format(start)}${end == null ? '' : ' to ${DateFormat.jm().format(end)}'}';
+    final startsSoon =
+        start != null &&
+        start.isAfter(DateTime.now()) &&
+        start.difference(DateTime.now()).inMinutes <= 90;
     return CardBox(
       child: Row(
         children: [
@@ -6292,14 +6735,14 @@ class BookingTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${data['date'] ?? 'Today'}  •  ${data['time'] ?? '8:00 PM'}',
+                  timeLabel,
                   style: const TextStyle(color: AppColors.muted, fontSize: 13),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  (data['status'] ?? 'confirmed').toString().toUpperCase(),
-                  style: const TextStyle(
-                    color: AppColors.green,
+                  startsSoon ? 'STARTING SOON' : status.toUpperCase(),
+                  style: TextStyle(
+                    color: startsSoon ? AppColors.gold : AppColors.green,
                     fontWeight: FontWeight.w900,
                     fontSize: 12,
                   ),
@@ -6308,6 +6751,7 @@ class BookingTile extends StatelessWidget {
             ),
           ),
           IconButton(
+            tooltip: 'Open chat',
             onPressed: () => Navigator.of(
               context,
             ).push(MaterialPageRoute(builder: (_) => const MatchChatScreen())),
@@ -6858,10 +7302,7 @@ class SlotChip extends StatelessWidget {
         children: [
           Text(
             time,
-            style: TextStyle(
-              color: foreground,
-              fontWeight: FontWeight.w900,
-            ),
+            style: TextStyle(color: foreground, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 4),
           Text(
