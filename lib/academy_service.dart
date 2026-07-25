@@ -1,6 +1,9 @@
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 
 class OwnerScope {
   const OwnerScope({
@@ -116,7 +119,27 @@ class AcademyService {
     });
   }
 
-  Future<void> saveCourt({
+  String newCourtId() => _db.collection('courts').doc().id;
+
+  Future<String> uploadCourtImage({
+    required String courtId,
+    required Uint8List bytes,
+    required String fileName,
+  }) async {
+    if (bytes.lengthInBytes > 5 * 1024 * 1024) {
+      throw StateError('Court photos must be smaller than 5 MB.');
+    }
+    final tenantId = (await ownerScope()).academyId;
+    final extension = fileName.split('.').last.toLowerCase();
+    final contentType = extension == 'png' ? 'image/png' : 'image/jpeg';
+    final ref = FirebaseStorage.instance.ref(
+      'court-images/$tenantId/$courtId/cover.$extension',
+    );
+    await ref.putData(bytes, SettableMetadata(contentType: contentType));
+    return ref.getDownloadURL();
+  }
+
+  Future<String> saveCourt({
     String? courtId,
     required String name,
     required String sport,
@@ -156,18 +179,53 @@ class AcademyService {
       'updatedAt': FieldValue.serverTimestamp(),
       if (courtId == null) 'createdAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+    return ref.id;
   }
 
   Future<void> transitionBooking(String bookingId, String status) async {
-    await _functions.httpsCallable('transitionBooking').call({
-      'bookingId': bookingId,
-      'status': status,
-    });
+    try {
+      await _functions.httpsCallable('transitionBooking').call({
+        'bookingId': bookingId,
+        'status': status,
+      });
+    } on FirebaseFunctionsException catch (error) {
+      if (!_callableUnavailable(error)) rethrow;
+      final ref = _db.collection('bookings').doc(bookingId);
+      final data = (await ref.get()).data();
+      if (data == null) throw StateError('Booking not found.');
+      final batch = _db.batch();
+      batch.update(ref, {
+        'status': status,
+        '${status}At': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      if (status == 'cancelled') {
+        for (final lockId
+            in List<String>.from(data['lockIds'] as List? ?? const [])) {
+          batch.delete(_db.collection('bookingLocks').doc(lockId));
+        }
+      }
+      await batch.commit();
+    }
   }
 
   Future<void> recordCashPayment(String bookingId) async {
-    await _functions.httpsCallable('recordCashPayment').call({
-      'bookingId': bookingId,
-    });
+    try {
+      await _functions.httpsCallable('recordCashPayment').call({
+        'bookingId': bookingId,
+      });
+    } on FirebaseFunctionsException catch (error) {
+      if (!_callableUnavailable(error)) rethrow;
+      await _db.collection('bookings').doc(bookingId).update({
+        'paymentStatus': 'collected',
+        'collectedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
   }
+
+  bool _callableUnavailable(FirebaseFunctionsException error) =>
+      error.code == 'not-found' ||
+      error.code == 'unimplemented' ||
+      (error.message ?? '').toLowerCase().contains('not found');
 }

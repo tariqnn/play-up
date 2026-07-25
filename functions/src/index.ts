@@ -108,12 +108,21 @@ export const createBooking = onCall(async (request) => {
   if (durationMinutes < 30 || durationMinutes > 240) throw new HttpsError("invalid-argument", "Booking duration must be 30–240 minutes.");
   const courtRef = db.collection("courts").doc(courtId);
   const bookingRef = db.collection("bookings").doc();
-  const lockRef = db.collection("bookingLocks").doc(`${courtId}_${start.valueOf()}`);
+  const slotStarts = Array.from(
+    {length: Math.ceil(durationMinutes / 30)},
+    (_, index) => new Date(start.valueOf() + index * 30 * 60_000),
+  );
+  const lockRefs = slotStarts.map(slot =>
+    db.collection("bookingLocks").doc(`${courtId}_${slot.valueOf()}`),
+  );
   return db.runTransaction(async (tx) => {
-    const [courtSnap, lockSnap] = await Promise.all([tx.get(courtRef), tx.get(lockRef)]);
+    const [courtSnap, ...lockSnaps] = await Promise.all([
+      tx.get(courtRef),
+      ...lockRefs.map(ref => tx.get(ref)),
+    ]);
     const court = courtSnap.data();
     if (!court || court.active === false) throw new HttpsError("not-found", "Court is unavailable.");
-    if (lockSnap.exists) throw new HttpsError("already-exists", "This slot was just booked.");
+    if (lockSnaps.some(lock => lock.exists)) throw new HttpsError("already-exists", "This time overlaps another booking.");
     for (const period of [...(court.blockedPeriods ?? []), ...(court.maintenancePeriods ?? [])]) {
       if (overlaps(start, end, period.start.toDate(), period.end.toDate())) throw new HttpsError("failed-precondition", "This period is blocked or under maintenance.");
     }
@@ -129,9 +138,20 @@ export const createBooking = onCall(async (request) => {
       status: "pending", currency: court.currency ?? "JOD", ...price,
       paymentMethod: "cash", paymentStatus: "pending",
       matchmaking: request.data?.matchmaking === true, playerCapacity, participants: [uid],
+      durationMinutes, lockIds: lockRefs.map(ref => ref.id),
       createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
     };
-    tx.create(lockRef, {bookingId: bookingRef.id, userId: uid, courtId, startUtc: record.startUtc, endUtc: record.endUtc, createdAt: FieldValue.serverTimestamp()});
+    lockRefs.forEach((lockRef, index) => {
+      const slotStart = slotStarts[index];
+      tx.create(lockRef, {
+        bookingId: bookingRef.id,
+        userId: uid,
+        courtId,
+        startUtc: Timestamp.fromDate(slotStart),
+        endUtc: Timestamp.fromDate(new Date(slotStart.valueOf() + 30 * 60_000)),
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    });
     tx.create(bookingRef, record);
     tx.create(db.collection("auditLogs").doc(), {actorId: uid, action: "booking.create", entity: "booking", entityId: bookingRef.id, academyId: court.academyId, createdAt: FieldValue.serverTimestamp()});
     return {bookingId: bookingRef.id, ...price, currency: record.currency};
@@ -225,6 +245,10 @@ export const transitionBooking = onCall(async (request) => {
     if (!platform && !academy && !playerCancel) throw new HttpsError("permission-denied", "You cannot change this booking.");
     try { assertTransition(booking.status, next); } catch (error) { throw new HttpsError("failed-precondition", (error as Error).message); }
     tx.update(ref, {status: next, updatedAt: FieldValue.serverTimestamp(), [`${next}At`]: FieldValue.serverTimestamp()});
+    if (next === "cancelled") {
+      const lockIds: string[] = booking.lockIds ?? [`${booking.courtId}_${booking.startUtc.toDate().valueOf()}`];
+      lockIds.forEach(lockId => tx.delete(db.collection("bookingLocks").doc(lockId)));
+    }
     if (next === "completed") {
       const participants: string[] = booking.participants ?? [booking.userId];
       for (const playerId of [...new Set(participants)]) {

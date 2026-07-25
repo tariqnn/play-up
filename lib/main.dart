@@ -22,6 +22,7 @@ import 'package:local_auth/local_auth.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+import 'package:uuid/uuid.dart';
 import 'firebase_options.dart';
 import 'catalog.dart';
 import 'more_screens.dart';
@@ -207,8 +208,11 @@ class SocialAuth {
   static const _iosClientId =
       '634238605050-sq6kl8t8dac9lkriodamkaj80fqh07re.apps.googleusercontent.com';
 
-  /// True only on iOS, where "Sign in with Apple" is native. Hidden elsewhere.
-  static bool get appleAvailable => defaultTargetPlatform == TargetPlatform.iOS;
+  /// Apple requires an enabled Firebase provider plus Apple Developer
+  /// credentials. Keep the button out of production builds until both exist.
+  static bool get appleAvailable =>
+      const bool.fromEnvironment('APPLE_SIGN_IN_ENABLED') &&
+      defaultTargetPlatform == TargetPlatform.iOS;
 
   static Future<void> signOutEverywhere() async {
     try {
@@ -326,33 +330,41 @@ class PlayUpApp extends StatelessWidget {
           ),
           pageTransitionsTheme: const PageTransitionsTheme(
             builders: {
-              TargetPlatform.android: PlayUpPageTransitionsBuilder(),
-              TargetPlatform.iOS: PlayUpPageTransitionsBuilder(),
-              TargetPlatform.macOS: PlayUpPageTransitionsBuilder(),
-              TargetPlatform.windows: PlayUpPageTransitionsBuilder(),
-              TargetPlatform.linux: PlayUpPageTransitionsBuilder(),
+              TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
+              TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
             },
           ),
         ),
         darkTheme: ThemeData(
           useMaterial3: true,
           brightness: Brightness.dark,
-          scaffoldBackgroundColor: const Color(0xFF07111F),
+          scaffoldBackgroundColor: Colors.black,
           colorScheme: ColorScheme.fromSeed(
             seedColor: AppColors.purple,
             brightness: Brightness.dark,
             primary: const Color(0xFF9B72FF),
-            surface: const Color(0xFF111B2B),
+            surface: const Color(0xFF0D0D0D),
+            onSurface: const Color(0xFFECECEC),
+            outline: const Color(0xFF343434),
+            outlineVariant: const Color(0xFF242424),
           ),
-          inputDecorationTheme: const InputDecorationTheme(filled: true),
-          cardTheme: const CardThemeData(color: Color(0xFF111B2B)),
+          canvasColor: Colors.black,
+          dialogTheme: const DialogThemeData(
+            backgroundColor: Color(0xFF0D0D0D),
+          ),
+          bottomSheetTheme: const BottomSheetThemeData(
+            backgroundColor: Color(0xFF0D0D0D),
+            modalBackgroundColor: Color(0xFF0D0D0D),
+          ),
+          inputDecorationTheme: const InputDecorationTheme(
+            filled: true,
+            fillColor: Color(0xFF111111),
+          ),
+          cardTheme: const CardThemeData(color: Color(0xFF0D0D0D)),
           pageTransitionsTheme: const PageTransitionsTheme(
             builders: {
-              TargetPlatform.android: PlayUpPageTransitionsBuilder(),
-              TargetPlatform.iOS: PlayUpPageTransitionsBuilder(),
-              TargetPlatform.macOS: PlayUpPageTransitionsBuilder(),
-              TargetPlatform.windows: PlayUpPageTransitionsBuilder(),
-              TargetPlatform.linux: PlayUpPageTransitionsBuilder(),
+              TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
+              TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
             },
           ),
         ),
@@ -485,9 +497,7 @@ class DeepLinkService {
 
   static Future<void> _join(String token) async {
     try {
-      await FirebaseFunctions.instanceFor(
-        region: 'me-central1',
-      ).httpsCallable('joinBookingInvite').call({'token': token});
+      await AppRepository.instance.joinBookingInvite(token);
       appMessengerKey.currentState?.showSnackBar(
         const SnackBar(content: Text('You joined the booking.')),
       );
@@ -679,19 +689,31 @@ class AuthGate extends StatelessWidget {
         }
         final user = snapshot.data;
         if (user == null) return const WelcomeScreen();
-        return FutureBuilder<Map<String, dynamic>>(
-          future: AppRepository.instance.ensureAndLoadProfile(user),
-          builder: (context, profileSnapshot) {
-            if (profileSnapshot.connectionState == ConnectionState.waiting) {
+        return FutureBuilder<void>(
+          future: AppRepository.instance.ensureUserProfile(user),
+          builder: (context, readySnapshot) {
+            if (readySnapshot.connectionState == ConnectionState.waiting) {
               return const LaunchLoadingScreen();
             }
-            final role = profileSnapshot.data?['role']?.toString() ?? 'player';
-            if (role == 'academyOwner' ||
-                role == 'courtOwner' ||
-                role == 'academyStaff') {
-              return const AcademyModeDashboard(standalone: true);
-            }
-            return const MainShell();
+            return StreamBuilder<Map<String, dynamic>>(
+              stream: AppRepository.instance.currentUserDoc(),
+              builder: (context, profileSnapshot) {
+                if (!profileSnapshot.hasData) {
+                  return const LaunchLoadingScreen();
+                }
+                final profile = profileSnapshot.data!;
+                if (profile['mustChangePassword'] == true) {
+                  return const RequiredPasswordChangeScreen();
+                }
+                final role = profile['role']?.toString() ?? 'player';
+                if (role == 'academyOwner' ||
+                    role == 'courtOwner' ||
+                    role == 'academyStaff') {
+                  return const AcademyModeDashboard(standalone: true);
+                }
+                return const MainShell();
+              },
+            );
           },
         );
       },
@@ -757,6 +779,20 @@ class AppRepository {
           'lastSeenAt': FieldValue.serverTimestamp(),
         });
       }
+      final existing = snap.data() ?? const <String, dynamic>{};
+      await _db.collection('publicProfiles').doc(user.uid).set({
+        'userId': user.uid,
+        'displayName': name,
+        'photoUrl': user.photoURL,
+        'city':
+            LocationService.instance.current.value?.label ??
+            existing['city'] ??
+            'Location not set',
+        'level': existing['level'] ?? 1,
+        'xp': existing['xp'] ?? 0,
+        'sports': existing['sports'] ?? <String>[],
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
     } catch (error) {
       debugPrint('ensureUserProfile skipped: $error');
     }
@@ -864,7 +900,7 @@ class AppRepository {
       final response = await _functions.httpsCallable('createBooking').call({
         'courtId': court.id,
         'startUtc': startUtc.toIso8601String(),
-        'endUtc': startUtc.add(const Duration(hours: 1)).toIso8601String(),
+        'endUtc': endUtc.toIso8601String(),
         'matchmaking': matchmaking,
         'playerCapacity': playerCapacity,
       });
@@ -877,6 +913,16 @@ class AppRepository {
       return bookingId;
     } catch (error) {
       if (error is DomainValidationException) rethrow;
+      if (error is FirebaseFunctionsException &&
+          _callableUnavailable(error)) {
+        return _createBookingDirect(
+          court: court,
+          matchmaking: matchmaking,
+          startUtc: startUtc,
+          endUtc: endUtc,
+          playerCapacity: playerCapacity,
+        );
+      }
       if (error is FirebaseFunctionsException) {
         throw DomainValidationException(
           error.message ?? 'Booking could not be confirmed.',
@@ -886,6 +932,100 @@ class AppRepository {
         'Booking could not be confirmed. Check your connection and try again.',
       );
     }
+  }
+
+  bool _callableUnavailable(FirebaseFunctionsException error) =>
+      error.code == 'not-found' ||
+      error.code == 'unimplemented' ||
+      (error.message ?? '').toLowerCase().contains('not found');
+
+  Future<String> _createBookingDirect({
+    required Court court,
+    required bool matchmaking,
+    required DateTime startUtc,
+    required DateTime endUtc,
+    required int playerCapacity,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser!;
+    final start = startUtc.toUtc();
+    final end = endUtc.toUtc();
+    final durationMinutes = end.difference(start).inMinutes;
+    if (durationMinutes < 30 ||
+        durationMinutes > 240 ||
+        durationMinutes % 30 != 0) {
+      throw const DomainValidationException(
+        'Choose a 30-minute to 4-hour time range.',
+      );
+    }
+    final courtRef = _db.collection('courts').doc(court.id);
+    final bookingRef = _bookings.doc();
+    final starts = <DateTime>[
+      for (
+        var cursor = start;
+        cursor.isBefore(end);
+        cursor = cursor.add(const Duration(minutes: 30))
+      )
+        cursor,
+    ];
+    final lockRefs = starts
+        .map(
+          (slot) => _db
+              .collection('bookingLocks')
+              .doc(BookingPolicy.slotKey(court.id, slot)),
+        )
+        .toList();
+    await _db.runTransaction((transaction) async {
+      final liveCourt = (await transaction.get(courtRef)).data();
+      if (liveCourt == null || liveCourt['active'] == false) {
+        throw const DomainValidationException('Court is unavailable.');
+      }
+      for (final ref in lockRefs) {
+        if ((await transaction.get(ref)).exists) {
+          throw const DomainValidationException(
+            'This time was just booked. Choose another slot.',
+          );
+        }
+      }
+      final subtotal = ((court.basePriceMinor * durationMinutes) / 60).round();
+      final record = <String, dynamic>{
+        'userId': user.uid,
+        'academyId': court.academyId,
+        'courtId': court.id,
+        'courtName': court.name,
+        'sport': court.sport,
+        'startUtc': Timestamp.fromDate(start),
+        'endUtc': Timestamp.fromDate(end),
+        'durationMinutes': durationMinutes,
+        'status': 'pending',
+        'currency': court.currency,
+        'subtotalMinor': subtotal,
+        'discountMinor': 0,
+        'totalMinor': subtotal,
+        'paymentMethod': 'cash',
+        'paymentStatus': 'pending',
+        'matchmaking': matchmaking,
+        'playerCapacity': playerCapacity,
+        'participants': [user.uid],
+        'lockIds': lockRefs.map((ref) => ref.id).toList(),
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      transaction.set(bookingRef, record);
+      for (var i = 0; i < lockRefs.length; i++) {
+        final slotStart = starts[i];
+        transaction.set(lockRefs[i], {
+          'bookingId': bookingRef.id,
+          'userId': user.uid,
+          'courtId': court.id,
+          'startUtc': Timestamp.fromDate(slotStart),
+          'endUtc': Timestamp.fromDate(
+            slotStart.add(const Duration(minutes: 30)),
+          ),
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+    });
+    return bookingRef.id;
   }
 
   Future<String> createMatch({
@@ -1005,11 +1145,28 @@ class AppRepository {
       .snapshots();
 
   Future<void> sendFriendRequest(String playerId) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous || playerId == user.uid) {
+      throw const DomainValidationException('Choose another player.');
+    }
+    final members = [user.uid, playerId]..sort();
+    final ref = _db.collection('friendships').doc(members.join('_'));
     try {
       await _functions.httpsCallable('sendFriendRequest').call({
         'playerId': playerId,
       });
     } on FirebaseFunctionsException catch (error) {
+      if (_callableUnavailable(error)) {
+        await ref.set({
+          'members': members,
+          'requestedBy': user.uid,
+          'requestedTo': playerId,
+          'status': 'pending',
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        return;
+      }
       throw DomainValidationException(
         error.message ?? 'Friend request could not be sent.',
       );
@@ -1023,6 +1180,14 @@ class AppRepository {
         'accept': accept,
       });
     } on FirebaseFunctionsException catch (error) {
+      if (_callableUnavailable(error)) {
+        await _db.collection('friendships').doc(friendshipId).update({
+          'status': accept ? 'accepted' : 'declined',
+          'respondedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        return;
+      }
       throw DomainValidationException(
         error.message ?? 'Friend request could not be updated.',
       );
@@ -1060,10 +1225,90 @@ class AppRepository {
       );
       return (result.data as Map)['url'].toString();
     } on FirebaseFunctionsException catch (error) {
+      if (_callableUnavailable(error)) {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user == null || user.isAnonymous) {
+          throw const DomainValidationException(
+            'Sign in to invite your friends.',
+          );
+        }
+        final booking = await _bookings.doc(bookingId).get();
+        final data = booking.data();
+        if (data == null || data['userId'] != user.uid) {
+          throw const DomainValidationException(
+            'Only the booking owner can invite players.',
+          );
+        }
+        final token = const Uuid().v4().replaceAll('-', '');
+        await _db.collection('bookingInvites').doc(token).set({
+          'token': token,
+          'bookingId': bookingId,
+          'createdBy': user.uid,
+          'academyId': data['academyId'],
+          'active': true,
+          'uses': 0,
+          'maxUses': ((data['playerCapacity'] as num?)?.toInt() ?? 20) - 1,
+          'expiresAt': data['endUtc'],
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        return 'https://playup.app/join/booking/$token';
+      }
       throw DomainValidationException(
         error.message ?? 'Invite link could not be created.',
       );
     }
+  }
+
+  Future<void> joinBookingInvite(String token) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) {
+      throw const DomainValidationException('Sign in to join this booking.');
+    }
+    try {
+      await _functions.httpsCallable('joinBookingInvite').call({
+        'token': token,
+      });
+      return;
+    } on FirebaseFunctionsException catch (error) {
+      if (!_callableUnavailable(error)) {
+        throw DomainValidationException(
+          error.message ?? 'Could not join this booking.',
+        );
+      }
+    }
+    final inviteRef = _db.collection('bookingInvites').doc(token);
+    await _db.runTransaction((transaction) async {
+      final invite = (await transaction.get(inviteRef)).data();
+      if (invite == null || invite['active'] != true) {
+        throw const DomainValidationException('Invite link is invalid.');
+      }
+      final bookingRef = _bookings.doc(invite['bookingId'].toString());
+      final booking = (await transaction.get(bookingRef)).data();
+      if (booking == null ||
+          const ['cancelled', 'completed'].contains(booking['status'])) {
+        throw const DomainValidationException('Booking is unavailable.');
+      }
+      final participants = List<String>.from(
+        booking['participants'] ?? const <String>[],
+      );
+      if (participants.contains(user.uid)) {
+        throw const DomainValidationException(
+          'You already joined this booking.',
+        );
+      }
+      final capacity = (booking['playerCapacity'] as num?)?.toInt() ?? 20;
+      if (participants.length >= capacity) {
+        throw const DomainValidationException('Booking is full.');
+      }
+      transaction.update(bookingRef, {
+        'participants': FieldValue.arrayUnion([user.uid]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      transaction.update(inviteRef, {
+        'uses': FieldValue.increment(1),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
   }
 
   Future<void> submitSupportTicket(String category, String message) async {
@@ -1395,6 +1640,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final _name = TextEditingController();
   bool _isSignUp = false;
   bool _loading = false;
+  bool _obscurePassword = true;
   String? _error;
 
   @override
@@ -1466,23 +1712,41 @@ class _AuthScreenState extends State<AuthScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            PageTopBar(
-              title: _isSignUp ? 'Create Account' : 'Welcome Back',
-              onBack: () => Navigator.of(context).pop(),
+            Row(
+              children: [
+                IconButton(
+                  tooltip: 'Back',
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  icon: const Icon(CupertinoIcons.back),
+                ),
+                const PlayUpMark(size: 38),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'PlayUp',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                  ),
+                ),
+                const _AuthThemeButton(),
+              ],
             ),
-            const SizedBox(height: 18),
-            AuthHeroBanner(
-              caption: _isSignUp ? 'Join the game' : 'Welcome back, champion',
+            const SizedBox(height: 34),
+            Text(
+              _isSignUp ? 'Create your account' : 'Welcome back',
+              style: const TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.w900,
+                height: 1.05,
+              ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 8),
             Text(
               _isSignUp
-                  ? 'Create your player profile'
-                  : 'Sign in to book, play, and level up.',
-              style: const TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.w900,
-                height: 1.08,
+                  ? 'Start booking courts and finding players.'
+                  : 'Sign in to continue playing.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 16,
               ),
             ),
             const SizedBox(height: 22),
@@ -1505,7 +1769,17 @@ class _AuthScreenState extends State<AuthScreen> {
               controller: _password,
               label: 'Password',
               icon: CupertinoIcons.lock,
-              obscureText: true,
+              obscureText: _obscurePassword,
+              suffixIcon: IconButton(
+                tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
+                icon: Icon(
+                  _obscurePassword
+                      ? CupertinoIcons.eye
+                      : CupertinoIcons.eye_slash,
+                ),
+              ),
             ),
             if (!_isSignUp)
               Align(
@@ -1599,6 +1873,131 @@ class _AuthScreenState extends State<AuthScreen> {
       if (mounted) setState(() => _loading = false);
     }
   }
+}
+
+class _AuthThemeButton extends StatelessWidget {
+  const _AuthThemeButton();
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<ThemeMode>(
+    valueListenable: ThemeController.mode,
+    builder: (context, mode, _) => PopupMenuButton<ThemeMode>(
+      tooltip: 'Appearance',
+      initialValue: mode,
+      onSelected: ThemeController.set,
+      itemBuilder: (_) => const [
+        PopupMenuItem(value: ThemeMode.system, child: Text('System theme')),
+        PopupMenuItem(value: ThemeMode.light, child: Text('Light theme')),
+        PopupMenuItem(value: ThemeMode.dark, child: Text('Dark theme')),
+      ],
+      icon: Icon(
+        mode == ThemeMode.dark
+            ? CupertinoIcons.moon_fill
+            : mode == ThemeMode.light
+            ? CupertinoIcons.sun_max_fill
+            : CupertinoIcons.circle_lefthalf_fill,
+      ),
+    ),
+  );
+}
+
+class RequiredPasswordChangeScreen extends StatefulWidget {
+  const RequiredPasswordChangeScreen({super.key});
+
+  @override
+  State<RequiredPasswordChangeScreen> createState() =>
+      _RequiredPasswordChangeScreenState();
+}
+
+class _RequiredPasswordChangeScreenState
+    extends State<RequiredPasswordChangeScreen> {
+  final _password = TextEditingController();
+  final _confirm = TextEditingController();
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _password.dispose();
+    _confirm.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_password.text.length < 8) {
+      setState(() => _error = 'Use at least 8 characters.');
+      return;
+    }
+    if (_password.text != _confirm.text) {
+      setState(() => _error = 'Passwords do not match.');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final user = FirebaseAuth.instance.currentUser!;
+      await user.updatePassword(_password.text);
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'mustChangePassword': false,
+        'passwordChangedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } on FirebaseAuthException catch (error) {
+      setState(() => _error = friendlyAuthError(error));
+    } catch (_) {
+      setState(() => _error = 'Password could not be changed. Try again.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: AppScrollPage(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const PlayUpMark(size: 48),
+          const SizedBox(height: 32),
+          const Text(
+            'Choose your password',
+            style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Replace the temporary password before continuing.',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 24),
+          AppTextField(
+            controller: _password,
+            label: 'New password',
+            icon: CupertinoIcons.lock,
+            obscureText: true,
+          ),
+          const SizedBox(height: 12),
+          AppTextField(
+            controller: _confirm,
+            label: 'Confirm password',
+            icon: CupertinoIcons.lock_shield,
+            obscureText: true,
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            ErrorBanner(message: _error!),
+          ],
+          const SizedBox(height: 20),
+          PrimaryButton(
+            label: _loading ? 'Saving...' : 'Set password',
+            onPressed: _loading ? () {} : _save,
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class OnboardingScreen extends StatefulWidget {
@@ -1802,11 +2201,28 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _index = 0;
+  late final List<Widget> _pages;
+  static const _guestPages = <Widget>[
+    BookScreen(),
+    PlayScreen(),
+    GuestExitScreen(),
+  ];
 
   @override
   void initState() {
     super.initState();
+    _pages = [
+      HomeScreen(onTabChange: _selectTab),
+      const BookScreen(),
+      const PlayScreen(),
+      const RewardsScreen(),
+      const ProfileScreen(),
+    ];
     unawaited(DeepLinkService.consumePending());
+  }
+
+  void _selectTab(int index) {
+    if (_index != index) setState(() => _index = index);
   }
 
   @override
@@ -1814,14 +2230,9 @@ class _MainShellState extends State<MainShell> {
     final user = FirebaseAuth.instance.currentUser;
     final isGuest = user == null || user.isAnonymous;
     if (isGuest) {
-      final guestPages = <Widget>[
-        const BookScreen(),
-        const PlayScreen(),
-        const GuestExitScreen(),
-      ];
-      if (_index >= guestPages.length) _index = 0;
+      if (_index >= _guestPages.length) _index = 0;
       return Scaffold(
-        body: _AnimatedTabStack(index: _index, children: guestPages),
+        body: _AnimatedTabStack(index: _index, children: _guestPages),
         bottomNavigationBar: SafeArea(
           top: false,
           minimum: const EdgeInsets.fromLTRB(16, 0, 16, 10),
@@ -1835,19 +2246,19 @@ class _MainShellState extends State<MainShell> {
                   icon: CupertinoIcons.calendar,
                   label: 'Book',
                   active: _index == 0,
-                  onTap: () => setState(() => _index = 0),
+                  onTap: () => _selectTab(0),
                 ),
                 _TabItem(
                   icon: CupertinoIcons.game_controller,
                   label: 'Play',
                   active: _index == 1,
-                  onTap: () => setState(() => _index = 1),
+                  onTap: () => _selectTab(1),
                 ),
                 _TabItem(
                   icon: CupertinoIcons.square_arrow_right,
                   label: 'Sign out',
                   active: _index == 2,
-                  onTap: () => setState(() => _index = 2),
+                  onTap: () => _selectTab(2),
                 ),
               ],
             ),
@@ -1855,16 +2266,8 @@ class _MainShellState extends State<MainShell> {
         ),
       );
     }
-    final pages = [
-      HomeScreen(onTabChange: (index) => setState(() => _index = index)),
-      const BookScreen(),
-      const PlayScreen(),
-      const RewardsScreen(),
-      const ProfileScreen(),
-    ];
-
     return Scaffold(
-      body: _AnimatedTabStack(index: _index, children: pages),
+      body: _AnimatedTabStack(index: _index, children: _pages),
       bottomNavigationBar: SafeArea(
         top: false,
         minimum: const EdgeInsets.fromLTRB(16, 0, 16, 10),
@@ -1878,31 +2281,31 @@ class _MainShellState extends State<MainShell> {
                 icon: CupertinoIcons.house_fill,
                 label: 'Home',
                 active: _index == 0,
-                onTap: () => setState(() => _index = 0),
+                onTap: () => _selectTab(0),
               ),
               _TabItem(
                 icon: CupertinoIcons.calendar,
                 label: 'Book',
                 active: _index == 1,
-                onTap: () => setState(() => _index = 1),
+                onTap: () => _selectTab(1),
               ),
               _TabItem(
                 icon: CupertinoIcons.game_controller,
                 label: 'Play',
                 active: _index == 2,
-                onTap: () => setState(() => _index = 2),
+                onTap: () => _selectTab(2),
               ),
               _TabItem(
                 icon: CupertinoIcons.gift,
                 label: 'Rewards',
                 active: _index == 3,
-                onTap: () => setState(() => _index = 3),
+                onTap: () => _selectTab(3),
               ),
               _TabItem(
                 icon: CupertinoIcons.person,
                 label: 'Profile',
                 active: _index == 4,
-                onTap: () => setState(() => _index = 4),
+                onTap: () => _selectTab(4),
               ),
             ],
           ),
@@ -1919,21 +2322,19 @@ class _AnimatedTabStack extends StatelessWidget {
   final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => Stack(
-    fit: StackFit.expand,
-    children: [
-      for (var i = 0; i < children.length; i++)
-        AnimatedOpacity(
-          key: ValueKey(i),
-          opacity: index == i ? 1 : 0,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-          child: IgnorePointer(
-            ignoring: index != i,
-            child: TickerMode(enabled: index == i, child: children[i]),
-          ),
-        ),
-    ],
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+    key: ValueKey(index),
+    tween: Tween(begin: 0, end: 1),
+    duration: const Duration(milliseconds: 150),
+    curve: Curves.easeOutCubic,
+    builder: (context, value, child) => Opacity(
+      opacity: .82 + (.18 * value),
+      child: Transform.translate(
+        offset: Offset(12 * (1 - value), 0),
+        child: child,
+      ),
+    ),
+    child: IndexedStack(index: index, children: children),
   );
 }
 
@@ -4597,10 +4998,10 @@ class CardBox extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final effectiveColor = dark && color == AppColors.surface
-        ? const Color(0xFF111B2B)
+        ? const Color(0xFF0D0D0D)
         : color;
     final effectiveBorder = dark && borderColor == AppColors.line
-        ? const Color(0xFF263449)
+        ? const Color(0xFF242424)
         : borderColor;
     return Container(
       padding: padding,
@@ -5565,6 +5966,7 @@ class AppTextField extends StatelessWidget {
     this.obscureText = false,
     this.keyboardType,
     this.onChanged,
+    this.suffixIcon,
   });
 
   final TextEditingController controller;
@@ -5573,6 +5975,7 @@ class AppTextField extends StatelessWidget {
   final bool obscureText;
   final TextInputType? keyboardType;
   final ValueChanged<String>? onChanged;
+  final Widget? suffixIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -5587,6 +5990,7 @@ class AppTextField extends StatelessWidget {
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon),
+        suffixIcon: suffixIcon,
         filled: true,
         fillColor: scheme.surface,
         border: OutlineInputBorder(
@@ -5978,11 +6382,12 @@ class OptionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return CardBox(
-      borderColor: selected ? AppColors.purple : AppColors.line,
+      borderColor: selected ? AppColors.purple : scheme.outlineVariant,
       child: Row(
         children: [
-          Icon(icon, color: selected ? AppColors.purple : AppColors.ink),
+          Icon(icon, color: selected ? AppColors.purple : scheme.onSurface),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -5994,7 +6399,10 @@ class OptionTile extends StatelessWidget {
                 ),
                 Text(
                   subtitle,
-                  style: const TextStyle(color: AppColors.muted, fontSize: 13),
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 13,
+                  ),
                 ),
               ],
             ),
@@ -6003,7 +6411,7 @@ class OptionTile extends StatelessWidget {
             selected
                 ? CupertinoIcons.checkmark_circle_fill
                 : CupertinoIcons.chevron_right,
-            color: selected ? AppColors.purple : AppColors.muted,
+            color: selected ? AppColors.purple : scheme.onSurfaceVariant,
           ),
         ],
       ),
@@ -6019,6 +6427,7 @@ class StepIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final labels = ['Court', 'Players', 'Payment'];
+    final scheme = Theme.of(context).colorScheme;
     return Row(
       children: List.generate(labels.length, (index) {
         final selected = index == active;
@@ -6027,11 +6436,13 @@ class StepIndicator extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 14,
-                backgroundColor: selected ? AppColors.purple : AppColors.line,
+                backgroundColor: selected
+                    ? AppColors.purple
+                    : scheme.surfaceContainerHighest,
                 child: Text(
                   '${index + 1}',
                   style: TextStyle(
-                    color: selected ? Colors.white : AppColors.muted,
+                    color: selected ? Colors.white : scheme.onSurfaceVariant,
                     fontSize: 12,
                     fontWeight: FontWeight.w900,
                   ),
@@ -6042,7 +6453,7 @@ class StepIndicator extends StatelessWidget {
                 labels[index],
                 style: TextStyle(
                   fontWeight: selected ? FontWeight.w900 : FontWeight.w600,
-                  color: selected ? AppColors.purple : AppColors.muted,
+                  color: selected ? AppColors.purple : scheme.onSurfaceVariant,
                 ),
               ),
               if (index < labels.length - 1)
@@ -6050,7 +6461,7 @@ class StepIndicator extends StatelessWidget {
                   child: Container(
                     height: 1,
                     margin: const EdgeInsets.symmetric(horizontal: 8),
-                    color: AppColors.line,
+                    color: scheme.outlineVariant,
                   ),
                 ),
             ],
@@ -6409,37 +6820,60 @@ class SlotChip extends StatelessWidget {
     required this.time,
     required this.price,
     this.selected = false,
+    this.booked = false,
   });
 
   final String time;
   final String price;
   final bool selected;
+  final bool booked;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final background = booked
+        ? AppColors.danger.withValues(alpha: .14)
+        : selected
+        ? AppColors.purple
+        : scheme.surface;
+    final border = booked
+        ? AppColors.danger
+        : selected
+        ? AppColors.purple
+        : scheme.outlineVariant;
+    final foreground = booked
+        ? AppColors.danger
+        : selected
+        ? Colors.white
+        : scheme.onSurface;
     return Container(
       width: 82,
       padding: const EdgeInsets.symmetric(vertical: 11),
       decoration: BoxDecoration(
-        color: selected ? AppColors.purple : AppColors.surface,
+        color: background,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: selected ? AppColors.purple : AppColors.line),
+        border: Border.all(color: border),
       ),
       child: Column(
         children: [
           Text(
             time,
             style: TextStyle(
-              color: selected ? Colors.white : AppColors.ink,
+              color: foreground,
               fontWeight: FontWeight.w900,
             ),
           ),
           const SizedBox(height: 4),
           Text(
-            price,
+            booked ? 'Booked' : price,
             style: TextStyle(
-              color: selected ? Colors.white70 : AppColors.muted,
+              color: booked
+                  ? AppColors.danger
+                  : selected
+                  ? Colors.white70
+                  : scheme.onSurfaceVariant,
               fontSize: 12,
+              fontWeight: booked ? FontWeight.w800 : FontWeight.w400,
             ),
           ),
         ],
@@ -6462,6 +6896,7 @@ class DetailRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -6469,13 +6904,15 @@ class DetailRow extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: TextStyle(color: light ? Colors.white60 : AppColors.muted),
+              style: TextStyle(
+                color: light ? Colors.white60 : scheme.onSurfaceVariant,
+              ),
             ),
           ),
           Text(
             value,
             style: TextStyle(
-              color: light ? Colors.white : AppColors.ink,
+              color: light ? Colors.white : scheme.onSurface,
               fontWeight: FontWeight.w800,
             ),
           ),

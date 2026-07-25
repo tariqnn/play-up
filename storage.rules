@@ -1,0 +1,37 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function profile() {
+      return firestore.get(
+        /databases/(default)/documents/users/$(request.auth.uid)
+      ).data;
+    }
+
+    function canManageCourt(academyId, courtId) {
+      return signedIn() && profile().suspended != true && (
+        profile().role == 'superAdmin' ||
+        'academies.manage' in profile().permissions ||
+        (
+          profile().academyId == academyId &&
+          profile().role in ['academyOwner', 'academyStaff']
+        ) ||
+        (
+          profile().academyId == academyId &&
+          profile().role == 'courtOwner' &&
+          courtId in profile().courtIds
+        )
+      );
+    }
+
+    match /court-images/{academyId}/{courtId}/{fileName} {
+      allow read: if true;
+      allow write: if canManageCourt(academyId, courtId)
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+  }
+}

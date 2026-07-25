@@ -33,7 +33,9 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow create: if signedIn() && validPlayerCreate(userId);
+      allow create: if signedIn() && (
+        validPlayerCreate(userId) || permission('users.manage')
+      );
       allow read: if signedIn() && (request.auth.uid == userId || permission('users.manage')
         || (role('academyOwner') && resource.data.academyId == me().data.academyId));
       allow update: if active() && (
@@ -58,12 +60,33 @@ service cloud.firestore {
 
     match /publicProfiles/{userId} {
       allow read: if signedIn();
-      allow write: if false;
+      allow create, update: if active()
+        && request.auth.uid == userId
+        && request.resource.data.userId == userId
+        && request.resource.data.keys().hasOnly([
+          'userId', 'displayName', 'photoUrl', 'city', 'level', 'xp',
+          'sports', 'updatedAt'
+        ]);
+      allow delete: if false;
     }
 
     match /friendships/{friendshipId} {
       allow read: if active() && request.auth.uid in resource.data.members;
-      allow write: if false;
+      allow create: if active()
+        && request.resource.data.members.size() == 2
+        && request.auth.uid in request.resource.data.members
+        && request.resource.data.requestedBy == request.auth.uid
+        && request.resource.data.requestedTo in request.resource.data.members
+        && request.resource.data.requestedTo != request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow update: if active()
+        && resource.data.status == 'pending'
+        && resource.data.requestedTo == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'respondedAt', 'updatedAt'
+        ])
+        && request.resource.data.status in ['accepted', 'declined'];
+      allow delete: if active() && request.auth.uid in resource.data.members;
     }
 
     match /academies/{academyId} {
@@ -124,19 +147,83 @@ service cloud.firestore {
     }
 
     match /bookings/{bookingId} {
-      allow create: if false;
+      allow create: if active()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.participants == [request.auth.uid]
+        && request.resource.data.status == 'pending'
+        && request.resource.data.paymentMethod == 'cash'
+        && request.resource.data.paymentStatus == 'pending'
+        && request.resource.data.durationMinutes in [30, 60, 90, 120, 150, 180, 210, 240]
+        && request.resource.data.lockIds.size() == request.resource.data.durationMinutes / 30
+        && request.resource.data.startUtc > request.time
+        && request.resource.data.endUtc > request.resource.data.startUtc
+        && request.resource.data.courtId is string
+        && get(/databases/$(database)/documents/courts/$(request.resource.data.courtId)).data.active == true;
       allow read: if active() && (resource.data.userId == request.auth.uid
         || permission('bookings.manage')
         || sameAcademy(resource.data.academyId)
         || assignedCourt(resource.data.courtId, resource.data.academyId));
-      allow update: if false;
+      allow update: if active()
+        && (
+          (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'participants', 'updatedAt'
+            ])
+            && resource.data.status in ['pending', 'confirmed']
+            && request.resource.data.participants.size() == resource.data.participants.size() + 1
+            && request.resource.data.participants.hasAll(resource.data.participants)
+            && request.auth.uid in request.resource.data.participants
+            && !(request.auth.uid in resource.data.participants)
+            && request.resource.data.participants.size() <= resource.data.playerCapacity
+          ) || (
+            (permission('bookings.manage')
+              || sameAcademy(resource.data.academyId)
+              || assignedCourt(resource.data.courtId, resource.data.academyId))
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'status', 'confirmedAt', 'checkedInAt', 'completedAt',
+              'cancelledAt', 'updatedAt'
+            ])
+            && (
+              (resource.data.status == 'pending' && request.resource.data.status in ['confirmed', 'cancelled'])
+              || (resource.data.status == 'confirmed' && request.resource.data.status in ['checkedIn', 'cancelled'])
+              || (resource.data.status == 'checkedIn' && request.resource.data.status == 'completed')
+            )
+          ) || (
+            (permission('bookings.manage')
+              || sameAcademy(resource.data.academyId)
+              || assignedCourt(resource.data.courtId, resource.data.academyId))
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'paymentStatus', 'collectedAt', 'updatedAt'
+            ])
+            && request.resource.data.paymentStatus == 'collected'
+          )
+        );
       allow delete: if false;
     }
 
     match /bookingLocks/{slotKey} {
-      allow read: if false;
-      allow create: if false;
-      allow update, delete: if false;
+      allow read: if active();
+      allow create: if active()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.bookingId is string
+        && request.resource.data.courtId is string
+        && request.resource.data.startUtc > request.time
+        && request.resource.data.endUtc > request.resource.data.startUtc
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.userId == request.auth.uid
+        && slotKey in getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.lockIds;
+      allow update: if false;
+      allow delete: if active()
+        && getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.status == 'cancelled'
+        && (
+          permission('bookings.manage')
+          || sameAcademy(
+            getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.academyId
+          )
+          || assignedCourt(
+            resource.data.courtId,
+            getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.academyId
+          )
+        );
     }
 
     match /matches/{matchId} {
@@ -153,7 +240,20 @@ service cloud.firestore {
     }
 
     match /bookingInvites/{inviteId} {
-      allow read, write: if false;
+      allow get: if active();
+      allow list: if false;
+      allow create: if active()
+        && request.resource.data.token == inviteId
+        && request.resource.data.createdBy == request.auth.uid
+        && get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.userId == request.auth.uid;
+      allow update: if active()
+        && resource.data.active == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'uses', 'updatedAt'
+        ])
+        && request.resource.data.uses == resource.data.uses + 1
+        && request.resource.data.uses <= resource.data.maxUses;
+      allow delete: if active() && resource.data.createdBy == request.auth.uid;
     }
 
     match /redemptions/{redemptionId} {

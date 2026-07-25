@@ -1,5 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:latlong2/latlong.dart';
 import 'academy_service.dart';
 
 class LiveCourtManagementScreen extends StatelessWidget {
@@ -75,6 +80,8 @@ class LiveCourtManagementScreen extends StatelessWidget {
       text: data?['longitude']?.toString(),
     );
     final imageUrl = TextEditingController(text: data?['imageUrl']?.toString());
+    Uint8List? pickedImage;
+    String? pickedImageName;
     await showDialog<void>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -127,26 +134,73 @@ class LiveCourtManagementScreen extends StatelessWidget {
                   controller: address,
                   decoration: const InputDecoration(labelText: 'Full address'),
                 ),
-                TextField(
-                  controller: latitude,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                    signed: true,
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final initial = LatLng(
+                      double.tryParse(latitude.text) ?? 31.9539,
+                      double.tryParse(longitude.text) ?? 35.9106,
+                    );
+                    final point = await Navigator.of(context).push<LatLng>(
+                      MaterialPageRoute(
+                        fullscreenDialog: true,
+                        builder: (_) => _CourtLocationPicker(initial: initial),
+                      ),
+                    );
+                    if (point != null) {
+                      setDialogState(() {
+                        latitude.text = point.latitude.toStringAsFixed(6);
+                        longitude.text = point.longitude.toStringAsFixed(6);
+                      });
+                    }
+                  },
+                  icon: const Icon(Icons.map_outlined),
+                  label: Text(
+                    latitude.text.isEmpty
+                        ? 'Choose location on map'
+                        : 'Location selected • change',
                   ),
-                  decoration: const InputDecoration(labelText: 'Latitude'),
                 ),
-                TextField(
-                  controller: longitude,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                    signed: true,
+                const SizedBox(height: 12),
+                if (pickedImage != null)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.memory(
+                      pickedImage!,
+                      height: 130,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                    ),
+                  )
+                else if (imageUrl.text.trim().isNotEmpty)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.network(
+                      imageUrl.text.trim(),
+                      height: 130,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                    ),
                   ),
-                  decoration: const InputDecoration(labelText: 'Longitude'),
-                ),
-                TextField(
-                  controller: imageUrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Court photo URL',
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final file = await ImagePicker().pickImage(
+                      source: ImageSource.gallery,
+                      imageQuality: 86,
+                      maxWidth: 1800,
+                    );
+                    if (file == null) return;
+                    final bytes = await file.readAsBytes();
+                    if (bytes.lengthInBytes > 5 * 1024 * 1024) return;
+                    setDialogState(() {
+                      pickedImage = bytes;
+                      pickedImageName = file.name;
+                    });
+                  },
+                  icon: const Icon(Icons.add_photo_alternate_outlined),
+                  label: Text(
+                    pickedImage == null ? 'Add court photo' : 'Change photo',
                   ),
                 ),
               ],
@@ -176,8 +230,18 @@ class LiveCourtManagementScreen extends StatelessWidget {
                   lng > 180) {
                 return;
               }
+              final courtId =
+                  id ?? AcademyService.instance.newCourtId();
+              var savedImageUrl = imageUrl.text.trim();
+              if (pickedImage != null) {
+                savedImageUrl = await AcademyService.instance.uploadCourtImage(
+                  courtId: courtId,
+                  bytes: pickedImage!,
+                  fileName: pickedImageName ?? 'court.jpg',
+                );
+              }
               await AcademyService.instance.saveCourt(
-                courtId: id,
+                courtId: courtId,
                 name: name.text,
                 sport: sport.text,
                 basePriceMinor: (amount * 100).round(),
@@ -185,7 +249,7 @@ class LiveCourtManagementScreen extends StatelessWidget {
                 address: address.text,
                 latitude: lat,
                 longitude: lng,
-                imageUrl: imageUrl.text,
+                imageUrl: savedImageUrl,
               );
               if (dialog.mounted) Navigator.pop(dialog);
             },
@@ -202,6 +266,63 @@ class LiveCourtManagementScreen extends StatelessWidget {
     longitude.dispose();
     imageUrl.dispose();
   }
+}
+
+class _CourtLocationPicker extends StatefulWidget {
+  const _CourtLocationPicker({required this.initial});
+  final LatLng initial;
+
+  @override
+  State<_CourtLocationPicker> createState() => _CourtLocationPickerState();
+}
+
+class _CourtLocationPickerState extends State<_CourtLocationPicker> {
+  late LatLng _selected = widget.initial;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: const Text('Court location'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, _selected),
+          child: const Text('Use location'),
+        ),
+      ],
+    ),
+    body: FlutterMap(
+      options: MapOptions(
+        initialCenter: widget.initial,
+        initialZoom: 14,
+        onTap: (_, point) => setState(() => _selected = point),
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.playup.app',
+        ),
+        MarkerLayer(
+          markers: [
+            Marker(
+              point: _selected,
+              width: 52,
+              height: 52,
+              child: const Icon(
+                Icons.location_pin,
+                size: 48,
+                color: Colors.red,
+              ),
+            ),
+          ],
+        ),
+        const RichAttributionWidget(
+          attributions: [
+            TextSourceAttribution('OpenStreetMap contributors'),
+          ],
+        ),
+      ],
+    ),
+  );
 }
 
 class LiveBookingManagementScreen extends StatelessWidget {

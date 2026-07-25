@@ -1105,6 +1105,31 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
     '10:00 PM',
   ];
 
+  DateTime _startFor(DateTime now, int slotIndex) {
+    final day = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).add(Duration(days: _dayIndex));
+    return DateTime(day.year, day.month, day.day, 18 + slotIndex);
+  }
+
+  bool _isBooked(
+    DateTime start,
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> locks,
+  ) {
+    final end = start.add(Duration(minutes: _duration));
+    return locks.any((lock) {
+      final data = lock.data();
+      final lockStart = (data['startUtc'] as Timestamp?)?.toDate().toLocal();
+      final lockEnd = (data['endUtc'] as Timestamp?)?.toDate().toLocal();
+      return lockStart != null &&
+          lockEnd != null &&
+          start.isBefore(lockEnd) &&
+          end.isAfter(lockStart);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
@@ -1146,10 +1171,14 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
                     child: Container(
                       width: 58,
                       decoration: BoxDecoration(
-                        color: selected ? AppColors.purple : AppColors.surface,
+                        color: selected
+                            ? AppColors.purple
+                            : Theme.of(context).colorScheme.surface,
                         borderRadius: BorderRadius.circular(18),
                         border: Border.all(
-                          color: selected ? AppColors.purple : AppColors.line,
+                          color: selected
+                              ? AppColors.purple
+                              : Theme.of(context).colorScheme.outlineVariant,
                         ),
                       ),
                       child: Column(
@@ -1160,7 +1189,9 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
                             style: TextStyle(
                               color: selected
                                   ? Colors.white70
-                                  : AppColors.muted,
+                                  : Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
                             ),
@@ -1169,7 +1200,9 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
                           Text(
                             '${day.day}',
                             style: TextStyle(
-                              color: selected ? Colors.white : AppColors.ink,
+                              color: selected
+                                  ? Colors.white
+                                  : Theme.of(context).colorScheme.onSurface,
                               fontSize: 18,
                               fontWeight: FontWeight.w900,
                             ),
@@ -1187,20 +1220,40 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                for (var i = 0; i < _slots.length; i++)
-                  GestureDetector(
-                    onTap: () => setState(() => _slotIndex = i),
-                    child: SlotChip(
-                      time: _slots[i],
-                      price: widget.court.price.split(' ').take(2).join(' '),
-                      selected: i == _slotIndex,
-                    ),
-                  ),
-              ],
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('bookingLocks')
+                  .where('courtId', isEqualTo: widget.court.id)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                final locks = snapshot.data?.docs ?? const [];
+                return Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    for (var i = 0; i < _slots.length; i++)
+                      Builder(
+                        builder: (context) {
+                          final booked = _isBooked(_startFor(now, i), locks);
+                          return GestureDetector(
+                            onTap: booked
+                                ? null
+                                : () => setState(() => _slotIndex = i),
+                            child: SlotChip(
+                              time: _slots[i],
+                              price: widget.court.price
+                                  .split(' ')
+                                  .take(2)
+                                  .join(' '),
+                              selected: i == _slotIndex && !booked,
+                              booked: booked,
+                            ),
+                          );
+                        },
+                      ),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 22),
             const Text(
@@ -1237,17 +1290,7 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
             PrimaryButton(
               label: 'Continue',
               onPressed: () {
-                final day = DateTime(
-                  now.year,
-                  now.month,
-                  now.day,
-                ).add(Duration(days: _dayIndex));
-                final start = DateTime(
-                  day.year,
-                  day.month,
-                  day.day,
-                  18 + _slotIndex,
-                );
+                final start = _startFor(now, _slotIndex);
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => BookingSetupScreen(

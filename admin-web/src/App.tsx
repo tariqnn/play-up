@@ -5,11 +5,18 @@ import {
   useState,
 } from "react";
 import {
+  createUserWithEmailAndPassword,
+  getAuth,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
   signOut,
+  updateProfile,
   User,
 } from "firebase/auth";
+import {
+  deleteApp,
+  initializeApp,
+} from "firebase/app";
 import {
   addDoc,
   collection,
@@ -54,6 +61,7 @@ import {
 import {
   auth,
   db,
+  firebaseConfig,
   functions,
 } from "./firebase";
 
@@ -305,10 +313,6 @@ export default function App() {
           </button>
           <div>
             <h1>{current.label}</h1>
-            <p>
-              PlayUp platform
-              administration
-            </p>
           </div>
           <div className="avatar">
             {user.email?.[0].toUpperCase()}
@@ -334,6 +338,53 @@ export default function App() {
 
 type LiveRow = Record<string, unknown> & { id: string };
 
+async function createManagedAccount(input: {
+  ownerType: "academy" | "court";
+  academyId: string;
+  courtId?: string;
+  displayName: string;
+  email: string;
+  temporaryPassword: string;
+}) {
+  const secondary = initializeApp(
+    firebaseConfig,
+    `owner-${Date.now()}-${Math.random()}`,
+  );
+  const secondaryAuth = getAuth(secondary);
+  try {
+    const credential = await createUserWithEmailAndPassword(
+      secondaryAuth,
+      input.email.trim(),
+      input.temporaryPassword,
+    );
+    await updateProfile(credential.user, {
+      displayName: input.displayName.trim(),
+    });
+    await setDoc(doc(db, "users", credential.user.uid), {
+      uid: credential.user.uid,
+      displayName: input.displayName.trim(),
+      email: input.email.trim().toLowerCase(),
+      role: input.ownerType === "academy" ? "academyOwner" : "courtOwner",
+      ownerType: input.ownerType,
+      academyId: input.academyId,
+      courtIds: input.ownerType === "court" && input.courtId
+        ? [input.courtId]
+        : [],
+      permissions: input.ownerType === "academy"
+        ? ["academy.manage", "bookings.manage"]
+        : ["bookings.manage"],
+      suspended: false,
+      mustChangePassword: true,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return credential.user.uid;
+  } finally {
+    await signOut(secondaryAuth).catch(() => undefined);
+    await deleteApp(secondary);
+  }
+}
+
 function OwnerAccounts() {
   const [academies, setAcademies] = useState<LiveRow[]>([]);
   const [courts, setCourts] = useState<LiveRow[]>([]);
@@ -342,6 +393,7 @@ function OwnerAccounts() {
   const [courtId, setCourtId] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
+  const [temporaryPassword, setTemporaryPassword] = useState("PlayUp123!");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -355,33 +407,35 @@ function OwnerAccounts() {
   async function create(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError(""); setMessage("");
     try {
-      await httpsCallable(functions,"createManagedOwnerAccount")({ownerType,academyId,courtId:ownerType==="court"?courtId:null,displayName,email});
+      await createManagedAccount({
+        ownerType: ownerType as "academy" | "court",
+        academyId,
+        courtId: ownerType === "court" ? courtId : undefined,
+        displayName,
+        email,
+        temporaryPassword,
+      });
       setResetEmail(email);
-      try {
-        await sendPasswordResetEmail(auth,email);
-        setMessage(`Account created. A secure password setup email was sent to ${email}.`);
-      } catch {
-        setMessage(`Account created for ${email}.`);
-        setError("The password email was not sent. Use Resend setup email below.");
-      }
+      setMessage(`Account ready. Temporary password: ${temporaryPassword}`);
       setDisplayName(""); setEmail(""); setCourtId("");
     } catch(err) {
       setError(err instanceof Error ? err.message : "The owner account could not be created.");
     } finally { setBusy(false); }
   }
   return <section className="content owner-workspace">
-    <div className="portfolio-head"><div><span className="eyebrow">IDENTITY & ACCESS</span><h2>Create owner account</h2><p>Assign access to an academy or a specific court. The owner receives a secure email to choose their password.</p></div></div>
+    <div className="portfolio-head"><div><span className="eyebrow">ACCESS</span><h2>New owner</h2></div></div>
     <div className="owner-layout">
       <form className="table-card owner-form" onSubmit={create}>
         <div className="owner-type"><button type="button" className={ownerType==="academy"?"selected":""} onClick={()=>{setOwnerType("academy");setCourtId("")}}><Building2/><strong>Academy owner</strong><span>Manage the full academy and all its courts</span></button><button type="button" className={ownerType==="court"?"selected":""} onClick={()=>setOwnerType("court")}><Dumbbell/><strong>Court owner</strong><span>Assigned to one specific court</span></button></div>
         <label>Full name<input value={displayName} onChange={e=>setDisplayName(e.target.value)} required autoComplete="name"/></label>
         <label>Email address<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required autoComplete="email"/></label>
+        <label>Temporary password<input type="text" minLength={8} value={temporaryPassword} onChange={e=>setTemporaryPassword(e.target.value)} required autoComplete="new-password"/></label>
         <label>Academy<select value={academyId} onChange={e=>{setAcademyId(e.target.value);setCourtId("")}} required><option value="">Select an academy</option>{academies.map(a=><option key={a.id} value={a.id}>{String(a.name??a.id)}</option>)}</select></label>
         {ownerType==="court"&&<label>Court<select value={courtId} onChange={e=>setCourtId(e.target.value)} required disabled={!academyId}><option value="">Select a court</option>{availableCourts.map(c=><option key={c.id} value={c.id}>{String(c.name??c.id)}</option>)}</select></label>}
         {error&&<div className="error">{error}{resetEmail&&<button type="button" className="retry-email" onClick={async()=>{setError("");try{await sendPasswordResetEmail(auth,resetEmail);setMessage(`Password setup email sent to ${resetEmail}.`)}catch{setError("Email still could not be sent. Check Firebase email-template configuration.")}}}>Resend setup email</button>}</div>}{message&&<div className="success">{message}</div>}
-        <button className="primary-action owner-submit" disabled={busy}>{busy?"Creating account…":"Create account and send email"}</button>
+        <button className="primary-action owner-submit" disabled={busy}>{busy?"Creating…":"Create owner"}</button>
       </form>
-      <div className="process-card"><ShieldCheck size={30}/><h3>Secure onboarding</h3><ol><li>PlayUp creates the owner identity.</li><li>The owner receives Firebase's password setup email.</li><li>They choose a private password.</li><li>The app routes them directly to owner operations after sign-in.</li></ol><p>No temporary password is shown or stored by the administrator.</p></div>
+      <div className="process-card"><ShieldCheck size={30}/><h3>First sign-in</h3><p>The owner must replace the temporary password before using PlayUp.</p></div>
     </div>
   </section>;
 }
@@ -397,6 +451,14 @@ function AcademyPortfolio() {
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
+  const [academyName, setAcademyName] = useState("");
+  const [academyAddress, setAcademyAddress] = useState("");
+  const [academyCurrency, setAcademyCurrency] = useState("JOD");
+  const [ownerName, setOwnerName] = useState("");
+  const [ownerEmail, setOwnerEmail] = useState("");
+  const [ownerPassword, setOwnerPassword] = useState("PlayUp123!");
   useEffect(() => {
     const academyStop = onSnapshot(collection(db, "academies"), snap => setAcademies(snap.docs.map(d => ({id:d.id, ...d.data()}))));
     const courtStop = onSnapshot(collection(db, "courts"), snap => setCourts(snap.docs.map(d => ({id:d.id, ...d.data()}))));
@@ -405,6 +467,41 @@ function AcademyPortfolio() {
   }, []);
   const rows = academies.filter(a => String(a.name ?? "").toLowerCase().includes(query.toLowerCase()));
   const current = academies.find(a => a.id === selected);
+  async function createAcademy(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setCreateError("");
+    try {
+      const academy = await addDoc(collection(db, "academies"), {
+        name: academyName.trim(),
+        address: academyAddress.trim(),
+        currency: academyCurrency,
+        status: "active",
+        platformCommissionPercent: 0,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      await createManagedAccount({
+        ownerType: "academy",
+        academyId: academy.id,
+        displayName: ownerName,
+        email: ownerEmail,
+        temporaryPassword: ownerPassword,
+      });
+      setCreating(false);
+      setAcademyName("");
+      setAcademyAddress("");
+      setOwnerName("");
+      setOwnerEmail("");
+      setSelected(academy.id);
+    } catch (error) {
+      setCreateError(
+        error instanceof Error ? error.message : "Academy could not be created.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
   const totals = (academyId: string) => {
     const academyBookings = bookings.filter(b => b.academyId === academyId);
     const collected = academyBookings.filter(b => b.paymentStatus === "collected").reduce((sum,b) => sum + Number(b.totalMinor ?? 0), 0);
@@ -452,17 +549,26 @@ function AcademyPortfolio() {
       </div>
     </section>;
   }
-  const commissionByCurrency = academies.reduce<Record<string,number>>((result,a) => {
-    const currency=String(a.currency??"JOD");
-    result[currency]=(result[currency]??0)+totals(a.id).commission;
-    return result;
-  },{});
   return <section className="content">
-    <div className="portfolio-head"><div><span className="eyebrow">PARTNER CRM</span><h2>Academy portfolio</h2><p>Open any academy to inspect its courts, bookings, cash collection, and PlayUp commission.</p></div><div className="portfolio-total"><span>PlayUp collected revenue</span>{Object.entries(commissionByCurrency).map(([currency,value])=><strong key={currency}>{money(value,currency)}</strong>)}{!Object.keys(commissionByCurrency).length&&<strong>—</strong>}</div></div>
+    <div className="portfolio-head"><div><span className="eyebrow">PARTNERS</span><h2>Academies</h2></div><div><button className="primary-action" onClick={()=>setCreating(true)}><Plus size={18}/> Add academy</button></div></div>
     <div className="table-card">
       <div className="table-head"><div><h2>Academy accounts</h2><p>{rows.length} live partners</p></div><label className="search"><Search size={18}/><input placeholder="Search academies" value={query} onChange={e=>setQuery(e.target.value)}/></label></div>
       <div className="academy-list">{rows.map(a=>{const t=totals(a.id);const currency=String(a.currency??"JOD");return <button key={a.id} onClick={()=>setSelected(a.id)}><div className="academy-logo">{String(a.name??"A").charAt(0)}</div><div className="academy-name"><strong>{String(a.name??"Academy")}</strong><span>{courts.filter(c=>c.academyId===a.id).length} courts · {t.academyBookings.length} bookings</span></div><div><span>Collected</span><b>{money(t.collected,currency)}</b></div><div><span>Commission</span><b>{t.percent}% · {money(t.commission,currency)}</b></div><span className={`status ${a.status === "active" ? "good" : ""}`}>{String(a.status??"unknown")}</span><ChevronRight size={20}/></button>})}{!rows.length&&<div className="empty">No academies match this search.</div>}</div>
     </div>
+    {creating&&<div className="modal-backdrop" onMouseDown={()=>!saving&&setCreating(false)}>
+      <form className="editor" onSubmit={createAcademy} onMouseDown={e=>e.stopPropagation()}>
+        <div className="editor-head"><div><h2>New academy</h2></div><button type="button" onClick={()=>setCreating(false)}><X/></button></div>
+        <label>Academy name<input value={academyName} onChange={e=>setAcademyName(e.target.value)} required/></label>
+        <label>Address<input value={academyAddress} onChange={e=>setAcademyAddress(e.target.value)} required/></label>
+        <label>Currency<select value={academyCurrency} onChange={e=>setAcademyCurrency(e.target.value)}>{["JOD","AED","SAR","QAR","KWD","BHD","OMR","USD"].map(v=><option key={v}>{v}</option>)}</select></label>
+        <h3>Owner account</h3>
+        <label>Owner name<input value={ownerName} onChange={e=>setOwnerName(e.target.value)} required/></label>
+        <label>Owner email<input type="email" value={ownerEmail} onChange={e=>setOwnerEmail(e.target.value)} required/></label>
+        <label>Temporary password<input type="text" minLength={8} value={ownerPassword} onChange={e=>setOwnerPassword(e.target.value)} required/></label>
+        {createError&&<div className="error">{createError}</div>}
+        <button className="primary-action" disabled={saving}>{saving?"Creating…":"Create academy"}</button>
+      </form>
+    </div>}
   </section>;
 }
 

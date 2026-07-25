@@ -3,12 +3,13 @@ import { connectAuthEmulator, getAuth } from 'firebase/auth';
 import { connectFirestoreEmulator, getFirestore } from 'firebase/firestore';
 import { connectFunctionsEmulator, getFunctions } from 'firebase/functions';
 
-const app = initializeApp({
+export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'emulator-key',
   appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:634238605050:web:c0eaf211bbf88ebc45db43',
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'sports-app-257a0',
   authDomain: 'sports-app-257a0.firebaseapp.com',
-});
+};
+const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const functions = getFunctions(app, 'me-central1');
