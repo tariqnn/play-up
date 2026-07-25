@@ -28,6 +28,18 @@ void main() {
     expect(access.canAccessAcademy('academy-b'), isFalse);
   });
 
+  test('court owners only access their assigned court', () {
+    const access = AccessContext(
+      uid: 'court-owner',
+      role: AppRole.courtOwner,
+      academyId: 'academy-a',
+      courtIds: {'court-a'},
+    );
+    expect(access.canAccessCourt('court-a', 'academy-a'), isTrue);
+    expect(access.canAccessCourt('court-b', 'academy-a'), isFalse);
+    expect(access.canAccessCourt('court-a', 'academy-b'), isFalse);
+  });
+
   test('suspended users have no access', () {
     const access = AccessContext(
       uid: 'staff',

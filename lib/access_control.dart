@@ -2,6 +2,7 @@ enum AppRole {
   superAdmin,
   platformAdmin,
   academyOwner,
+  courtOwner,
   academyStaff,
   player;
 
@@ -9,6 +10,7 @@ enum AppRole {
     'superAdmin' => superAdmin,
     'platformAdmin' => platformAdmin,
     'academyOwner' => academyOwner,
+    'courtOwner' => courtOwner,
     'academyStaff' => academyStaff,
     _ => player,
   };
@@ -34,6 +36,7 @@ class AccessContext {
     required this.uid,
     required this.role,
     this.academyId,
+    this.courtIds = const {},
     this.permissions = const {},
     this.suspended = false,
   });
@@ -43,6 +46,9 @@ class AccessContext {
         uid: uid,
         role: AppRole.parse(data['role']),
         academyId: data['academyId'] as String?,
+        courtIds: (data['courtIds'] as List<dynamic>? ?? const [])
+            .whereType<String>()
+            .toSet(),
         permissions: (data['permissions'] as List<dynamic>? ?? const [])
             .whereType<String>()
             .toSet(),
@@ -52,18 +58,31 @@ class AccessContext {
   final String uid;
   final AppRole role;
   final String? academyId;
+  final Set<String> courtIds;
   final Set<String> permissions;
   final bool suspended;
 
   bool get isPlatformAdmin =>
       role == AppRole.superAdmin || role == AppRole.platformAdmin;
   bool get isAcademyUser =>
-      role == AppRole.academyOwner || role == AppRole.academyStaff;
+      role == AppRole.academyOwner ||
+      role == AppRole.courtOwner ||
+      role == AppRole.academyStaff;
+  bool get isCourtOwner => role == AppRole.courtOwner;
 
   bool can(String permission) {
     if (suspended) return false;
     if (role == AppRole.superAdmin) return true;
     if (role == AppRole.academyOwner && permission.startsWith('academy.')) {
+      return true;
+    }
+    if (role == AppRole.courtOwner &&
+        {
+          Permissions.manageAcademyCourts,
+          Permissions.manageAcademyBookings,
+          Permissions.checkIn,
+          Permissions.viewAcademyReports,
+        }.contains(permission)) {
       return true;
     }
     return permissions.contains(permission);
@@ -73,4 +92,8 @@ class AccessContext {
       !suspended &&
       ((isPlatformAdmin && can(Permissions.manageAcademies)) ||
           (isAcademyUser && academyId == requestedAcademyId));
+
+  bool canAccessCourt(String requestedCourtId, String requestedAcademyId) =>
+      canAccessAcademy(requestedAcademyId) &&
+      (!isCourtOwner || courtIds.contains(requestedCourtId));
 }

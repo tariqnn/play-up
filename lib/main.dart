@@ -324,6 +324,15 @@ class PlayUpApp extends StatelessWidget {
             primary: AppColors.purple,
             surface: AppColors.surface,
           ),
+          pageTransitionsTheme: const PageTransitionsTheme(
+            builders: {
+              TargetPlatform.android: PlayUpPageTransitionsBuilder(),
+              TargetPlatform.iOS: PlayUpPageTransitionsBuilder(),
+              TargetPlatform.macOS: PlayUpPageTransitionsBuilder(),
+              TargetPlatform.windows: PlayUpPageTransitionsBuilder(),
+              TargetPlatform.linux: PlayUpPageTransitionsBuilder(),
+            },
+          ),
         ),
         darkTheme: ThemeData(
           useMaterial3: true,
@@ -337,9 +346,48 @@ class PlayUpApp extends StatelessWidget {
           ),
           inputDecorationTheme: const InputDecorationTheme(filled: true),
           cardTheme: const CardThemeData(color: Color(0xFF111B2B)),
+          pageTransitionsTheme: const PageTransitionsTheme(
+            builders: {
+              TargetPlatform.android: PlayUpPageTransitionsBuilder(),
+              TargetPlatform.iOS: PlayUpPageTransitionsBuilder(),
+              TargetPlatform.macOS: PlayUpPageTransitionsBuilder(),
+              TargetPlatform.windows: PlayUpPageTransitionsBuilder(),
+              TargetPlatform.linux: PlayUpPageTransitionsBuilder(),
+            },
+          ),
         ),
         themeMode: mode,
         home: const BiometricGate(child: AuthGate()),
+      ),
+    );
+  }
+}
+
+class PlayUpPageTransitionsBuilder extends PageTransitionsBuilder {
+  const PlayUpPageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    if (route.isFirst) return child;
+    final curved = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    return FadeTransition(
+      opacity: Tween<double>(begin: .72, end: 1).animate(curved),
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(.08, 0),
+          end: Offset.zero,
+        ).animate(curved),
+        child: child,
       ),
     );
   }
@@ -638,7 +686,9 @@ class AuthGate extends StatelessWidget {
               return const LaunchLoadingScreen();
             }
             final role = profileSnapshot.data?['role']?.toString() ?? 'player';
-            if (role == 'academyOwner' || role == 'academyStaff') {
+            if (role == 'academyOwner' ||
+                role == 'courtOwner' ||
+                role == 'academyStaff') {
               return const AcademyModeDashboard(standalone: true);
             }
             return const MainShell();
@@ -788,6 +838,12 @@ class AppRepository {
         );
   }
 
+  Stream<QuerySnapshot<Map<String, dynamic>>> myMatches() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return const Stream.empty();
+    return _matches.where('players', arrayContains: uid).snapshots();
+  }
+
   Future<String> createBooking({
     required Court court,
     required bool matchmaking,
@@ -801,7 +857,7 @@ class AppRepository {
     }
     if (court.id.isEmpty) {
       throw const DomainValidationException(
-        'This sample court is not bookable. Select a live academy court.',
+        'This court is not available for booking. Select a live court.',
       );
     }
     try {
@@ -1765,7 +1821,7 @@ class _MainShellState extends State<MainShell> {
       ];
       if (_index >= guestPages.length) _index = 0;
       return Scaffold(
-        body: IndexedStack(index: _index, children: guestPages),
+        body: _AnimatedTabStack(index: _index, children: guestPages),
         bottomNavigationBar: SafeArea(
           top: false,
           minimum: const EdgeInsets.fromLTRB(16, 0, 16, 10),
@@ -1808,7 +1864,7 @@ class _MainShellState extends State<MainShell> {
     ];
 
     return Scaffold(
-      body: IndexedStack(index: _index, children: pages),
+      body: _AnimatedTabStack(index: _index, children: pages),
       bottomNavigationBar: SafeArea(
         top: false,
         minimum: const EdgeInsets.fromLTRB(16, 0, 16, 10),
@@ -1854,6 +1910,31 @@ class _MainShellState extends State<MainShell> {
       ),
     );
   }
+}
+
+class _AnimatedTabStack extends StatelessWidget {
+  const _AnimatedTabStack({required this.index, required this.children});
+
+  final int index;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [
+      for (var i = 0; i < children.length; i++)
+        AnimatedOpacity(
+          key: ValueKey(i),
+          opacity: index == i ? 1 : 0,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          child: IgnorePointer(
+            ignoring: index != i,
+            child: TickerMode(enabled: index == i, child: children[i]),
+          ),
+        ),
+    ],
+  );
 }
 
 class GuestExitScreen extends StatelessWidget {
@@ -2822,26 +2903,7 @@ class ProfileScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          const Row(
-            children: [
-              AchievementBadge(
-                icon: CupertinoIcons.shield_lefthalf_fill,
-                color: AppColors.green,
-              ),
-              AchievementBadge(
-                icon: CupertinoIcons.flame_fill,
-                color: AppColors.gold,
-              ),
-              AchievementBadge(
-                icon: CupertinoIcons.star_fill,
-                color: Color(0xFF3B82F6),
-              ),
-              AchievementBadge(
-                icon: CupertinoIcons.bolt_fill,
-                color: AppColors.purple,
-              ),
-            ],
-          ),
+          const LiveAchievementBadges(),
           const SizedBox(height: 22),
           SettingsTile(
             icon: CupertinoIcons.chart_bar_alt_fill,

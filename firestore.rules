@@ -10,17 +10,19 @@ service cloud.firestore {
     function permission(name) {
       return superAdmin() || (active() && name in me().data.permissions);
     }
-    function academyUser() {
-      return role('academyOwner') || role('academyStaff');
-    }
     function sameAcademy(academyId) {
-      return academyUser() && me().data.academyId == academyId;
+      return (role('academyOwner') || role('academyStaff'))
+        && me().data.academyId == academyId;
+    }
+    function assignedCourt(courtId, academyId) {
+      return role('courtOwner')
+        && me().data.academyId == academyId
+        && courtId in me().data.courtIds;
     }
     function immutableIdentity() {
-      return request.resource.data.role == resource.data.role
-        && request.resource.data.permissions == resource.data.permissions
-        && request.resource.data.academyId == resource.data.academyId
-        && request.resource.data.suspended == resource.data.suspended;
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'role', 'permissions', 'academyId', 'courtIds', 'ownerType', 'suspended'
+      ]);
     }
     function validPlayerCreate(userId) {
       return request.auth.uid == userId
@@ -78,27 +80,29 @@ service cloud.firestore {
     match /courts/{courtId} {
       allow read: if true;
       allow create: if permission('academies.manage') ||
-        (academyUser() && request.resource.data.academyId == me().data.academyId);
+        ((role('academyOwner') || role('academyStaff'))
+          && request.resource.data.academyId == me().data.academyId);
       allow update, delete: if permission('academies.manage') ||
-        (academyUser() && resource.data.academyId == me().data.academyId
+        ((sameAcademy(resource.data.academyId)
+          || assignedCourt(courtId, resource.data.academyId))
           && request.resource.data.academyId == resource.data.academyId);
     }
 
     match /offers/{id} {
       allow read: if true;
       allow create: if permission('platform.manage') ||
-        (academyUser() && request.resource.data.academyId == me().data.academyId);
+        (sameAcademy(request.resource.data.academyId));
       allow update, delete: if permission('platform.manage') ||
-        (academyUser() && resource.data.academyId == me().data.academyId
+        (sameAcademy(resource.data.academyId)
           && request.resource.data.academyId == resource.data.academyId);
     }
 
     match /events/{id} {
       allow read: if true;
       allow create: if permission('platform.manage') ||
-        (academyUser() && request.resource.data.academyId == me().data.academyId);
+        (sameAcademy(request.resource.data.academyId));
       allow update, delete: if permission('platform.manage') ||
-        (academyUser() && resource.data.academyId == me().data.academyId
+        (sameAcademy(resource.data.academyId)
           && request.resource.data.academyId == resource.data.academyId);
     }
 
@@ -123,7 +127,8 @@ service cloud.firestore {
       allow create: if false;
       allow read: if active() && (resource.data.userId == request.auth.uid
         || permission('bookings.manage')
-        || (academyUser() && resource.data.academyId == me().data.academyId));
+        || sameAcademy(resource.data.academyId)
+        || assignedCourt(resource.data.courtId, resource.data.academyId));
       allow update: if false;
       allow delete: if false;
     }
@@ -154,16 +159,17 @@ service cloud.firestore {
     match /redemptions/{redemptionId} {
       allow read: if active() && (resource.data.userId == request.auth.uid
         || permission('platform.manage')
-        || (academyUser() && resource.data.academyId == me().data.academyId));
+        || sameAcademy(resource.data.academyId)
+        || assignedCourt(resource.data.courtId, resource.data.academyId));
       allow write: if false;
     }
 
     match /promotions/{promotionId} {
       allow read: if active();
       allow create: if permission('platform.manage') ||
-        (academyUser() && request.resource.data.academyId == me().data.academyId);
+        (sameAcademy(request.resource.data.academyId));
       allow update, delete: if permission('platform.manage') ||
-        (academyUser() && resource.data.academyId == me().data.academyId
+        (sameAcademy(resource.data.academyId)
           && request.resource.data.academyId == resource.data.academyId);
     }
 
@@ -176,6 +182,12 @@ service cloud.firestore {
 
     match /dashboardLayouts/{userId} {
       allow read, create, update, delete: if active() && request.auth.uid == userId;
+    }
+
+    match /platformConfig/{configId} {
+      allow read: if permission('platform.manage');
+      allow create, update: if permission('platform.manage');
+      allow delete: if superAdmin();
     }
 
     match /reviews/{reviewId} {

@@ -4,6 +4,9 @@ Flutter/Firebase sports discovery, booking, academy, matchmaking, rewards, playe
 
 The player and academy applications use Flutter. Platform administration is a separate React website under `admin-web/`.
 
+See [OWNER_ACCOUNT_TESTING.md](OWNER_ACCOUNT_TESTING.md) for creating and
+verifying academy-owner and court-owner accounts.
+
 ## Prerequisites
 
 - Flutter SDK compatible with Dart 3.11+

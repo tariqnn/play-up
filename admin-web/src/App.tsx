@@ -23,13 +23,19 @@ import {
 import { httpsCallable } from "firebase/functions";
 import {
   Activity,
+  AlertTriangle,
+  ArrowUpRight,
   Building2,
   CalendarDays,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
+  Clock3,
+  Download,
   Dumbbell,
   Edit3,
+  LifeBuoy,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -38,7 +44,9 @@ import {
   Settings,
   ShieldCheck,
   Star,
+  TicketPercent,
   Trash2,
+  TrendingUp,
   Users,
   UserPlus,
   X,
@@ -133,10 +141,22 @@ const modules: Module[] = [
     ],
   },
   {
+    label: "Support",
+    collection: "supportTickets",
+    icon: LifeBuoy,
+    columns: ["category", "userId", "status", "message", "createdAt"],
+  },
+  {
+    label: "Promotions",
+    collection: "promotions",
+    icon: TicketPercent,
+    columns: ["code", "discountType", "discountValue", "academyId", "active"],
+  },
+  {
     label: "Achievements",
     collection: "achievements",
     icon: Star,
-    columns: ["title", "description", "metric", "goal", "rewardPoints", "active"],
+    columns: ["title", "description", "metric", "goal", "rewardPoints", "color", "active"],
   },
   {
     label: "Tournaments",
@@ -568,6 +588,9 @@ function Dashboard() {
   const [counts, setCounts] = useState<
     Record<string, number>
   >({});
+  const [bookings, setBookings] = useState<LiveRow[]>([]);
+  const [tickets, setTickets] = useState<LiveRow[]>([]);
+  const [error, setError] = useState("");
   useEffect(() => {
     Promise.all(
       names.map(
@@ -581,45 +604,100 @@ function Dashboard() {
             ).data().count,
           ] as const,
       ),
-    ).then((rows) =>
-      setCounts(
-        Object.fromEntries(rows),
-      ),
+    )
+      .then((rows) => setCounts(Object.fromEntries(rows)))
+      .catch(() => setError("Some platform totals could not be loaded."));
+    const stopBookings = onSnapshot(
+      collection(db, "bookings"),
+      (snap) => setBookings(snap.docs.map((d) => ({id: d.id, ...d.data()}))),
+      () => setError("Live booking operations are temporarily unavailable."),
     );
+    const stopTickets = onSnapshot(
+      collection(db, "supportTickets"),
+      (snap) => setTickets(snap.docs.map((d) => ({id: d.id, ...d.data()}))),
+      () => setError("Support queue could not be loaded."),
+    );
+    return () => {
+      stopBookings();
+      stopTickets();
+    };
   }, []);
+  const activeBookings = bookings.filter((row) =>
+    ["pending", "confirmed", "checkedIn"].includes(String(row.status)),
+  );
+  const pendingBookings = bookings.filter((row) => row.status === "pending");
+  const collectedMinor = bookings
+    .filter((row) => row.paymentStatus === "collected")
+    .reduce((total, row) => total + Number(row.totalMinor ?? 0), 0);
+  const openTickets = tickets.filter((row) =>
+    ["open", "pending"].includes(String(row.status ?? "open")),
+  );
+  const bookingStatuses = ["pending", "confirmed", "checkedIn", "completed"];
+  const maximumStatusCount = Math.max(
+    1,
+    ...bookingStatuses.map(
+      (status) => bookings.filter((row) => row.status === status).length,
+    ),
+  );
   return (
     <section className="content">
-      <div className="intro">
-        <h2>Platform overview</h2>
-        <p>
-          Live operational totals from
-          the current environment.
-        </p>
+      <div className="dashboard-hero">
+        <div>
+          <span className="eyebrow">LIVE OPERATIONS</span>
+          <h2>Platform command center</h2>
+          <p>Bookings, partners, revenue and service health in one decision-ready view.</p>
+        </div>
+        <div className="live-indicator"><span /> Live data</div>
       </div>
-      <div className="metrics">
-        {names.map((name) => (
-          <article key={name}>
-            <span>{name}</span>
-            <strong>
-              {counts[name] ?? "—"}
-            </strong>
-          </article>
-        ))}
+      {error && <div className="notice warning"><AlertTriangle size={18}/>{error}</div>}
+      <div className="executive-metrics">
+        <article className="metric-primary">
+          <div><CircleDollarSign size={20}/><span>Collected booking value</span></div>
+          <strong>{money(collectedMinor, "JOD")}</strong>
+          <small><TrendingUp size={14}/> Cash confirmed across the platform</small>
+        </article>
+        <article>
+          <div><CalendarDays size={20}/><span>Active bookings</span></div>
+          <strong>{activeBookings.length}</strong>
+          <small>{pendingBookings.length} awaiting confirmation</small>
+        </article>
+        <article>
+          <div><Building2 size={20}/><span>Partner network</span></div>
+          <strong>{counts.academies ?? "—"}</strong>
+          <small>{counts.courts ?? "—"} live court records</small>
+        </article>
+        <article className={openTickets.length ? "metric-attention" : ""}>
+          <div><LifeBuoy size={20}/><span>Support queue</span></div>
+          <strong>{openTickets.length}</strong>
+          <small>{openTickets.length ? "Needs operator attention" : "All requests handled"}</small>
+        </article>
       </div>
-      <DataModule
-        module={{
-          label: "Recent bookings",
-          collection: "bookings",
-          icon: CalendarDays,
-          columns: [
-            "courtName",
-            "academyId",
-            "status",
-            "totalMinor",
-          ],
-        }}
-        embedded
-      />
+      <div className="dashboard-grid">
+        <article className="insight-card">
+          <div className="section-title"><div><h3>Booking pipeline</h3><p>Current operational distribution</p></div><Activity size={20}/></div>
+          <div className="pipeline">
+            {bookingStatuses.map((status) => {
+              const value = bookings.filter((row) => row.status === status).length;
+              return <div className="pipeline-row" key={status}>
+                <span>{status}</span>
+                <div><i style={{width: `${Math.max(4, value / maximumStatusCount * 100)}%`}} /></div>
+                <b>{value}</b>
+              </div>;
+            })}
+          </div>
+        </article>
+        <article className="insight-card operations-card">
+          <div className="section-title"><div><h3>Operations inbox</h3><p>Items requiring a decision</p></div><Clock3 size={20}/></div>
+          <div className="operation-list">
+            <div><span className="operation-icon amber"><CalendarDays size={18}/></span><div><strong>{pendingBookings.length} booking requests</strong><small>Confirm or cancel pending reservations</small></div><ArrowUpRight size={17}/></div>
+            <div><span className="operation-icon purple"><LifeBuoy size={18}/></span><div><strong>{openTickets.length} support requests</strong><small>Review player and partner issues</small></div><ArrowUpRight size={17}/></div>
+            <div><span className="operation-icon green"><CheckCircle2 size={18}/></span><div><strong>Access controls active</strong><small>Tenant and role isolation enforced</small></div><ShieldCheck size={17}/></div>
+          </div>
+        </article>
+      </div>
+      <div className="section-gap">
+        <DataModule module={{label:"Recent bookings",collection:"bookings",icon:CalendarDays,columns:["courtName","academyId","status","paymentStatus","totalMinor"]}} embedded />
+      </div>
     </section>
   );
 }
@@ -786,6 +864,25 @@ function DataModule({
       ),
     [rows, q],
   );
+  function exportCsv() {
+    const columns = ["id", ...(module.columns ?? [])];
+    const escape = (value: unknown) =>
+      `"${String(value ?? "").replaceAll('"', '""')}"`;
+    const csv = [
+      columns.map(escape).join(","),
+      ...filtered.map((row) =>
+        columns.map((column) => escape(row[column])).join(","),
+      ),
+    ].join("\n");
+    const url = URL.createObjectURL(
+      new Blob([csv], {type: "text/csv;charset=utf-8"}),
+    );
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${module.label.toLowerCase().replaceAll(" ", "-")}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
   const editable =
     !embedded &&
     ![
@@ -931,6 +1028,9 @@ function DataModule({
               }
             />
           </label>
+          <button className="secondary-action" onClick={exportCsv}>
+            <Download size={17} /> Export
+          </button>
           {editable &&
             module.label !==
               "Bookings" && (
@@ -966,10 +1066,11 @@ function DataModule({
                   {module.columns!.map(
                     (c) => (
                       <td key={c}>
-                        {String(
-                          row[c] ??
-                            "-",
-                        )}
+                        {["status", "paymentStatus", "role"].includes(c) ? (
+                          <span className={`data-pill ${String(row[c] ?? "").toLowerCase()}`}>
+                            {String(row[c] ?? "-")}
+                          </span>
+                        ) : String(row[c] ?? "-")}
                       </td>
                     ),
                   )}
@@ -1117,6 +1218,14 @@ function DataModule({
                     <select value={String(editing[column] ?? "singleElimination")} onChange={(e) => setEditing({...editing, [column]: e.target.value})}>
                       <option value="singleElimination">Single elimination</option><option value="doubleElimination">Double elimination</option><option value="roundRobin">Round robin</option><option value="groupKnockout">Groups + knockout</option>
                     </select>
+                  ) : column === "metric" ? (
+                    <select value={String(editing[column] ?? "bookings")} onChange={(e) => setEditing({...editing, [column]: e.target.value})}>
+                      <option value="bookings">Bookings completed</option><option value="matchesPlayed">Matches played</option><option value="rating5">Five-star rating</option><option value="weekendStreak">Weekend streak</option><option value="noCancellationStreak">No-cancellation streak</option><option value="tournamentWins">Tournament wins</option><option value="matchesHosted">Matches hosted</option><option value="academyLoyalty">Academy loyalty</option>
+                    </select>
+                  ) : column === "color" ? (
+                    <select value={String(editing[column] ?? "purple")} onChange={(e) => setEditing({...editing, [column]: e.target.value})}>
+                      {["purple","green","gold","blue","orange","pink"].map((value) => <option key={value}>{value}</option>)}
+                    </select>
                   ) : (
                     <input value={String(editing[column] ?? "")} onChange={(e) => setEditing({...editing, [column]: e.target.value})} />
                   )}
@@ -1153,32 +1262,68 @@ function DataModule({
   );
 }
 function SettingsPage() {
+  const [config, setConfig] = useState({
+    supportEmail: "",
+    maintenanceMode: false,
+    bookingNotice: "Pay at venue. No card data is collected.",
+    defaultCurrency: "JOD",
+  });
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  useEffect(
+    () =>
+      onSnapshot(doc(db, "platformConfig", "general"), (snap) => {
+        if (snap.exists()) {
+          setConfig((current) => ({...current, ...snap.data()}));
+        }
+      }),
+    [],
+  );
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setSaved(false);
+    try {
+      await setDoc(
+        doc(db, "platformConfig", "general"),
+        {...config, updatedAt: serverTimestamp()},
+        {merge: true},
+      );
+      setSaved(true);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
-    <section className="content">
-      <div className="settings-grid">
-        <article>
-          <h3>Payment policy</h3>
-          <p>
-            Pay at venue. No card data
-            is collected.
-          </p>
-        </article>
-        <article>
-          <h3>Authorization</h3>
-          <p>
-            Granular roles and academy
-            tenant isolation are active.
-          </p>
-        </article>
-        <article>
-          <h3>Notifications</h3>
-          <p>
-            In-app booking and
-            matchmaking notifications
-            are enabled.
-          </p>
-        </article>
+    <section className="content settings-workspace">
+      <div className="portfolio-head">
+        <div>
+          <span className="eyebrow">PLATFORM CONTROL</span>
+          <h2>Operational settings</h2>
+          <p>Manage player-facing service policy and emergency controls.</p>
+        </div>
       </div>
+      <form className="settings-form table-card" onSubmit={save}>
+        <div className="settings-section">
+          <div><h3>Service configuration</h3><p>Defaults used across PlayUp experiences.</p></div>
+          <div className="settings-fields">
+            <label>Support email<input type="email" value={config.supportEmail} onChange={(e) => setConfig({...config, supportEmail: e.target.value})} placeholder="support@playup.app" /></label>
+            <label>Default currency<select value={config.defaultCurrency} onChange={(e) => setConfig({...config, defaultCurrency: e.target.value})}>{["JOD","AED","SAR","QAR","KWD","BHD","OMR","USD"].map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label className="full">Booking notice<textarea value={config.bookingNotice} onChange={(e) => setConfig({...config, bookingNotice: e.target.value})} rows={3} /></label>
+          </div>
+        </div>
+        <div className="settings-section danger-zone">
+          <div><h3>Maintenance control</h3><p>Use only when platform access must be paused.</p></div>
+          <label className="switch-row">
+            <div><strong>Maintenance mode</strong><span>Display a service notice and prevent new operations.</span></div>
+            <input type="checkbox" checked={config.maintenanceMode} onChange={(e) => setConfig({...config, maintenanceMode: e.target.checked})} />
+          </label>
+        </div>
+        <div className="settings-save">
+          {saved && <span><CheckCircle2 size={17} /> Settings saved</span>}
+          <button className="primary-action" disabled={busy}>{busy ? "Saving…" : "Save platform settings"}</button>
+        </div>
+      </form>
     </section>
   );
 }

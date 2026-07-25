@@ -39,6 +39,14 @@
         { "fieldPath": "academyId", "order": "ASCENDING" },
         { "fieldPath": "startUtc", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "bookings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "courtId", "order": "ASCENDING" },
+        { "fieldPath": "startUtc", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

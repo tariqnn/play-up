@@ -699,6 +699,7 @@ class _LeaderboardRow extends StatelessWidget {
 
 class Achievement {
   const Achievement(
+    this.id,
     this.title,
     this.description,
     this.icon,
@@ -706,6 +707,7 @@ class Achievement {
     this.progress,
     this.goal,
   );
+  final String id;
   final String title;
   final String description;
   final IconData icon;
@@ -714,79 +716,286 @@ class Achievement {
   final int goal;
 }
 
-const kAchievements = <Achievement>[
-  Achievement(
-    'First Booking',
-    'Book your first court',
-    CupertinoIcons.calendar,
-    AppColors.green,
-    1,
-    1,
-  ),
-  Achievement(
-    '10 Matches Played',
-    'Play 10 matches',
-    CupertinoIcons.sportscourt,
-    AppColors.purple,
-    7,
-    10,
-  ),
-  Achievement(
-    '5-Star Player',
-    'Earn a 5-star rating',
-    CupertinoIcons.star_fill,
-    AppColors.gold,
-    1,
-    1,
-  ),
-  Achievement(
-    'Weekend Warrior',
-    'Play 3 weekends in a row',
-    CupertinoIcons.flame_fill,
-    Color(0xFFFF7A45),
-    2,
-    3,
-  ),
-  Achievement(
-    'No Cancellation Streak',
-    '10 games with no cancels',
-    CupertinoIcons.shield_lefthalf_fill,
-    Color(0xFF3B82F6),
-    8,
-    10,
-  ),
-  Achievement(
-    '3x3 Champion',
-    'Win a 3x3 tournament',
-    CupertinoIcons.rosette,
-    Color(0xFFEC4899),
-    0,
-    1,
-  ),
-  Achievement(
-    'Team Captain',
-    'Host 5 matches',
-    CupertinoIcons.person_2_fill,
-    AppColors.purple,
-    3,
-    5,
-  ),
-  Achievement(
-    'Academy Loyal',
-    'Book same academy 8 times',
-    CupertinoIcons.building_2_fill,
-    AppColors.green,
-    5,
-    8,
-  ),
-];
+List<Achievement> buildAchievements({
+  required Map<String, dynamic> profile,
+  required List<QueryDocumentSnapshot<Map<String, dynamic>>> bookings,
+  required List<QueryDocumentSnapshot<Map<String, dynamic>>> matches,
+  required List<QueryDocumentSnapshot<Map<String, dynamic>>> definitions,
+}) {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  final bookingRows = bookings.map((doc) => doc.data()).toList();
+  final matchRows = matches.map((doc) => doc.data()).toList();
+  final validBookings = bookingRows
+      .where((row) => row['status']?.toString() != 'cancelled')
+      .toList();
+  final completedMatches = matchRows
+      .where(
+        (row) => const {
+          'completed',
+          'finished',
+        }.contains(row['status']?.toString().toLowerCase()),
+      )
+      .length;
+  final rating = (profile['rating'] as num?)?.toDouble() ?? 0;
+  final tournamentWins =
+      (profile['tournamentWins'] as num?)?.toInt() ??
+      (profile['tournamentsWon'] as num?)?.toInt() ??
+      0;
+  final hostedMatches = matchRows.where((row) => row['hostId'] == uid).length;
+  final loyalty = <String, int>{};
+  for (final booking in validBookings) {
+    final academyId = booking['academyId']?.toString() ?? '';
+    if (academyId.isNotEmpty) {
+      loyalty[academyId] = (loyalty[academyId] ?? 0) + 1;
+    }
+  }
+  final noCancellationStreak = _noCancellationStreak(bookingRows);
+  final weekendStreak = _weekendStreak(validBookings);
+  final progressByMetric = <String, int>{
+    'bookings': validBookings.length,
+    'matchesPlayed': completedMatches,
+    'rating5': rating >= 5 ? 1 : 0,
+    'weekendStreak': weekendStreak,
+    'noCancellationStreak': noCancellationStreak,
+    'tournamentWins': tournamentWins,
+    'matchesHosted': hostedMatches,
+    'academyLoyalty': loyalty.values.fold<int>(0, math.max),
+  };
+  final fallback = [
+    Achievement(
+      'first-booking',
+      'First Booking',
+      'Book your first court',
+      CupertinoIcons.calendar,
+      AppColors.green,
+      validBookings.length,
+      1,
+    ),
+    Achievement(
+      'matches-10',
+      '10 Matches Played',
+      'Play 10 matches',
+      CupertinoIcons.sportscourt,
+      AppColors.purple,
+      completedMatches,
+      10,
+    ),
+    Achievement(
+      'five-star',
+      '5-Star Player',
+      'Earn a 5-star rating',
+      CupertinoIcons.star_fill,
+      AppColors.gold,
+      rating >= 5 ? 1 : 0,
+      1,
+    ),
+    Achievement(
+      'weekend-warrior',
+      'Weekend Warrior',
+      'Play 3 weekends in a row',
+      CupertinoIcons.flame_fill,
+      Color(0xFFFF7A45),
+      weekendStreak,
+      3,
+    ),
+    Achievement(
+      'reliable-player',
+      'No Cancellation Streak',
+      '10 games with no cancels',
+      CupertinoIcons.shield_lefthalf_fill,
+      Color(0xFF3B82F6),
+      noCancellationStreak,
+      10,
+    ),
+    Achievement(
+      '3x3-champion',
+      '3x3 Champion',
+      'Win a 3x3 tournament',
+      CupertinoIcons.rosette,
+      Color(0xFFEC4899),
+      tournamentWins,
+      1,
+    ),
+    Achievement(
+      'team-captain',
+      'Team Captain',
+      'Host 5 matches',
+      CupertinoIcons.person_2_fill,
+      AppColors.purple,
+      hostedMatches,
+      5,
+    ),
+    Achievement(
+      'academy-loyal',
+      'Academy Loyal',
+      'Book same academy 8 times',
+      CupertinoIcons.building_2_fill,
+      AppColors.green,
+      progressByMetric['academyLoyalty']!,
+      8,
+    ),
+  ];
+  final activeDefinitions = definitions
+      .where((doc) => doc.data()['active'] != false)
+      .toList();
+  if (activeDefinitions.isEmpty) return fallback;
+  return activeDefinitions.map((doc) {
+    final data = doc.data();
+    final metric = data['metric']?.toString() ?? 'bookings';
+    final color = switch (data['color']?.toString()) {
+      'gold' => AppColors.gold,
+      'green' => AppColors.green,
+      'blue' => const Color(0xFF3B82F6),
+      'orange' => const Color(0xFFFF7A45),
+      'pink' => const Color(0xFFEC4899),
+      _ => AppColors.purple,
+    };
+    final icon = switch (metric) {
+      'bookings' => CupertinoIcons.calendar,
+      'matchesPlayed' => CupertinoIcons.sportscourt,
+      'rating5' => CupertinoIcons.star_fill,
+      'weekendStreak' => CupertinoIcons.flame_fill,
+      'noCancellationStreak' => CupertinoIcons.shield_lefthalf_fill,
+      'tournamentWins' => CupertinoIcons.rosette,
+      'matchesHosted' => CupertinoIcons.person_2_fill,
+      'academyLoyalty' => CupertinoIcons.building_2_fill,
+      _ => CupertinoIcons.checkmark_seal_fill,
+    };
+    return Achievement(
+      doc.id,
+      (data['title'] ?? 'Achievement').toString(),
+      (data['description'] ?? 'Keep playing to unlock this achievement.')
+          .toString(),
+      icon,
+      color,
+      progressByMetric[metric] ?? 0,
+      math.max(1, (data['goal'] as num?)?.toInt() ?? 1),
+    );
+  }).toList();
+}
+
+DateTime? _achievementDate(Map<String, dynamic> row) {
+  for (final key in const ['startUtc', 'completedAt', 'createdAt']) {
+    final value = row[key];
+    if (value is Timestamp) return value.toDate().toLocal();
+  }
+  return null;
+}
+
+int _noCancellationStreak(List<Map<String, dynamic>> bookings) {
+  final sorted = [...bookings]
+    ..sort(
+      (a, b) => (_achievementDate(b) ?? DateTime(1970)).compareTo(
+        _achievementDate(a) ?? DateTime(1970),
+      ),
+    );
+  var streak = 0;
+  for (final booking in sorted) {
+    if (booking['status']?.toString() == 'cancelled') break;
+    streak++;
+  }
+  return streak;
+}
+
+int _weekendStreak(List<Map<String, dynamic>> bookings) {
+  final weekends =
+      bookings
+          .map(_achievementDate)
+          .whereType<DateTime>()
+          .where((date) => date.weekday >= DateTime.friday)
+          .map((date) {
+            final monday = date.subtract(Duration(days: date.weekday - 1));
+            return DateTime(monday.year, monday.month, monday.day);
+          })
+          .toSet()
+          .toList()
+        ..sort();
+  var best = 0;
+  var current = 0;
+  DateTime? previous;
+  for (final week in weekends) {
+    current = previous != null && week.difference(previous).inDays == 7
+        ? current + 1
+        : 1;
+    best = math.max(best, current);
+    previous = week;
+  }
+  return best;
+}
+
+class UserAchievementsBuilder extends StatelessWidget {
+  const UserAchievementsBuilder({super.key, required this.builder});
+  final Widget Function(BuildContext, List<Achievement>) builder;
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<Map<String, dynamic>>(
+    stream: AppRepository.instance.currentUserDoc(),
+    builder: (context, profile) =>
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: AppRepository.instance.myBookings(),
+          builder: (context, bookings) =>
+              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: AppRepository.instance.myMatches(),
+                builder: (context, matches) =>
+                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: CatalogService.instance.raw('achievements'),
+                      builder: (context, definitions) {
+                        if (!profile.hasData ||
+                            !bookings.hasData ||
+                            !matches.hasData ||
+                            !definitions.hasData) {
+                          return const Center(
+                            child: CupertinoActivityIndicator(),
+                          );
+                        }
+                        return builder(
+                          context,
+                          buildAchievements(
+                            profile: profile.data!,
+                            bookings: bookings.data!.docs,
+                            matches: matches.data!.docs,
+                            definitions: definitions.data!.docs,
+                          ),
+                        );
+                      },
+                    ),
+              ),
+        ),
+  );
+}
+
+class LiveAchievementBadges extends StatelessWidget {
+  const LiveAchievementBadges({super.key});
+
+  @override
+  Widget build(BuildContext context) => UserAchievementsBuilder(
+    builder: (context, achievements) {
+      final unlocked = achievements
+          .where((item) => item.progress >= item.goal)
+          .take(4)
+          .toList();
+      if (unlocked.isEmpty) {
+        return const CardBox(
+          child: Text('Your first achievement is waiting to be unlocked.'),
+        );
+      }
+      return Wrap(
+        spacing: 4,
+        runSpacing: 8,
+        children: [
+          for (final item in unlocked)
+            AchievementBadge(icon: item.icon, color: item.color),
+        ],
+      );
+    },
+  );
+}
 
 class AchievementsScreen extends StatelessWidget {
   const AchievementsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final unlocked = kAchievements.where((a) => a.progress >= a.goal).length;
     return Scaffold(
       body: AppScrollPage(
         child: Column(
@@ -797,43 +1006,58 @@ class AchievementsScreen extends StatelessWidget {
               onBack: () => Navigator.of(context).pop(),
             ),
             const SizedBox(height: 16),
-            CardBox(
-              color: AppColors.dark,
-              borderColor: AppColors.dark,
-              child: Row(
-                children: [
-                  const Icon(
-                    CupertinoIcons.rosette,
-                    color: AppColors.gold,
-                    size: 34,
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '$unlocked of ${kAchievements.length} unlocked',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 16,
+            UserAchievementsBuilder(
+              builder: (context, achievements) {
+                final unlocked = achievements
+                    .where((a) => a.progress >= a.goal)
+                    .length;
+                return Column(
+                  children: [
+                    CardBox(
+                      color: AppColors.dark,
+                      borderColor: AppColors.dark,
+                      child: Row(
+                        children: [
+                          const Icon(
+                            CupertinoIcons.rosette,
+                            color: AppColors.gold,
+                            size: 34,
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        ProgressBar(value: unlocked / kAchievements.length),
-                      ],
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '$unlocked of ${achievements.length} unlocked',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ProgressBar(
+                                  value: achievements.isEmpty
+                                      ? 0
+                                      : unlocked / achievements.length,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                    const SizedBox(height: 16),
+                    for (final a in achievements)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _AchievementCard(achievement: a),
+                      ),
+                  ],
+                );
+              },
             ),
-            const SizedBox(height: 16),
-            for (final a in kAchievements)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _AchievementCard(achievement: a),
-              ),
           ],
         ),
       ),

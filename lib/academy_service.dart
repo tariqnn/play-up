@@ -2,13 +2,30 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+class OwnerScope {
+  const OwnerScope({
+    required this.academyId,
+    required this.role,
+    required this.courtIds,
+  });
+
+  final String academyId;
+  final String role;
+  final Set<String> courtIds;
+
+  bool get isCourtOwner => role == 'courtOwner';
+  bool get canManageAcademy => role == 'academyOwner';
+  String? get assignedCourtId =>
+      isCourtOwner && courtIds.length == 1 ? courtIds.single : null;
+}
+
 class AcademyService {
   AcademyService._();
   static final instance = AcademyService._();
   final _db = FirebaseFirestore.instance;
   final _functions = FirebaseFunctions.instanceFor(region: 'me-central1');
 
-  Future<String> academyId() async {
+  Future<OwnerScope> ownerScope() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) throw StateError('Sign in is required.');
     final profile = (await _db.collection('users').doc(uid).get()).data();
@@ -16,21 +33,50 @@ class AcademyService {
     if (id == null || id.isEmpty) {
       throw StateError('No academy is assigned to this account.');
     }
-    return id;
+    final role = profile?['role']?.toString() ?? '';
+    final courtIds = (profile?['courtIds'] as List<dynamic>? ?? const [])
+        .whereType<String>()
+        .toSet();
+    if (role == 'courtOwner' && courtIds.length != 1) {
+      throw StateError('This court-owner account needs one assigned court.');
+    }
+    return OwnerScope(academyId: id, role: role, courtIds: courtIds);
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> courts(String academyId) => _db
-      .collection('courts')
-      .where('academyId', isEqualTo: academyId)
-      .orderBy('name')
-      .snapshots();
+  Future<String> academyId() async => (await ownerScope()).academyId;
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> bookings(String academyId) => _db
-      .collection('bookings')
-      .where('academyId', isEqualTo: academyId)
-      .orderBy('startUtc', descending: true)
-      .limit(200)
-      .snapshots();
+  Stream<QuerySnapshot<Map<String, dynamic>>> courts(String academyId) =>
+      Stream.fromFuture(ownerScope()).asyncExpand((scope) {
+        Query<Map<String, dynamic>> query;
+        if (scope.isCourtOwner) {
+          query = _db
+              .collection('courts')
+              .where(FieldPath.documentId, isEqualTo: scope.assignedCourtId);
+        } else {
+          query = _db
+              .collection('courts')
+              .where('academyId', isEqualTo: academyId)
+              .orderBy('name');
+        }
+        return query.snapshots();
+      });
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> bookings(String academyId) =>
+      Stream.fromFuture(ownerScope()).asyncExpand((scope) {
+        Query<Map<String, dynamic>> query;
+        if (scope.isCourtOwner) {
+          query = _db
+              .collection('bookings')
+              .where('courtId', isEqualTo: scope.assignedCourtId)
+              .orderBy('startUtc', descending: true);
+        } else {
+          query = _db
+              .collection('bookings')
+              .where('academyId', isEqualTo: academyId)
+              .orderBy('startUtc', descending: true);
+        }
+        return query.limit(200).snapshots();
+      });
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> academy(String academyId) =>
       _db.collection('academies').doc(academyId).snapshots();
@@ -41,7 +87,11 @@ class AcademyService {
       .snapshots();
 
   Future<void> saveAcademy(Map<String, dynamic> values) async {
-    final id = await academyId();
+    final scope = await ownerScope();
+    if (!scope.canManageAcademy) {
+      throw StateError('Court owners cannot edit the academy profile.');
+    }
+    final id = scope.academyId;
     await _db.collection('academies').doc(id).set({
       ...values,
       'updatedAt': FieldValue.serverTimestamp(),
@@ -54,6 +104,10 @@ class AcademyService {
     required String temporaryPassword,
     required List<String> permissions,
   }) async {
+    final scope = await ownerScope();
+    if (!scope.canManageAcademy) {
+      throw StateError('Court owners cannot create staff accounts.');
+    }
     await _functions.httpsCallable('createAcademyStaff').call({
       'displayName': displayName,
       'email': email,
@@ -75,7 +129,12 @@ class AcademyService {
     int openingHour = 6,
     int closingHour = 23,
   }) async {
-    final tenantId = await academyId();
+    final scope = await ownerScope();
+    final tenantId = scope.academyId;
+    if (scope.isCourtOwner &&
+        (courtId == null || courtId != scope.assignedCourtId)) {
+      throw StateError('Court owners can only edit their assigned court.');
+    }
     final ref = courtId == null
         ? _db.collection('courts').doc()
         : _db.collection('courts').doc(courtId);

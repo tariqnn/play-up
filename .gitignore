@@ -45,3 +45,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/.kotlin/
+/android/key.properties
+/android/app/playup-upload-keystore.jks
+/android/app/playup-release-keystore.jks

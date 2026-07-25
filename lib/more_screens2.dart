@@ -1530,113 +1530,132 @@ class AcademyModeDashboard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: AppScrollPage(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            PageTopBar(
-              title: 'Academy Operations',
-              onBack: standalone ? null : () => Navigator.of(context).pop(),
-            ),
-            const SizedBox(height: 16),
-            const LiveAcademyDashboardSummary(),
-            const ThemeModeTile(),
-            const SizedBox(height: 20),
-            SettingsTile(
-              icon: CupertinoIcons.square_grid_2x2,
-              title: 'Customize Dashboard',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const CustomDashboard(
-                    scope: 'academy',
-                    available: academyWidgets,
+    return FutureBuilder<OwnerScope>(
+      future: AcademyService.instance.ownerScope(),
+      builder: (context, scopeSnapshot) {
+        if (!scopeSnapshot.hasData) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final scope = scopeSnapshot.data!;
+        final isCourtOwner = scope.isCourtOwner;
+        return Scaffold(
+          body: AppScrollPage(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                PageTopBar(
+                  title: isCourtOwner
+                      ? 'Court Operations'
+                      : 'Academy Operations',
+                  onBack: standalone ? null : () => Navigator.of(context).pop(),
+                ),
+                const SizedBox(height: 16),
+                const LiveAcademyDashboardSummary(),
+                const ThemeModeTile(),
+                const SizedBox(height: 20),
+                if (!isCourtOwner)
+                  SettingsTile(
+                    icon: CupertinoIcons.square_grid_2x2,
+                    title: 'Customize Dashboard',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const CustomDashboard(
+                          scope: 'academy',
+                          available: academyWidgets,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (standalone) ...[
+                  const SizedBox(height: 18),
+                  SecondaryButton(
+                    label: 'Sign out',
+                    onPressed: () async => SocialAuth.signOutEverywhere(),
+                  ),
+                ],
+                if (!isCourtOwner)
+                  SettingsTile(
+                    icon: CupertinoIcons.building_2_fill,
+                    title: 'Academy Profile & Contact',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const AcademyProfileManagementScreen(),
+                      ),
+                    ),
+                  ),
+                SettingsTile(
+                  icon: CupertinoIcons.person_2_fill,
+                  title: 'Staff & Permissions',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const AcademyStaffManagementScreen(),
+                    ),
                   ),
                 ),
-              ),
-            ),
-            if (standalone) ...[
-              const SizedBox(height: 18),
-              SecondaryButton(
-                label: 'Sign out',
-                onPressed: () async => SocialAuth.signOutEverywhere(),
-              ),
-            ],
-            SettingsTile(
-              icon: CupertinoIcons.building_2_fill,
-              title: 'Academy Profile & Contact',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const AcademyProfileManagementScreen(),
+                SettingsTile(
+                  icon: CupertinoIcons.sportscourt,
+                  title: 'Court Management',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const LiveCourtManagementScreen(),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            SettingsTile(
-              icon: CupertinoIcons.person_2_fill,
-              title: 'Staff & Permissions',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const AcademyStaffManagementScreen(),
+                if (!isCourtOwner)
+                  SettingsTile(
+                    icon: CupertinoIcons.calendar,
+                    title: 'Booking Management',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const LiveBookingManagementScreen(),
+                      ),
+                    ),
+                  ),
+                if (!isCourtOwner)
+                  SettingsTile(
+                    icon: CupertinoIcons.gift,
+                    title: 'Offers Management',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const OffersManagementScreen(),
+                      ),
+                    ),
+                  ),
+                if (!isCourtOwner)
+                  SettingsTile(
+                    icon: CupertinoIcons.rosette,
+                    title: 'Event Management',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const EventManagementScreen(),
+                      ),
+                    ),
+                  ),
+                SettingsTile(
+                  icon: CupertinoIcons.flag_fill,
+                  title: 'Create Tournament',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const CreateTournamentScreen(),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            SettingsTile(
-              icon: CupertinoIcons.sportscourt,
-              title: 'Court Management',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const LiveCourtManagementScreen(),
+                SettingsTile(
+                  icon: CupertinoIcons.chart_bar_alt_fill,
+                  title: 'Analytics',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const LiveAcademyAnalyticsScreen(),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
-            SettingsTile(
-              icon: CupertinoIcons.calendar,
-              title: 'Booking Management',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const LiveBookingManagementScreen(),
-                ),
-              ),
-            ),
-            SettingsTile(
-              icon: CupertinoIcons.gift,
-              title: 'Offers Management',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const OffersManagementScreen(),
-                ),
-              ),
-            ),
-            SettingsTile(
-              icon: CupertinoIcons.rosette,
-              title: 'Event Management',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const EventManagementScreen(),
-                ),
-              ),
-            ),
-            SettingsTile(
-              icon: CupertinoIcons.flag_fill,
-              title: 'Create Tournament',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const CreateTournamentScreen(),
-                ),
-              ),
-            ),
-            SettingsTile(
-              icon: CupertinoIcons.chart_bar_alt_fill,
-              title: 'Analytics',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const LiveAcademyAnalyticsScreen(),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

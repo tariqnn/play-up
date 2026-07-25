@@ -77,63 +77,10 @@ class EventItem {
 }
 
 // ---------------------------------------------------------------------------
-// Seed data (source of truth for the "Seed sample data" action and the
-// offline/empty fallback so screens are never blank).
+// Optional demo data for non-bookable catalog areas. Courts are deliberately
+// excluded: every court shown to a player must be a real Firestore document
+// created by a platform or academy owner.
 // ---------------------------------------------------------------------------
-
-const _courtSeed = <Map<String, dynamic>>[
-  {
-    'name': 'Amman Sports City Court',
-    'subtitle': 'Indoor Basketball - Sports City, Amman',
-    'sport': 'Basketball',
-    'rating': '4.8 (128)',
-    'basePriceMinor': 3500,
-    'currency': 'JOD',
-    'address': 'Sports City, Amman',
-    'latitude': 31.9862,
-    'longitude': 35.9024,
-    'active': true,
-    'gradient': 'teal',
-    'icon': 'court',
-    'image':
-        'https://images.unsplash.com/photo-1608245449230-4ac19066d2d0?w=800&q=70',
-    'sort': 1,
-  },
-  {
-    'name': 'Abdoun Padel Club',
-    'subtitle': 'Outdoor Padel - Abdoun, Amman',
-    'sport': 'Padel',
-    'rating': '4.7 (96)',
-    'basePriceMinor': 2800,
-    'currency': 'JOD',
-    'address': 'Abdoun, Amman',
-    'latitude': 31.9418,
-    'longitude': 35.9296,
-    'active': true,
-    'gradient': 'purple',
-    'icon': 'hex',
-    'image':
-        'https://images.unsplash.com/photo-1544919982-b61976f0ba43?w=800&q=70',
-    'sort': 2,
-  },
-  {
-    'name': 'Al Hussein Volleyball Hall',
-    'subtitle': 'Indoor Volleyball - Al Hussein Youth City',
-    'sport': 'Volleyball',
-    'rating': '4.6 (74)',
-    'basePriceMinor': 3000,
-    'currency': 'JOD',
-    'address': 'Al Hussein Youth City, Amman',
-    'latitude': 31.9847,
-    'longitude': 35.9075,
-    'active': true,
-    'gradient': 'green',
-    'icon': 'players',
-    'image':
-        'https://images.unsplash.com/photo-1519861531473-9200262188bf?w=800&q=70',
-    'sort': 3,
-  },
-];
 
 const _academySeed = <Map<String, dynamic>>[
   {
@@ -472,7 +419,6 @@ class CatalogService {
       }
     }
 
-    seed('courts', _courtSeed);
     seed('academies', _academySeed);
     seed('offers', _offerSeed);
     seed('events', _eventSeed);

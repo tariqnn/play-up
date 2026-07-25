@@ -42,6 +42,21 @@ async function profile(uid: string) {
   return data;
 }
 
+function managesBooking(
+  user: FirebaseFirestore.DocumentData,
+  booking: FirebaseFirestore.DocumentData,
+): boolean {
+  if (user.role === "academyOwner" || user.role === "academyStaff") {
+    return user.academyId === booking.academyId;
+  }
+  if (user.role === "courtOwner") {
+    return user.academyId === booking.academyId
+      && Array.isArray(user.courtIds)
+      && user.courtIds.includes(booking.courtId);
+  }
+  return false;
+}
+
 function text(value: unknown, name: string): string {
   if (typeof value !== "string" || !value.trim()) throw new HttpsError("invalid-argument", `${name} is required.`);
   return value.trim();
@@ -202,7 +217,10 @@ export const transitionBooking = onCall(async (request) => {
     if (!booking) throw new HttpsError("not-found", "Booking not found.");
     const permissions: string[] = user.permissions ?? [];
     const platform = user.role === "superAdmin" || permissions.includes("bookings.manage");
-    const academy = ["academyOwner", "academyStaff"].includes(user.role) && user.academyId === booking.academyId && (user.role === "academyOwner" || permissions.includes("academy.bookings.manage") || (next === "checkedIn" && permissions.includes("academy.bookings.checkin")));
+    const academy = managesBooking(user, booking)
+      && (["academyOwner", "courtOwner"].includes(user.role)
+        || permissions.includes("academy.bookings.manage")
+        || (next === "checkedIn" && permissions.includes("academy.bookings.checkin")));
     const playerCancel = booking.userId === uid && next === "cancelled";
     if (!platform && !academy && !playerCancel) throw new HttpsError("permission-denied", "You cannot change this booking.");
     try { assertTransition(booking.status, next); } catch (error) { throw new HttpsError("failed-precondition", (error as Error).message); }
@@ -325,7 +343,9 @@ export const recordCashPayment = onCall(async (request) => {
   const bookingId = text(request.data?.bookingId, "bookingId"); const ref = db.collection("bookings").doc(bookingId);
   await db.runTransaction(async (tx) => { const snap = await tx.get(ref); const booking = snap.data();
     if (!booking) throw new HttpsError("not-found", "Booking not found.");
-    const allowed = user.role === "superAdmin" || (user.permissions ?? []).includes("bookings.manage") || (["academyOwner", "academyStaff"].includes(user.role) && user.academyId === booking.academyId);
+    const allowed = user.role === "superAdmin"
+      || (user.permissions ?? []).includes("bookings.manage")
+      || managesBooking(user, booking);
     if (!allowed) throw new HttpsError("permission-denied", "You cannot record this payment.");
     if (booking.paymentStatus === "collected") throw new HttpsError("already-exists", "Cash payment is already recorded.");
     tx.update(ref, {paymentStatus: "collected", cashCollectedBy: uid, cashCollectedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()});
@@ -495,7 +515,7 @@ export const createUatUser = onCall(async (request) => {
   const email = text(request.data?.email, "email").toLowerCase();
   const displayName = text(request.data?.displayName, "displayName");
   const role = text(request.data?.role, "role");
-  const allowedRoles = ["platformAdmin", "academyOwner", "academyStaff", "player"];
+  const allowedRoles = ["platformAdmin", "academyOwner", "courtOwner", "academyStaff", "player"];
   if (!allowedRoles.includes(role)) throw new HttpsError("invalid-argument", "Role is invalid.");
   const password = text(request.data?.temporaryPassword, "temporaryPassword");
   if (password.length < 12) throw new HttpsError("invalid-argument", "Temporary password must have at least 12 characters.");
@@ -541,7 +561,8 @@ export const createManagedOwnerAccount = onCall(async (request) => {
   try {
     created = await getAuth().createUser({email, displayName, password: temporaryPassword, emailVerified: false});
     await db.collection('users').doc(created.uid).set({
-      uid: created.uid, email, displayName, role: 'academyOwner', ownerType,
+      uid: created.uid, email, displayName,
+      role: ownerType === 'court' ? 'courtOwner' : 'academyOwner', ownerType,
       academyId, courtIds: courtId ? [courtId] : [], permissions: [], suspended: false,
       mustChangePassword: true, createdBy: uid, createdAt: FieldValue.serverTimestamp(),
     });
@@ -562,7 +583,11 @@ export const notifyBookingCreated = onDocumentCreated("bookings/{bookingId}", as
   if (!booking) return;
   const batch = db.batch();
   batch.set(db.collection("notifications").doc(), {userId: booking.userId, type: "bookingCreated", title: "Booking requested - cash payment pending", bookingId: event.params.bookingId, read: false, createdAt: FieldValue.serverTimestamp()});
-  const owners = await db.collection("users").where("academyId", "==", booking.academyId).where("role", "in", ["academyOwner", "academyStaff"]).get();
-  for (const owner of owners.docs) batch.set(db.collection("notifications").doc(), {userId: owner.id, type: "academyBookingCreated", title: `New cash booking for ${booking.courtName}`, bookingId: event.params.bookingId, academyId: booking.academyId, read: false, createdAt: FieldValue.serverTimestamp()});
+  const owners = await db.collection("users").where("academyId", "==", booking.academyId).where("role", "in", ["academyOwner", "courtOwner", "academyStaff"]).get();
+  for (const owner of owners.docs) {
+    const ownerData = owner.data();
+    if (ownerData.role === "courtOwner" && !(ownerData.courtIds ?? []).includes(booking.courtId)) continue;
+    batch.set(db.collection("notifications").doc(), {userId: owner.id, type: "academyBookingCreated", title: `New cash booking for ${booking.courtName}`, bookingId: event.params.bookingId, academyId: booking.academyId, courtId: booking.courtId, read: false, createdAt: FieldValue.serverTimestamp()});
+  }
   await batch.commit();
 });

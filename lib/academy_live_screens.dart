@@ -21,10 +21,19 @@ class LiveCourtManagementScreen extends StatelessWidget {
             if (index == 0) {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12),
-                child: FilledButton.icon(
-                  onPressed: () => _edit(context),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add court'),
+                child: FutureBuilder<OwnerScope>(
+                  future: AcademyService.instance.ownerScope(),
+                  builder: (context, scope) => FilledButton.icon(
+                    onPressed: scope.data?.isCourtOwner == true
+                        ? null
+                        : () => _edit(context),
+                    icon: const Icon(Icons.add),
+                    label: Text(
+                      scope.data?.isCourtOwner == true
+                          ? 'Court owner access'
+                          : 'Add court',
+                    ),
+                  ),
                 ),
               );
             }
