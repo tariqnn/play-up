@@ -87,11 +87,43 @@ Future<void> _configureMessaging() async {
       badge: true,
       sound: true,
     );
+    unawaited(_syncFcmToken());
+    FirebaseAuth.instance.authStateChanges().listen((_) {
+      unawaited(_syncFcmToken());
+    });
+    FirebaseMessaging.instance.onTokenRefresh.listen((token) {
+      unawaited(_saveFcmToken(token));
+    });
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       // Foreground messages are intentionally handled in-app later by UI state.
     });
   } catch (_) {
     // Messaging can be unavailable on some debug targets; app startup should continue.
+  }
+}
+
+Future<void> _syncFcmToken() async {
+  try {
+    final token = await FirebaseMessaging.instance.getToken();
+    if (token != null && token.isNotEmpty) await _saveFcmToken(token);
+  } catch (_) {
+    // Token access depends on device services; failure should not block app use.
+  }
+}
+
+Future<void> _saveFcmToken(String token) async {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null || FirebaseAuth.instance.currentUser?.isAnonymous == true) {
+    return;
+  }
+  try {
+    await FirebaseFirestore.instance.collection('users').doc(uid).update({
+      'fcmTokens': FieldValue.arrayUnion([token]),
+      'lastFcmTokenUpdatedAt': FieldValue.serverTimestamp(),
+    });
+  } catch (_) {
+    // Profiles can be created shortly after auth on first launch; retry happens
+    // on token refresh or next startup.
   }
 }
 

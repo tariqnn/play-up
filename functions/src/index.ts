@@ -1,8 +1,10 @@
 import {initializeApp} from "firebase-admin/app";
 import {FieldValue, Timestamp, getFirestore} from "firebase-admin/firestore";
 import {getAuth} from "firebase-admin/auth";
+import {getMessaging} from "firebase-admin/messaging";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 import {onDocumentCreated, onDocumentWritten} from "firebase-functions/v2/firestore";
+import {onSchedule} from "firebase-functions/v2/scheduler";
 import {setGlobalOptions} from "firebase-functions/v2/options";
 import {assertTransition, calculateTotal, overlaps} from "./domain";
 import {randomBytes} from "node:crypto";
@@ -614,4 +616,52 @@ export const notifyBookingCreated = onDocumentCreated("bookings/{bookingId}", as
     batch.set(db.collection("notifications").doc(), {userId: owner.id, type: "academyBookingCreated", title: `New cash booking for ${booking.courtName}`, bookingId: event.params.bookingId, academyId: booking.academyId, courtId: booking.courtId, read: false, createdAt: FieldValue.serverTimestamp()});
   }
   await batch.commit();
+});
+
+export const sendBookingReminders = onSchedule("every 15 minutes", async () => {
+  const now = Date.now();
+  const windowStart = new Date(now + 45 * 60_000);
+  const windowEnd = new Date(now + 75 * 60_000);
+  const bookings = await db.collection("bookings")
+    .where("startUtc", ">=", Timestamp.fromDate(windowStart))
+    .where("startUtc", "<=", Timestamp.fromDate(windowEnd))
+    .get();
+
+  for (const bookingDoc of bookings.docs) {
+    const booking = bookingDoc.data();
+    if (!["pending", "confirmed"].includes(booking.status)) continue;
+    const participants = Array.from(new Set<string>(booking.participants ?? [booking.userId])).filter(Boolean);
+    const start = (booking.startUtc as Timestamp).toDate();
+    const title = "Booking starts soon";
+    const body = `${booking.courtName ?? "Your court"} starts at ${start.toLocaleTimeString("en-US", {hour: "numeric", minute: "2-digit"})}`;
+
+    await Promise.all(participants.map(async (userId) => {
+      const reminderRef = db.collection("notifications").doc(`${bookingDoc.id}_${userId}_60m`);
+      const created = await db.runTransaction(async (tx) => {
+        const existing = await tx.get(reminderRef);
+        if (existing.exists) return false;
+        tx.create(reminderRef, {
+          userId,
+          type: "bookingReminder",
+          title,
+          body,
+          bookingId: bookingDoc.id,
+          startUtc: booking.startUtc,
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return true;
+      });
+      if (!created) return;
+
+      const user = (await db.collection("users").doc(userId).get()).data();
+      const tokens = Array.from(new Set<string>(user?.fcmTokens ?? [])).filter(Boolean);
+      if (tokens.length === 0) return;
+      await getMessaging().sendEachForMulticast({
+        tokens: tokens.slice(0, 500),
+        notification: {title, body},
+        data: {type: "bookingReminder", bookingId: bookingDoc.id},
+      }).catch(() => undefined);
+    }));
+  }
 });
