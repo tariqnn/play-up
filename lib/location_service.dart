@@ -32,12 +32,10 @@ class LocationService {
     if (lat != null && lng != null && label != null) {
       current.value = AppLocation(latitude: lat, longitude: lng, label: label);
     }
-    try {
-      return await useCurrentLocation(silent: true);
-    } catch (error) {
-      debugPrint('Location initialization skipped: $error');
-      return current.value;
-    }
+    // Ask for device location only after the user chooses “Use current
+    // location”. Merely opening the app must not trigger a location prompt or
+    // send coordinates to the geocoding service.
+    return current.value;
   }
 
   Future<AppLocation?> useCurrentLocation({bool silent = false}) async {
