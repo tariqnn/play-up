@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Playup</string>
+	<string>PlayUp</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -63,7 +63,6 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>playup</string>
-				<string>com.googleusercontent.apps.634238605050-sq6kl8t8dac9lkriodamkaj80fqh07re</string>
 			</array>
 		</dict>
 	</array>

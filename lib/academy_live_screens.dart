@@ -1,11 +1,14 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import 'academy_service.dart';
+import 'booking_presentation.dart';
+import 'package:intl/intl.dart';
 
 class LiveCourtManagementScreen extends StatelessWidget {
   const LiveCourtManagementScreen({super.key});
@@ -74,6 +77,17 @@ class LiveCourtManagementScreen extends StatelessWidget {
     final price = TextEditingController(
       text: ((data?['basePriceMinor'] as num? ?? 0) / 100).toStringAsFixed(0),
     );
+    final peakPrice = TextEditingController(
+      text: data?['peakPriceMinor'] != null
+          ? ((data!['peakPriceMinor'] as num) / 100).toStringAsFixed(0)
+          : '',
+    );
+    final peakStart = TextEditingController(
+      text: data?['peakHourStart']?.toString() ?? '18',
+    );
+    final peakEnd = TextEditingController(
+      text: data?['peakHourEnd']?.toString() ?? '23',
+    );
     final address = TextEditingController(text: data?['address']?.toString());
     final latitude = TextEditingController(text: data?['latitude']?.toString());
     final longitude = TextEditingController(
@@ -128,7 +142,38 @@ class LiveCourtManagementScreen extends StatelessWidget {
                 TextField(
                   controller: price,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Hourly price'),
+                  decoration: const InputDecoration(labelText: 'Hourly price (Off-peak / Base)'),
+                ),
+                TextField(
+                  controller: peakPrice,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Peak hour price (Optional)',
+                    hintText: 'e.g. 25',
+                  ),
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: peakStart,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Peak start (e.g. 18)',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: peakEnd,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Peak end (e.g. 23)',
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 TextField(
                   controller: address,
@@ -230,8 +275,7 @@ class LiveCourtManagementScreen extends StatelessWidget {
                   lng > 180) {
                 return;
               }
-              final courtId =
-                  id ?? AcademyService.instance.newCourtId();
+              final courtId = id ?? AcademyService.instance.newCourtId();
               var savedImageUrl = imageUrl.text.trim();
               if (pickedImage != null) {
                 savedImageUrl = await AcademyService.instance.uploadCourtImage(
@@ -240,6 +284,9 @@ class LiveCourtManagementScreen extends StatelessWidget {
                   fileName: pickedImageName ?? 'court.jpg',
                 );
               }
+              final peakAmount = double.tryParse(peakPrice.text);
+              final peakStartHour = int.tryParse(peakStart.text);
+              final peakEndHour = int.tryParse(peakEnd.text);
               await AcademyService.instance.saveCourt(
                 courtId: courtId,
                 name: name.text,
@@ -250,6 +297,10 @@ class LiveCourtManagementScreen extends StatelessWidget {
                 latitude: lat,
                 longitude: lng,
                 imageUrl: savedImageUrl,
+                peakPriceMinor:
+                    peakAmount != null ? (peakAmount * 100).round() : null,
+                peakHourStart: peakStartHour,
+                peakHourEnd: peakEndHour,
               );
               if (dialog.mounted) Navigator.pop(dialog);
             },
@@ -261,6 +312,9 @@ class LiveCourtManagementScreen extends StatelessWidget {
     name.dispose();
     sport.dispose();
     price.dispose();
+    peakPrice.dispose();
+    peakStart.dispose();
+    peakEnd.dispose();
     address.dispose();
     latitude.dispose();
     longitude.dispose();
@@ -299,7 +353,7 @@ class _CourtLocationPickerState extends State<_CourtLocationPicker> {
       children: [
         TileLayer(
           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.playup.app',
+          userAgentPackageName: 'com.playup.playup',
         ),
         MarkerLayer(
           markers: [
@@ -316,102 +370,333 @@ class _CourtLocationPickerState extends State<_CourtLocationPicker> {
           ],
         ),
         const RichAttributionWidget(
-          attributions: [
-            TextSourceAttribution('OpenStreetMap contributors'),
-          ],
+          attributions: [TextSourceAttribution('OpenStreetMap contributors')],
         ),
       ],
     ),
   );
 }
 
-class LiveBookingManagementScreen extends StatelessWidget {
+class LiveBookingManagementScreen extends StatefulWidget {
   const LiveBookingManagementScreen({super.key});
   @override
-  Widget build(BuildContext context) => _TenantScaffold(
-    title: 'Academy bookings',
-    builder: (academyId) => StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: AcademyService.instance.bookings(academyId),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final docs = snapshot.data!.docs;
-        if (docs.isEmpty) {
-          return const Center(child: Text('No academy bookings yet.'));
-        }
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: docs.length,
-          itemBuilder: (context, index) {
-            final doc = docs[index];
-            final data = doc.data();
-            final status = data['status']?.toString() ?? 'unknown';
-            final start = (data['startUtc'] as Timestamp?)?.toDate().toLocal();
-            return Card(
-              child: ListTile(
-                title: Text(data['courtName']?.toString() ?? 'Booking'),
-                subtitle: Text('${start ?? 'Time unavailable'} • $status'),
-                trailing: PopupMenuButton<String>(
-                  onSelected: (value) => value == 'cash'
-                      ? _cash(context, doc.id)
-                      : _change(context, doc.id, value),
-                  itemBuilder: (_) => [
-                    if (status == 'pending')
-                      const PopupMenuItem(
-                        value: 'confirmed',
-                        child: Text('Confirm booking'),
-                      ),
-                    if (status == 'confirmed')
-                      const PopupMenuItem(
-                        value: 'checkedIn',
-                        child: Text('Check in'),
-                      ),
-                    if (status == 'checkedIn')
-                      const PopupMenuItem(
-                        value: 'completed',
-                        child: Text('Complete'),
-                      ),
-                    if (data['paymentStatus'] != 'collected')
-                      const PopupMenuItem(
-                        value: 'cash',
-                        child: Text('Record cash received'),
-                      ),
-                    if (!['cancelled', 'completed'].contains(status))
-                      const PopupMenuItem(
-                        value: 'cancelled',
-                        child: Text('Cancel booking'),
-                      ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    ),
-  );
-  Future<void> _change(BuildContext context, String id, String status) async {
-    try {
-      await AcademyService.instance.transitionBooking(id, status);
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.toString())));
-      }
-    }
+  State<LiveBookingManagementScreen> createState() =>
+      _LiveBookingManagementState();
+}
+
+class _LiveBookingManagementState extends State<LiveBookingManagementScreen> {
+  String _filter = 'All';
+  String _search = '';
+  final _query = TextEditingController();
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
   }
 
-  Future<void> _cash(BuildContext context, String id) async {
+  String? _busyId;
+  final _streams = <String, Stream<QuerySnapshot<Map<String, dynamic>>>>{};
+  @override
+  Widget build(BuildContext context) => _TenantScaffold(
+    title: 'Bookings & check-in',
+    builder: (academyId) => Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              TextField(
+                controller: _query,
+                onChanged: (value) => setState(() => _search = value),
+                decoration: const InputDecoration(
+                  labelText: 'Find a booking',
+                  hintText: 'Court name or booking reference',
+                  prefixIcon: Icon(Icons.search),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: ['All', 'Today', 'Needs confirmation', 'Unpaid']
+                      .map(
+                        (value) => Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(value),
+                            selected: value == _filter,
+                            onSelected: (_) => setState(() => _filter = value),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: _streams.putIfAbsent(
+              academyId,
+              () => AcademyService.instance.bookings(academyId),
+            ),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                      'Bookings could not load. Check your connection and reopen this page.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                );
+              }
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final now = DateTime.now();
+              final docs = snapshot.data!.docs.where((doc) {
+                final data = doc.data();
+                final start = (data['startUtc'] as Timestamp?)
+                    ?.toDate()
+                    .toLocal();
+                final search = '${data['courtName']} ${doc.id}'
+                    .toLowerCase()
+                    .contains(_search.trim().toLowerCase());
+                final matchesFilter = switch (_filter) {
+                  'Today' =>
+                    start != null &&
+                        start.year == now.year &&
+                        start.month == now.month &&
+                        start.day == now.day,
+                  'Needs confirmation' => data['status'] == 'pending',
+                  'Unpaid' =>
+                    data['paymentStatus'] != 'collected' &&
+                        ['confirmed', 'checkedIn'].contains(data['status']),
+                  _ => true,
+                };
+                return search && matchesFilter;
+              }).toList();
+              if (docs.isEmpty) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.event_available_outlined,
+                          size: 48,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(height: 16),
+                        const Text('No bookings in this view'),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'New reservations will appear here automatically.',
+                          textAlign: TextAlign.center,
+                        ),
+                        TextButton(
+                          onPressed: () => setState(() {
+                            _filter = 'All';
+                            _search = '';
+                            _query.clear();
+                          }),
+                          child: const Text('Show all bookings'),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+              return ListView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                itemCount: docs.length,
+                itemBuilder: (context, index) {
+                  final doc = docs[index];
+                  final data = doc.data();
+                  final status = data['status']?.toString() ?? '';
+                  final start = (data['startUtc'] as Timestamp?)
+                      ?.toDate()
+                      .toLocal();
+                  final collected = data['paymentStatus'] == 'collected';
+                  final busy = _busyId == doc.id;
+                  return Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            data['courtName']?.toString() ?? 'Court booking',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            start == null
+                                ? 'Time unavailable'
+                                : DateFormat(
+                                    'EEE, d MMM · h:mm a',
+                                  ).format(start),
+                            style: TextStyle(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              Chip(label: Text(bookingStatusLabel(status))),
+                              Chip(
+                                label: Text(
+                                  collected
+                                      ? 'Payment collected'
+                                      : 'Payment pending',
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '${data['currency'] ?? 'JOD'} ${((data['totalMinor'] as num? ?? 0) / 100).toStringAsFixed(2)} · Pay at venue',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          if (busy)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 12),
+                              child: LinearProgressIndicator(),
+                            ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              if (status == 'pending')
+                                FilledButton(
+                                  onPressed: busy
+                                      ? null
+                                      : () => _act(doc.id, 'confirmed'),
+                                  child: const Text('Confirm booking'),
+                                ),
+                              if (status == 'confirmed')
+                                FilledButton(
+                                  onPressed: busy
+                                      ? null
+                                      : () => _act(doc.id, 'checkedIn'),
+                                  child: const Text('Check in'),
+                                ),
+                              if (status == 'checkedIn' && collected)
+                                FilledButton(
+                                  onPressed: busy
+                                      ? null
+                                      : () => _act(doc.id, 'completed'),
+                                  child: const Text('Complete booking'),
+                                ),
+                              if (!collected &&
+                                  ['confirmed', 'checkedIn'].contains(status))
+                                OutlinedButton(
+                                  onPressed: busy
+                                      ? null
+                                      : () => _act(doc.id, 'cash'),
+                                  child: const Text('Record cash received'),
+                                ),
+                              if ([
+                                'pending',
+                                'confirmed',
+                                'checkedIn',
+                              ].contains(status))
+                                TextButton(
+                                  onPressed: busy
+                                      ? null
+                                      : () => _act(doc.id, 'cancelled'),
+                                  child: const Text('Cancel booking'),
+                                ),
+                            ],
+                          ),
+                          if (status == 'checkedIn' && !collected)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 8),
+                              child: Text(
+                                'Record cash received before completing this booking.',
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    ),
+  );
+  Future<void> _act(String id, String action) async {
+    if (_busyId != null) return;
+    if (action == 'cancelled' || action == 'cash') {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          title: Text(
+            action == 'cash'
+                ? 'Confirm cash received?'
+                : 'Cancel this booking?',
+          ),
+          content: Text(
+            action == 'cash'
+                ? 'Only confirm after receiving the payment at your venue.'
+                : 'The reservation will be cancelled. Any applicable cancellation fee is calculated by the booking policy.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Go back'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: Text(
+                action == 'cash' ? 'Cash received' : 'Cancel booking',
+              ),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+    setState(() => _busyId = id);
     try {
-      await AcademyService.instance.recordCashPayment(id);
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      if (action == 'cash') {
+        await AcademyService.instance.recordCashPayment(id);
+      } else {
+        await AcademyService.instance.transitionBooking(id, action);
       }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              action == 'cash' ? 'Cash payment recorded.' : 'Booking updated.',
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'This action could not be completed. Check your connection and access, then try again.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busyId = null);
     }
   }
 }
@@ -469,18 +754,23 @@ class AcademyProfileManagementScreen extends StatelessWidget {
           children: [
             TextFormField(
               initialValue: data['name']?.toString(),
+              textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(labelText: 'Academy name'),
               onChanged: (v) => data['name'] = v,
             ),
             const SizedBox(height: 12),
             TextFormField(
               initialValue: data['phone']?.toString(),
+              keyboardType: TextInputType.phone,
+              autofillHints: const [AutofillHints.telephoneNumber],
               decoration: const InputDecoration(labelText: 'Contact phone'),
               onChanged: (v) => data['phone'] = v,
             ),
             const SizedBox(height: 12),
             TextFormField(
               initialValue: data['address']?.toString(),
+              textCapitalization: TextCapitalization.words,
+              autofillHints: const [AutofillHints.fullStreetAddress],
               decoration: const InputDecoration(labelText: 'Address'),
               onChanged: (v) => data['address'] = v,
             ),
@@ -488,6 +778,7 @@ class AcademyProfileManagementScreen extends StatelessWidget {
             TextFormField(
               initialValue: data['description']?.toString(),
               maxLines: 4,
+              textCapitalization: TextCapitalization.sentences,
               decoration: const InputDecoration(labelText: 'Description'),
               onChanged: (v) => data['description'] = v,
             ),
@@ -567,9 +858,7 @@ class AcademyStaffManagementScreen extends StatelessWidget {
     ),
   );
   Future<void> _add(BuildContext context) async {
-    final name = TextEditingController(),
-        email = TextEditingController(),
-        password = TextEditingController();
+    final name = TextEditingController(), email = TextEditingController();
     final permissions = <String>{
       'academy.bookings.manage',
       'academy.bookings.checkin',
@@ -584,18 +873,20 @@ class AcademyStaffManagementScreen extends StatelessWidget {
             children: [
               TextField(
                 controller: name,
+                textCapitalization: TextCapitalization.words,
+                autofillHints: const [AutofillHints.name],
                 decoration: const InputDecoration(labelText: 'Full name'),
               ),
               TextField(
                 controller: email,
                 keyboardType: TextInputType.emailAddress,
+                autofillHints: const [AutofillHints.email],
                 decoration: const InputDecoration(labelText: 'Email'),
               ),
-              TextField(
-                controller: password,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Temporary password (12+ characters)',
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: Text(
+                  'A secure password setup link will be emailed to this staff member.',
                 ),
               ),
             ],
@@ -612,10 +903,49 @@ class AcademyStaffManagementScreen extends StatelessWidget {
                 await AcademyService.instance.createStaff(
                   displayName: name.text,
                   email: email.text,
-                  temporaryPassword: password.text,
                   permissions: permissions.toList(),
                 );
                 if (dialog.mounted) Navigator.pop(dialog);
+              } on StaffSetupEmailException catch (error) {
+                if (dialog.mounted) {
+                  Navigator.pop(dialog);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Staff account created, but the setup email failed to send.',
+                      ),
+                      action: SnackBarAction(
+                        label: 'Resend',
+                        onPressed: () async {
+                          try {
+                            await FirebaseAuth.instance.sendPasswordResetEmail(
+                              email: error.email,
+                            );
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Setup email sent to ${error.email}.',
+                                  ),
+                                ),
+                              );
+                            }
+                          } catch (_) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Email still could not be sent. Check the Firebase email template.',
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                        },
+                      ),
+                    ),
+                  );
+                }
               } catch (error) {
                 if (dialog.mounted) {
                   ScaffoldMessenger.of(
@@ -631,7 +961,6 @@ class AcademyStaffManagementScreen extends StatelessWidget {
     );
     name.dispose();
     email.dispose();
-    password.dispose();
   }
 }
 

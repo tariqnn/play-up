@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
@@ -5,9 +7,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'main.dart';
 import 'catalog.dart';
+import 'location_service.dart';
 import 'more_screens.dart';
 import 'more_screens3.dart';
 import 'more_screens4.dart';
@@ -16,16 +21,12 @@ import 'academy_live_screens.dart';
 import 'academy_service.dart';
 import 'booking_domain.dart';
 import 'tournament_screens.dart';
+import 'multi_court_timeline_screen.dart';
+import 'test_data_seed.dart';
 
-/// Live open matches from Firestore, falling back to bundled samples when
-/// none exist yet (e.g. a brand new project with no matches created).
-Stream<List<OpenMatch>> openMatchesStream() => FirebaseFirestore.instance
-    .collection('matches')
-    .where('status', isEqualTo: 'open')
-    .snapshots()
-    .map(
-      (s) => s.docs.map((d) => OpenMatch.fromMap(d.data(), id: d.id)).toList(),
-    );
+/// Live open matches from Firestore merged with test matches.
+Stream<List<OpenMatch>> openMatchesStream() =>
+    TestState.instance.openMatchesStream();
 
 // ---------------------------------------------------------------------------
 // Matchmaking: open matches, match details, create match, pre-match check-in
@@ -46,9 +47,23 @@ class OpenMatch {
     required this.ranked,
     this.playerIds = const [],
     this.hostId = '',
+    this.bookingId = '',
     this.startUtc,
     this.playerNames = const [],
+    this.latitude,
+    this.longitude,
+    this.scoreStatus = 'none',
+    this.scoreSubmittedBy = '',
+    this.score,
+    this.hostReliability,
+    this.status = 'open',
   });
+
+  final String scoreStatus;
+  final String scoreSubmittedBy;
+  final Map<String, dynamic>? score;
+  final int? hostReliability;
+  final String status;
 
   factory OpenMatch.fromMap(Map<String, dynamic> d, {String? id}) {
     final players = (d['players'] as List?)?.length ?? 1;
@@ -74,9 +89,43 @@ class OpenMatch {
       ranked: d['ranked'] == true,
       playerIds: List<String>.from(d['players'] as List? ?? const []),
       hostId: (d['hostId'] ?? '').toString(),
+      bookingId: (d['bookingId'] ?? '').toString(),
       startUtc: start,
       playerNames: List<String>.from(d['playerNames'] as List? ?? const []),
+      latitude: (d['latitude'] as num?)?.toDouble(),
+      longitude: (d['longitude'] as num?)?.toDouble(),
+      scoreStatus: (d['scoreStatus'] ?? 'none').toString(),
+      scoreSubmittedBy: (d['scoreSubmittedBy'] ?? '').toString(),
+      score: d['score'] is Map
+          ? Map<String, dynamic>.from(d['score'] as Map)
+          : null,
+      hostReliability: (d['hostReliability'] as num?)?.toInt(),
+      status: (d['status'] ?? 'open').toString(),
     );
+  }
+
+  double? distanceKmFrom(AppLocation? location) {
+    if (location == null || latitude == null || longitude == null) {
+      return null;
+    }
+    const earthRadiusKm = 6371.0;
+    final dLat = (latitude! - location.latitude) * math.pi / 180;
+    final dLon = (longitude! - location.longitude) * math.pi / 180;
+    final a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(location.latitude * math.pi / 180) *
+            math.cos(latitude! * math.pi / 180) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    return earthRadiusKm * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  }
+
+  String distanceFrom(AppLocation? location) {
+    final km = distanceKmFrom(location);
+    if (km == null) return '';
+    return km < 1
+        ? '${(km * 1000).round()} m away'
+        : '${km.toStringAsFixed(1)} km away';
   }
 
   final String title;
@@ -86,32 +135,46 @@ class OpenMatch {
   final String court;
   final String time;
   final String skill;
+  final double? latitude;
+  final double? longitude;
   final int joined;
   final int needed;
   final String pricePerPlayer;
   final bool ranked;
   final List<String> playerIds;
   final String hostId;
+  final String bookingId;
   final DateTime? startUtc;
   final List<String> playerNames;
 }
 
 class OpenMatchesScreen extends StatefulWidget {
-  const OpenMatchesScreen({super.key});
+  final String? initialSport;
+  const OpenMatchesScreen({super.key, this.initialSport});
 
   @override
   State<OpenMatchesScreen> createState() => _OpenMatchesScreenState();
 }
 
 class _OpenMatchesScreenState extends State<OpenMatchesScreen> {
-  String _filter = 'All';
+  late String _filter;
   static const _filters = [
     'All',
-    'Basketball',
     'Padel',
+    'Football',
+    'Tennis',
+    'Basketball',
     'Volleyball',
+    'Dodgeball',
+    'Badminton',
     'Ranked',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _filter = widget.initialSport ?? 'All';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -151,40 +214,22 @@ class _OpenMatchesScreenState extends State<OpenMatchesScreen> {
                   if (_filter == 'Ranked') return m.ranked;
                   return m.sport == _filter;
                 }).toList();
-                if (matches.isEmpty) {
-                  return EmptyState(
-                    icon: CupertinoIcons.search,
-                    title: 'No matches found',
-                    message: 'Try a different filter or create your own match.',
-                    action: 'Create Match',
-                    onTap: () async {
-                      final user = FirebaseAuth.instance.currentUser;
-                      if (user == null || user.isAnonymous) {
-                        await showAdaptiveMessage(
-                          context,
-                          title: 'Account required',
-                          message:
-                              'Sign in to reserve a court and publish a match.',
-                        );
-                        return;
-                      }
-                      if (!context.mounted) return;
-                      await Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const CreateMatchScreen(),
-                        ),
-                      );
-                    },
-                  );
-                }
-                return Column(
-                  children: [
-                    for (final match in matches)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: OpenMatchCard(match: match),
-                      ),
-                  ],
+                return ValueListenableBuilder<AppLocation?>(
+                  valueListenable: LocationService.instance.current,
+                  builder: (context, location, _) {
+                    matches.sort((a, b) {
+                      final aDistance = a.distanceKmFrom(location);
+                      final bDistance = b.distanceKmFrom(location);
+                      if (aDistance == null && bDistance == null) return 0;
+                      if (aDistance == null) return 1;
+                      if (bDistance == null) return -1;
+                      return aDistance.compareTo(bDistance);
+                    });
+                    return _OpenMatchesList(
+                      matches: matches,
+                      location: location,
+                    );
+                  },
                 );
               },
             ),
@@ -195,10 +240,54 @@ class _OpenMatchesScreenState extends State<OpenMatchesScreen> {
   }
 }
 
+class _OpenMatchesList extends StatelessWidget {
+  const _OpenMatchesList({required this.matches, required this.location});
+
+  final List<OpenMatch> matches;
+  final AppLocation? location;
+
+  @override
+  Widget build(BuildContext context) {
+    if (matches.isEmpty) {
+      return EmptyState(
+        icon: CupertinoIcons.search,
+        title: 'No matches found',
+        message: 'Try a different filter or create your own match.',
+        action: 'Create Match',
+        onTap: () async {
+          final user = FirebaseAuth.instance.currentUser;
+          if (user == null || user.isAnonymous) {
+            await showAdaptiveMessage(
+              context,
+              title: 'Account required',
+              message: 'Sign in to reserve a court and publish a match.',
+            );
+            return;
+          }
+          if (!context.mounted) return;
+          await Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const CreateMatchScreen()));
+        },
+      );
+    }
+    return Column(
+      children: [
+        for (final match in matches)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: OpenMatchCard(match: match, location: location),
+          ),
+      ],
+    );
+  }
+}
+
 class OpenMatchCard extends StatelessWidget {
-  const OpenMatchCard({super.key, required this.match});
+  const OpenMatchCard({super.key, required this.match, this.location});
 
   final OpenMatch match;
+  final AppLocation? location;
 
   @override
   Widget build(BuildContext context) {
@@ -254,7 +343,9 @@ class OpenMatchCard extends StatelessWidget {
                 const SizedBox(width: 4),
                 Expanded(
                   child: Text(
-                    '${match.court}  •  ${match.time}',
+                    match.distanceFrom(location).isEmpty
+                        ? '${match.court}  •  ${match.time}'
+                        : '${match.court}  •  ${match.time}  •  ${match.distanceFrom(location)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -325,6 +416,9 @@ class MatchDetailsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final joined = uid != null && match.playerIds.contains(uid);
+    final hosting = uid != null && match.hostId == uid;
     return Scaffold(
       body: AppScrollPage(
         child: Column(
@@ -444,13 +538,73 @@ class MatchDetailsScreen extends StatelessWidget {
                           'Hosted by ${match.host}',
                           style: const TextStyle(fontWeight: FontWeight.w900),
                         ),
-                        const Text(
-                          'Match organizer',
-                          style: TextStyle(
-                            color: AppColors.muted,
-                            fontSize: 12,
+                        if (match.hostReliability != null) ...[
+                          const SizedBox(height: 4),
+                          Builder(
+                            builder: (context) {
+                              final rel = match.hostReliability!;
+                              final isHigh = rel >= 90;
+                              final isGood = rel >= 70;
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isHigh
+                                      ? const Color(
+                                          0xFF22C55E,
+                                        ).withValues(alpha: 0.15)
+                                      : isGood
+                                      ? AppColors.gold.withValues(alpha: 0.18)
+                                      : Colors.red.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      isHigh
+                                          ? CupertinoIcons.shield_lefthalf_fill
+                                          : CupertinoIcons
+                                                .exclamationmark_shield_fill,
+                                      size: 11,
+                                      color: isHigh
+                                          ? const Color(0xFF15803D)
+                                          : isGood
+                                          ? const Color(0xFFB8860B)
+                                          : Colors.red.shade700,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '$rel% Reliable • ${isHigh
+                                          ? 'High Trust'
+                                          : isGood
+                                          ? 'Good Standing'
+                                          : 'Needs Work'}',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                        color: isHigh
+                                            ? const Color(0xFF15803D)
+                                            : isGood
+                                            ? const Color(0xFFB8860B)
+                                            : Colors.red.shade700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
                           ),
-                        ),
+                        ] else
+                          const Text(
+                            'Match organizer',
+                            style: TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 12,
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -471,47 +625,302 @@ class MatchDetailsScreen extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 24),
-            PrimaryButton(
-              label: match.needed == 0 ? 'Match Full' : 'Request to Join',
-              onPressed: match.needed == 0 || match.id == null
-                  ? null
-                  : () async {
-                      try {
-                        await AppRepository.instance.joinExistingMatch(
-                          match.id!,
-                        );
-                        if (!context.mounted) return;
-                        final updated = await FirebaseFirestore.instance
-                            .collection('matches')
-                            .doc(match.id!)
-                            .get();
-                        if (!context.mounted) return;
-                        Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(
-                            builder: (_) => MatchDetailsScreen(
-                              match: OpenMatch.fromMap(
-                                updated.data() ?? const {},
-                                id: updated.id,
+            if (match.scoreStatus == 'pendingConfirmation') ...[
+              const SizedBox(height: 16),
+              CardBox(
+                color: AppColors.purple.withValues(alpha: .06),
+                borderColor: AppColors.purple.withValues(alpha: .3),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: const [
+                        Icon(
+                          CupertinoIcons.hourglass,
+                          color: AppColors.purple,
+                          size: 20,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'Score Verification Pending',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 15,
+                            color: AppColors.purple,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Center(
+                      child: Text(
+                        'Team A  ${match.score?['teamAScore'] ?? 0}  -  ${match.score?['teamBScore'] ?? 0}  Team B',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (match.scoreSubmittedBy == uid)
+                      const Center(
+                        child: Text(
+                          'Score submitted. Awaiting confirmation from opponent to update Elo ratings.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      )
+                    else if (joined) ...[
+                      const Center(
+                        child: Text(
+                          'Your opponent submitted the final score. Please verify to finalize results & XP.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () =>
+                                  _handleScoreConfirmation(context, false),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.red,
+                                side: BorderSide(
+                                  color: Colors.red.withValues(alpha: .5),
+                                ),
                               ),
+                              child: const Text('Dispute'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () =>
+                                  _handleScoreConfirmation(context, true),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.green,
+                              ),
+                              child: const Text('Confirm Score'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ] else if (match.scoreStatus == 'confirmed') ...[
+              const SizedBox(height: 16),
+              CardBox(
+                color: AppColors.green.withValues(alpha: .06),
+                borderColor: AppColors.green.withValues(alpha: .3),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        Icon(
+                          CupertinoIcons.checkmark_seal_fill,
+                          color: AppColors.green,
+                          size: 20,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          'Match Result Verified',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.green,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Team A  ${match.score?['teamAScore'] ?? 0}  -  ${match.score?['teamBScore'] ?? 0}  Team B',
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      icon: const Icon(
+                        CupertinoIcons.chart_bar_alt_fill,
+                        size: 16,
+                      ),
+                      label: const Text('View Results & Ratings'),
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => MatchResultsScreen(
+                              teamAScore:
+                                  (match.score?['teamAScore'] as num?)
+                                      ?.toInt() ??
+                                  21,
+                              teamBScore:
+                                  (match.score?['teamBScore'] as num?)
+                                      ?.toInt() ??
+                                  18,
+                              ratingDelta: 16,
                             ),
                           ),
                         );
-                      } catch (error) {
-                        if (!context.mounted) return;
-                        await showAdaptiveMessage(
-                          context,
-                          title: 'Could not join match',
-                          message: error.toString().replaceFirst(
-                            'DomainValidationException: ',
-                            '',
-                          ),
-                        );
-                      }
-                    },
-            ),
-            const SizedBox(height: 10),
-            if (match.id != null)
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (match.scoreStatus == 'disputed') ...[
+              const SizedBox(height: 16),
+              CardBox(
+                color: Colors.red.withValues(alpha: .06),
+                borderColor: Colors.red.withValues(alpha: .3),
+                child: Row(
+                  children: const [
+                    Icon(
+                      CupertinoIcons.exclamationmark_triangle_fill,
+                      color: Colors.red,
+                      size: 22,
+                    ),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Score was disputed by a player. Please discuss in match chat.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (joined && match.id != null) ...[
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                icon: const Icon(CupertinoIcons.sportscourt, size: 18),
+                label: const Text(
+                  'Submit Match Score',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                ),
+                onPressed: () => _showScoreSubmitSheet(context),
+              ),
+            ],
+            if (match.needed > 0) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: const Icon(
+                    CupertinoIcons.chat_bubble_fill,
+                    size: 16,
+                    color: Color(0xFF25D366),
+                  ),
+                  label: const Text(
+                    'Invite Players via WhatsApp',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  onPressed: () async {
+                    final waText =
+                        '🎾 *Join my ${match.sport} match on PlayUp!*\n'
+                        '📍 Court: ${match.court}\n'
+                        '⏰ Time: ${match.time}\n'
+                        '💰 Cash Fee: ${match.pricePerPlayer}\n'
+                        '👥 Need ${match.needed} more player${match.needed == 1 ? '' : 's'}!\n\n'
+                        '👉 Join match: https://playup.app/m/${match.id ?? ''}';
+                    final waUri = Uri.parse(
+                      'whatsapp://send?text=${Uri.encodeComponent(waText)}',
+                    );
+                    if (await canLaunchUrl(waUri)) {
+                      await launchUrl(waUri);
+                    } else {
+                      await SharePlus.instance.share(
+                        ShareParams(text: waText, subject: 'Join PlayUp Match'),
+                      );
+                    }
+                  },
+                ),
+              ),
+            ],
+            const SizedBox(height: 24),
+            if (!joined)
+              PrimaryButton(
+                label: match.needed == 0 ? 'Match Full' : 'Request to Join',
+                onPressed: match.needed == 0 || match.id == null
+                    ? null
+                    : () async {
+                        try {
+                          await AppRepository.instance.joinExistingMatch(
+                            match.id!,
+                          );
+                          if (!context.mounted) return;
+                          final updated = await FirebaseFirestore.instance
+                              .collection('matches')
+                              .doc(match.id!)
+                              .get();
+                          if (!context.mounted) return;
+                          Navigator.of(context).pushReplacement(
+                            MaterialPageRoute(
+                              builder: (_) => MatchDetailsScreen(
+                                match: OpenMatch.fromMap(
+                                  updated.data() ?? const {},
+                                  id: updated.id,
+                                ),
+                              ),
+                            ),
+                          );
+                        } catch (error) {
+                          if (!context.mounted) return;
+                          await showAdaptiveMessage(
+                            context,
+                            title: 'Could not join match',
+                            message: error.toString().replaceFirst(
+                              'DomainValidationException: ',
+                              '',
+                            ),
+                          );
+                        }
+                      },
+              )
+            else
+              const CardBox(
+                child: Row(
+                  children: [
+                    Icon(
+                      CupertinoIcons.checkmark_alt_circle_fill,
+                      color: AppColors.green,
+                    ),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'You are confirmed for this match.',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (joined) ...[
+              const SizedBox(height: 10),
+              SecondaryButton(
+                label: hosting ? 'Cancel Match' : 'Leave Match',
+                onPressed: () => _leaveOrCancel(context, hosting),
+              ),
+            ],
+            if (match.id != null && joined) ...[
+              const SizedBox(height: 10),
               SecondaryButton(
                 label: 'Open Chat',
                 onPressed: () => Navigator.of(context).push(
@@ -520,10 +929,413 @@ class MatchDetailsScreen extends StatelessWidget {
                   ),
                 ),
               ),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _leaveOrCancel(BuildContext context, bool hosting) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(hosting ? 'Cancel this match?' : 'Leave this match?'),
+        content: Text(
+          hosting
+              ? 'All players will be notified. The late-cancellation policy may apply.'
+              : 'Your place will become available to another player.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Keep match'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(hosting ? 'Cancel match' : 'Leave match'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || match.id == null) return;
+    try {
+      if (hosting) {
+        if (match.bookingId.isEmpty) {
+          throw const DomainValidationException(
+            'The linked booking could not be found. Contact support.',
+          );
+        }
+        await AppRepository.instance.cancelBooking(
+          match.bookingId,
+          'Match cancelled by host',
+        );
+      } else {
+        await AppRepository.instance.leaveExistingMatch(match.id!);
+      }
+      if (context.mounted) Navigator.of(context).pop();
+    } catch (error) {
+      if (!context.mounted) return;
+      await showAdaptiveMessage(
+        context,
+        title: hosting ? 'Match not cancelled' : 'Could not leave match',
+        message: error.toString(),
+      );
+    }
+  }
+
+  Future<void> _handleScoreConfirmation(
+    BuildContext context,
+    bool confirm,
+  ) async {
+    if (match.id == null) return;
+    try {
+      await AppRepository.instance.confirmMatchScore(
+        matchId: match.id!,
+        accept: confirm,
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            confirm
+                ? 'Score verified! Ratings updated.'
+                : 'Score marked as disputed.',
+          ),
+        ),
+      );
+      OpenMatch updatedMatch;
+      try {
+        final updated = await FirebaseFirestore.instance
+            .collection('matches')
+            .doc(match.id!)
+            .get();
+        if (updated.exists) {
+          updatedMatch = OpenMatch.fromMap(
+            updated.data() ?? const {},
+            id: updated.id,
+          );
+        } else {
+          updatedMatch = OpenMatch(
+            id: match.id,
+            title: match.title,
+            sport: match.sport,
+            host: match.host,
+            court: match.court,
+            time: match.time,
+            skill: match.skill,
+            joined: match.joined,
+            needed: match.needed,
+            pricePerPlayer: match.pricePerPlayer,
+            ranked: match.ranked,
+            playerIds: match.playerIds,
+            hostId: match.hostId,
+            bookingId: match.bookingId,
+            startUtc: match.startUtc,
+            playerNames: match.playerNames,
+            latitude: match.latitude,
+            longitude: match.longitude,
+            scoreStatus: confirm ? 'confirmed' : 'disputed',
+            scoreSubmittedBy: match.scoreSubmittedBy,
+            score: match.score,
+            hostReliability: match.hostReliability,
+            status: 'completed',
+          );
+        }
+      } catch (_) {
+        updatedMatch = OpenMatch(
+          id: match.id,
+          title: match.title,
+          sport: match.sport,
+          host: match.host,
+          court: match.court,
+          time: match.time,
+          skill: match.skill,
+          joined: match.joined,
+          needed: match.needed,
+          pricePerPlayer: match.pricePerPlayer,
+          ranked: match.ranked,
+          playerIds: match.playerIds,
+          hostId: match.hostId,
+          bookingId: match.bookingId,
+          startUtc: match.startUtc,
+          playerNames: match.playerNames,
+          latitude: match.latitude,
+          longitude: match.longitude,
+          scoreStatus: confirm ? 'confirmed' : 'disputed',
+          scoreSubmittedBy: match.scoreSubmittedBy,
+          score: match.score,
+          hostReliability: match.hostReliability,
+          status: 'completed',
+        );
+      }
+      if (!context.mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => MatchDetailsScreen(match: updatedMatch),
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        showAdaptiveMessage(
+          context,
+          title: 'Score confirmation failed',
+          message: e.toString(),
+        );
+      }
+    }
+  }
+
+  Future<void> _showScoreSubmitSheet(BuildContext context) async {
+    final teamACtrl = TextEditingController(text: '0');
+    final teamBCtrl = TextEditingController(text: '0');
+    final submitted = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            20,
+            20,
+            MediaQuery.of(sheetContext).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: .4),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Submit Match Score',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Enter final scores. Opponents will confirm before Elo rating updates.',
+                style: TextStyle(color: AppColors.muted, fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Team A Score',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: teamACtrl,
+                          keyboardType: TextInputType.number,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                          ),
+                          decoration: InputDecoration(
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Text(
+                      'VS',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.muted,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Team B Score',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: teamBCtrl,
+                          keyboardType: TextInputType.number,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                          ),
+                          decoration: InputDecoration(
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: FilledButton(
+                  onPressed: () {
+                    final a = int.tryParse(teamACtrl.text.trim()) ?? 0;
+                    final b = int.tryParse(teamBCtrl.text.trim()) ?? 0;
+                    if (a == b) {
+                      ScaffoldMessenger.of(sheetContext).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Matches must have a winner in PlayUp.',
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+                    Navigator.of(sheetContext).pop(true);
+                  },
+                  child: const Text(
+                    'Submit for Confirmation',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (submitted == true && match.id != null && context.mounted) {
+      final a = int.tryParse(teamACtrl.text.trim()) ?? 0;
+      final b = int.tryParse(teamBCtrl.text.trim()) ?? 0;
+      try {
+        await AppRepository.instance.submitMatchScore(
+          matchId: match.id!,
+          teamAScore: a,
+          teamBScore: b,
+        );
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Score submitted! Opponent notified for confirmation.',
+            ),
+          ),
+        );
+        OpenMatch updatedMatch;
+        try {
+          final updated = await FirebaseFirestore.instance
+              .collection('matches')
+              .doc(match.id!)
+              .get();
+          if (updated.exists) {
+            updatedMatch = OpenMatch.fromMap(
+              updated.data() ?? const {},
+              id: updated.id,
+            );
+          } else {
+            updatedMatch = OpenMatch(
+              id: match.id,
+              title: match.title,
+              sport: match.sport,
+              host: match.host,
+              court: match.court,
+              time: match.time,
+              skill: match.skill,
+              joined: match.joined,
+              needed: match.needed,
+              pricePerPlayer: match.pricePerPlayer,
+              ranked: match.ranked,
+              playerIds: match.playerIds,
+              hostId: match.hostId,
+              bookingId: match.bookingId,
+              startUtc: match.startUtc,
+              playerNames: match.playerNames,
+              latitude: match.latitude,
+              longitude: match.longitude,
+              scoreStatus: 'pendingConfirmation',
+              scoreSubmittedBy: FirebaseAuth.instance.currentUser?.uid ?? '',
+              score: {'teamAScore': a, 'teamBScore': b},
+              hostReliability: match.hostReliability,
+              status: 'completed',
+            );
+          }
+        } catch (_) {
+          updatedMatch = OpenMatch(
+            id: match.id,
+            title: match.title,
+            sport: match.sport,
+            host: match.host,
+            court: match.court,
+            time: match.time,
+            skill: match.skill,
+            joined: match.joined,
+            needed: match.needed,
+            pricePerPlayer: match.pricePerPlayer,
+            ranked: match.ranked,
+            playerIds: match.playerIds,
+            hostId: match.hostId,
+            bookingId: match.bookingId,
+            startUtc: match.startUtc,
+            playerNames: match.playerNames,
+            latitude: match.latitude,
+            longitude: match.longitude,
+            scoreStatus: 'pendingConfirmation',
+            scoreSubmittedBy: FirebaseAuth.instance.currentUser?.uid ?? '',
+            score: {'teamAScore': a, 'teamBScore': b},
+            hostReliability: match.hostReliability,
+            status: 'completed',
+          );
+        }
+        if (!context.mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => MatchDetailsScreen(match: updatedMatch),
+          ),
+        );
+      } catch (e) {
+        if (context.mounted) {
+          showAdaptiveMessage(
+            context,
+            title: 'Score Submission Failed',
+            message: e.toString(),
+          );
+        }
+      }
+    }
   }
 }
 
@@ -1165,6 +1977,49 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
   int _dayIndex = 0;
   int _slotIndex = 0;
   int _duration = 60;
+  Set<int>? _unavailableStarts;
+  String? _availabilityError;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshAvailability();
+  }
+
+  void _refreshAvailability() {
+    final now = DateTime.now();
+    final starts = _slotStarts(now);
+    if (starts.isEmpty) return;
+    setState(() {
+      _unavailableStarts = null;
+      _availabilityError = null;
+    });
+    AppRepository.instance
+        .unavailableCourtSlotStarts(
+          courtId: widget.court.id,
+          rangeStartUtc: starts.first.toUtc(),
+          rangeEndUtc: DateTime(
+            starts.first.year,
+            starts.first.month,
+            starts.first.day,
+            widget.court.closingHour,
+          ).toUtc(),
+        )
+        .then((value) {
+          if (!mounted) return;
+          setState(() => _unavailableStarts = value);
+        })
+        .catchError((Object error) {
+          if (!mounted) return;
+          setState(() {
+            _availabilityError = error.toString().replaceFirst(
+              'DomainValidationException: ',
+              '',
+            );
+            _unavailableStarts = const {};
+          });
+        });
+  }
 
   List<DateTime> _slotStarts(DateTime now) {
     final day = DateTime(
@@ -1185,20 +2040,25 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
     return starts[_slotIndex.clamp(0, starts.length - 1)];
   }
 
-  bool _isBooked(
-    DateTime start,
-    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> locks,
-  ) {
+  bool _isBooked(DateTime start, Set<int> unavailableStarts) {
     final end = start.add(Duration(minutes: _duration));
-    return locks.any((lock) {
-      final data = lock.data();
-      final lockStart = (data['startUtc'] as Timestamp?)?.toDate().toLocal();
-      final lockEnd = (data['endUtc'] as Timestamp?)?.toDate().toLocal();
-      return lockStart != null &&
-          lockEnd != null &&
-          start.isBefore(lockEnd) &&
-          end.isAfter(lockStart);
-    });
+    final closing = DateTime(
+      start.year,
+      start.month,
+      start.day,
+      widget.court.closingHour,
+    );
+    if (!start.isAfter(DateTime.now()) || end.isAfter(closing)) return true;
+    for (
+      var cursor = start.toUtc();
+      cursor.isBefore(end.toUtc());
+      cursor = cursor.add(const Duration(minutes: 30))
+    ) {
+      if (unavailableStarts.contains(cursor.millisecondsSinceEpoch)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   String _band(DateTime start) {
@@ -1207,10 +2067,13 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
     return 'Evening';
   }
 
-  String _priceLabel() {
-    final total = ((widget.court.basePriceMinor * _duration) / 60).round();
+  String _priceLabel([DateTime? start]) {
+    final effectiveStart = start ?? _selectedStart(DateTime.now());
+    final rate = widget.court.effectiveHourlyRateMinor(effectiveStart.hour);
+    final total = ((rate * _duration) / 60).round();
     if (total <= 0) return widget.court.price;
-    return '${widget.court.currency} ${(total / 100).toStringAsFixed(2)}';
+    final isPeak = widget.court.isPeakHour(effectiveStart.hour);
+    return '${widget.court.currency} ${(total / 100).toStringAsFixed(2)}${isPeak ? ' • Peak' : ''}';
   }
 
   @override
@@ -1287,10 +2150,13 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
                   final selected = index == _dayIndex;
                   return InkWell(
                     borderRadius: BorderRadius.circular(18),
-                    onTap: () => setState(() {
-                      _dayIndex = index;
-                      _slotIndex = 0;
-                    }),
+                    onTap: () {
+                      setState(() {
+                        _dayIndex = index;
+                        _slotIndex = 0;
+                      });
+                      _refreshAvailability();
+                    },
                     child: Container(
                       width: 64,
                       decoration: BoxDecoration(
@@ -1360,18 +2226,36 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            const Text(
-              'Times',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Times',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                ),
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => MultiCourtTimelineScreen(
+                          academyId: widget.court.academyId,
+                          initialCourtId: widget.court.id,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(CupertinoIcons.square_grid_2x2, size: 16),
+                  label: const Text(
+                    'All Courts Grid',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
-            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('bookingLocks')
-                  .where('courtId', isEqualTo: widget.court.id)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                final locks = snapshot.data?.docs ?? const [];
+            Builder(
+              builder: (context) {
+                final unavailable = _unavailableStarts ?? const <int>{};
                 final groups = <String, List<int>>{};
                 for (var i = 0; i < starts.length; i++) {
                   groups.putIfAbsent(_band(starts[i]), () => []).add(i);
@@ -1397,16 +2281,38 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
                           for (final i in entry.value)
                             Builder(
                               builder: (context) {
-                                final booked = _isBooked(starts[i], locks);
+                                final booked = _isBooked(
+                                  starts[i],
+                                  unavailable,
+                                );
+                                final slotEnd = starts[i].add(
+                                  Duration(minutes: _duration),
+                                );
+                                final closing = DateTime(
+                                  starts[i].year,
+                                  starts[i].month,
+                                  starts[i].day,
+                                  widget.court.closingHour,
+                                );
+                                final unavailableLabel =
+                                    !starts[i].isAfter(DateTime.now())
+                                    ? 'Past'
+                                    : slotEnd.isAfter(closing)
+                                    ? 'Unavailable'
+                                    : 'Booked';
                                 return GestureDetector(
-                                  onTap: booked
+                                  onTap:
+                                      booked ||
+                                          _unavailableStarts == null ||
+                                          _availabilityError != null
                                       ? null
                                       : () => setState(() => _slotIndex = i),
                                   child: SlotChip(
                                     time: DateFormat.jm().format(starts[i]),
-                                    price: _priceLabel(),
+                                    price: _priceLabel(starts[i]),
                                     selected: i == _slotIndex && !booked,
                                     booked: booked,
+                                    unavailableLabel: unavailableLabel,
                                   ),
                                 );
                               },
@@ -1415,6 +2321,19 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
                       ),
                       const SizedBox(height: 14),
                     ],
+                    if (_unavailableStarts == null)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                    if (_availabilityError != null)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Text(
+                          _availabilityError!,
+                          style: TextStyle(color: scheme.error),
+                        ),
+                      ),
                   ],
                 );
               },
@@ -1456,18 +2375,23 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
               SizedBox(
                 width: 142,
                 child: PrimaryButton(
-                  label: _priceLabel(),
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => BookingSetupScreen(
-                          court: widget.court,
-                          startUtc: selectedStart.toUtc(),
-                          endUtc: selectedEnd.toUtc(),
-                        ),
-                      ),
-                    );
-                  },
+                  label: 'Next\n${_priceLabel()}',
+                  onPressed:
+                      _unavailableStarts == null ||
+                          _availabilityError != null ||
+                          _isBooked(selectedStart, _unavailableStarts!)
+                      ? null
+                      : () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => BookingSetupScreen(
+                                court: widget.court,
+                                startUtc: selectedStart.toUtc(),
+                                endUtc: selectedEnd.toUtc(),
+                              ),
+                            ),
+                          );
+                        },
                 ),
               ),
             ],
@@ -1479,12 +2403,40 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
 }
 
 class BookingDetailsScreen extends StatelessWidget {
-  const BookingDetailsScreen({super.key, required this.court});
+  const BookingDetailsScreen({
+    super.key,
+    required this.bookingId,
+    required this.booking,
+    required this.court,
+  });
 
+  final String bookingId;
+  final Map<String, dynamic> booking;
   final Court court;
 
   @override
   Widget build(BuildContext context) {
+    final start = (booking['startUtc'] as Timestamp?)?.toDate().toLocal();
+    final end = (booking['endUtc'] as Timestamp?)?.toDate().toLocal();
+    final status = (booking['status'] ?? 'pending').toString();
+    final paymentStatus = (booking['paymentStatus'] ?? 'pending').toString();
+    final currency = (booking['currency'] ?? court.currency).toString();
+    final totalMinor = (booking['totalMinor'] as num?)?.toInt() ?? 0;
+    final matchId = booking['matchId']?.toString() ?? '';
+    final isOwner = booking['userId'] == FirebaseAuth.instance.currentUser?.uid;
+    final canCancel =
+        isOwner && const ['pending', 'confirmed'].contains(status);
+    final dateLabel = start == null
+        ? 'Time pending'
+        : DateFormat('EEEE, d MMMM y').format(start);
+    final timeLabel = start == null
+        ? 'Time pending'
+        : '${DateFormat.jm().format(start)}${end == null ? '' : ' – ${DateFormat.jm().format(end)}'}';
+    final paymentLabel = paymentStatus == 'collected'
+        ? 'Collected at venue'
+        : paymentStatus == 'notRequired'
+        ? 'No payment required'
+        : 'Pay at venue · $currency ${(totalMinor / 100).toStringAsFixed(2)}';
     return Scaffold(
       body: AppScrollPage(
         child: Column(
@@ -1505,97 +2457,376 @@ class BookingDetailsScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   DetailRow(label: 'Court', value: court.name),
-                  const DetailRow(label: 'Date', value: 'Today, 20 May'),
-                  const DetailRow(label: 'Time', value: '8:00 PM - 9:00 PM'),
-                  const DetailRow(label: 'Payment', value: 'Paid • Visa 4242'),
-                  const DetailRow(label: 'Status', value: 'Confirmed'),
+                  DetailRow(label: 'Date', value: dateLabel),
+                  DetailRow(label: 'Time', value: timeLabel),
+                  DetailRow(label: 'Payment', value: paymentLabel),
+                  DetailRow(
+                    label: 'Status',
+                    value: status.isEmpty
+                        ? 'Pending'
+                        : '${status[0].toUpperCase()}${status.substring(1)}',
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
-            const Text(
-              'Players',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: const [
-                Avatar(name: 'A', size: 44),
-                Avatar(name: 'O', size: 44),
-                Avatar(name: 'Z', size: 44),
-                Avatar(name: 'M', size: 44),
-              ],
+            Builder(
+              builder: (context) {
+                final participants = List<String>.from(
+                  booking['participants'] as List? ?? [booking['userId'] ?? ''],
+                );
+                final cashPaidPlayers = Set<String>.from(
+                  booking['cashPaidPlayers'] as List? ??
+                      [booking['userId'] ?? ''],
+                );
+                final splitCount = participants.isEmpty
+                    ? 1
+                    : participants.length;
+                final perPlayerMinor = (totalMinor / splitCount).round();
+                final perPlayerAmount = (perPlayerMinor / 100).toStringAsFixed(
+                  2,
+                );
+
+                return CardBox(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Cash Split Tracker',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.green.withValues(alpha: .15),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '$currency $perPlayerAmount / player',
+                              style: const TextStyle(
+                                color: AppColors.green,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${cashPaidPlayers.length}/$splitCount players collected cash',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      for (var i = 0; i < participants.length; i++) ...[
+                        Builder(
+                          builder: (context) {
+                            final pUid = participants[i];
+                            final isHost = pUid == booking['userId'];
+                            return StatefulBuilder(
+                              builder: (context, setPlayerState) {
+                                final currentPaid = cashPaidPlayers.contains(
+                                  pUid,
+                                );
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 4,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 14,
+                                        backgroundColor: currentPaid
+                                            ? AppColors.green.withValues(
+                                                alpha: .2,
+                                              )
+                                            : Colors.grey.withValues(alpha: .2),
+                                        child: Icon(
+                                          currentPaid
+                                              ? CupertinoIcons.check_mark
+                                              : CupertinoIcons.clock,
+                                          size: 14,
+                                          color: currentPaid
+                                              ? AppColors.green
+                                              : Colors.grey,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              isHost
+                                                  ? 'Organizer (Host)'
+                                                  : 'Player ${i + 1}',
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                            Text(
+                                              currentPaid
+                                                  ? 'Cash collected'
+                                                  : 'Pending cash collection',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: currentPaid
+                                                    ? AppColors.green
+                                                    : AppColors.muted,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (isOwner && !isHost)
+                                        OutlinedButton(
+                                          onPressed: () async {
+                                            final nextState = !currentPaid;
+                                            setPlayerState(() {
+                                              if (nextState) {
+                                                cashPaidPlayers.add(pUid);
+                                              } else {
+                                                cashPaidPlayers.remove(pUid);
+                                              }
+                                            });
+                                            try {
+                                              await AppRepository.instance
+                                                  .updateCashSplitStatus(
+                                                    bookingId: bookingId,
+                                                    playerId: pUid,
+                                                    paid: nextState,
+                                                  );
+                                            } catch (e) {
+                                              setPlayerState(() {
+                                                if (!nextState) {
+                                                  cashPaidPlayers.add(pUid);
+                                                } else {
+                                                  cashPaidPlayers.remove(pUid);
+                                                }
+                                              });
+                                              if (context.mounted) {
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text(
+                                                      'Update failed: $e',
+                                                    ),
+                                                  ),
+                                                );
+                                              }
+                                            }
+                                          },
+                                          style: OutlinedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 4,
+                                            ),
+                                            minimumSize: Size.zero,
+                                            tapTargetSize: MaterialTapTargetSize
+                                                .shrinkWrap,
+                                          ),
+                                          child: Text(
+                                            currentPaid
+                                                ? 'Mark Pending'
+                                                : 'Mark Paid',
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        )
+                                      else
+                                        Text(
+                                          currentPaid ? 'PAID' : 'PENDING',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 12,
+                                            color: currentPaid
+                                                ? AppColors.green
+                                                : AppColors.muted,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                        if (i < participants.length - 1)
+                          const Divider(height: 12),
+                      ],
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          icon: const Icon(
+                            CupertinoIcons.chat_bubble_fill,
+                            size: 16,
+                            color: Color(0xFF25D366),
+                          ),
+                          label: const Text(
+                            'Share Cash Breakdown on WhatsApp',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          onPressed: () async {
+                            final waText =
+                                '💵 *PlayUp Cash Split - ${court.name}*\n'
+                                '📅 Date: $dateLabel\n'
+                                '⏰ Time: $timeLabel\n'
+                                '💰 Total Court Fee: $currency ${(totalMinor / 100).toStringAsFixed(2)}\n'
+                                '👥 Share per Player: $currency $perPlayerAmount\n\n'
+                                'Please bring exact cash to the court! 🙌';
+                            final waUri = Uri.parse(
+                              'whatsapp://send?text=${Uri.encodeComponent(waText)}',
+                            );
+                            if (await canLaunchUrl(waUri)) {
+                              await launchUrl(waUri);
+                            } else {
+                              await SharePlus.instance.share(
+                                ShareParams(
+                                  text: waText,
+                                  subject: 'Cash Split Breakdown',
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 20),
-            CardBox(
+            const CardBox(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
+                children: [
                   Text(
                     'Cancellation policy',
                     style: TextStyle(fontWeight: FontWeight.w900),
                   ),
                   SizedBox(height: 6),
                   Text(
-                    'Free cancellation up to 6 hours before start. After that, 50% of the court fee applies.',
+                    'Cancellation is free at least 6 hours before start. A 50% late-cancellation fee may be due at the venue.',
                     style: TextStyle(color: AppColors.muted, height: 1.5),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 20),
-            PrimaryButton(
-              label: 'QR Check-In',
-              icon: CupertinoIcons.qrcode,
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const PreMatchCheckInScreen(),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            SecondaryButton(
-              label: 'View Match Result',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const MatchResultsScreen()),
-              ),
-            ),
-            const SizedBox(height: 10),
-            SecondaryButton(
-              label: 'Get Directions',
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Opening maps directions...')),
-              ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              height: 56,
-              child: OutlinedButton(
+            if (matchId.isNotEmpty) ...[
+              PrimaryButton(
+                label: 'Open Match Chat',
+                icon: CupertinoIcons.chat_bubble_2,
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => const CancelBookingScreen(),
+                    builder: (_) => MatchChatScreen(matchId: matchId),
                   ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.danger,
-                  side: const BorderSide(color: AppColors.danger),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-                child: const Text(
-                  'Cancel Booking',
-                  style: TextStyle(fontWeight: FontWeight.w900),
                 ),
               ),
+              const SizedBox(height: 10),
+            ],
+            SecondaryButton(
+              label: 'Get Directions',
+              onPressed: () => _openDirections(context),
             ),
+            if (canCancel) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: OutlinedButton(
+                  onPressed: () async {
+                    final cancelled = await Navigator.of(context).push<bool>(
+                      MaterialPageRoute(
+                        builder: (_) => CancelBookingScreen(
+                          bookingId: bookingId,
+                          startUtc: (booking['startUtc'] as Timestamp?)
+                              ?.toDate(),
+                          totalMinor: totalMinor,
+                          currency: currency,
+                        ),
+                      ),
+                    );
+                    if (cancelled == true && context.mounted) {
+                      Navigator.of(context).pop();
+                    }
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.danger,
+                    side: const BorderSide(color: AppColors.danger),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: const Text(
+                    'Cancel Booking',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _openDirections(BuildContext context) async {
+    try {
+      final courtSnapshot = await FirebaseFirestore.instance
+          .collection('courts')
+          .doc(court.id)
+          .get();
+      final data = courtSnapshot.data() ?? const <String, dynamic>{};
+      final latitude = (data['latitude'] as num?)?.toDouble();
+      final longitude = (data['longitude'] as num?)?.toDouble();
+      final address = (data['address'] ?? court.address).toString().trim();
+      final query = latitude != null && longitude != null
+          ? '$latitude,$longitude'
+          : [court.name, address].where((part) => part.isNotEmpty).join(', ');
+      if (query.isEmpty) {
+        throw const DomainValidationException(
+          'Directions are not configured for this court.',
+        );
+      }
+      final uri = Uri.https('www.google.com', '/maps/search/', {
+        'api': '1',
+        'query': query,
+      });
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        throw const DomainValidationException('No maps app is available.');
+      }
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error is DomainValidationException
+                ? error.message
+                : 'Directions could not be opened.',
+          ),
+        ),
+      );
+    }
   }
 }
 
@@ -1613,6 +2844,13 @@ class NotificationSettingsScreen extends StatefulWidget {
 
 class _NotificationSettingsScreenState
     extends State<NotificationSettingsScreen> {
+  static const _fieldNames = <String, String>{
+    'Booking reminders': 'bookingReminders',
+    'Match invites': 'matchInvites',
+    'Rewards & offers': 'rewardsAndOffers',
+    'Academy announcements': 'academyAnnouncements',
+    'System updates': 'systemUpdates',
+  };
   final _values = <String, bool>{
     'Booking reminders': true,
     'Match invites': true,
@@ -1620,6 +2858,55 @@ class _NotificationSettingsScreenState
     'Academy announcements': false,
     'System updates': true,
   };
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+    try {
+      final data =
+          (await FirebaseFirestore.instance.collection('users').doc(uid).get())
+              .data();
+      final saved = Map<String, dynamic>.from(
+        data?['notificationPreferences'] as Map? ?? const {},
+      );
+      for (final entry in _fieldNames.entries) {
+        if (saved[entry.value] is bool) {
+          _values[entry.key] = saved[entry.value] as bool;
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _save(String label, bool value) async {
+    final previous = _values[label] ?? true;
+    setState(() => _values[label] = value);
+    try {
+      await AppRepository.instance.updatePreferences(
+        notifications: {
+          for (final entry in _fieldNames.entries)
+            entry.value: _values[entry.key] ?? true,
+        },
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _values[label] = previous);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Preference was not saved: $error')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1633,23 +2920,26 @@ class _NotificationSettingsScreenState
               onBack: () => Navigator.of(context).pop(),
             ),
             const SizedBox(height: 18),
-            CardBox(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Column(
-                children: [
-                  for (final entry in _values.entries)
-                    SwitchListTile.adaptive(
-                      value: entry.value,
-                      activeThumbColor: AppColors.purple,
-                      title: Text(
-                        entry.key,
-                        style: const TextStyle(fontWeight: FontWeight.w800),
+            if (_loading)
+              const Center(child: CircularProgressIndicator())
+            else
+              CardBox(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Column(
+                  children: [
+                    for (final entry in _values.entries)
+                      SwitchListTile.adaptive(
+                        value: entry.value,
+                        activeThumbColor: AppColors.purple,
+                        title: Text(
+                          entry.key,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        onChanged: (v) => _save(entry.key, v),
                       ),
-                      onChanged: (v) => setState(() => _values[entry.key] = v),
-                    ),
-                ],
+                  ],
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -1668,6 +2958,66 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   bool _publicProfile = true;
   bool _showActivity = true;
   bool _allowInvites = true;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+    try {
+      final data =
+          (await FirebaseFirestore.instance.collection('users').doc(uid).get())
+              .data();
+      final saved = Map<String, dynamic>.from(
+        data?['privacyPreferences'] as Map? ?? const {},
+      );
+      _publicProfile = saved['publicProfile'] as bool? ?? true;
+      _showActivity = saved['showActivity'] as bool? ?? true;
+      _allowInvites = saved['allowInvites'] as bool? ?? true;
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _save({
+    bool? publicProfile,
+    bool? showActivity,
+    bool? allowInvites,
+  }) async {
+    final previous = (_publicProfile, _showActivity, _allowInvites);
+    setState(() {
+      if (publicProfile != null) _publicProfile = publicProfile;
+      if (showActivity != null) _showActivity = showActivity;
+      if (allowInvites != null) _allowInvites = allowInvites;
+    });
+    try {
+      await AppRepository.instance.updatePreferences(
+        privacy: {
+          'publicProfile': _publicProfile,
+          'showActivity': _showActivity,
+          'allowInvites': _allowInvites,
+        },
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _publicProfile = previous.$1;
+        _showActivity = previous.$2;
+        _allowInvites = previous.$3;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Privacy setting was not saved: $error')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1681,50 +3031,46 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
               onBack: () => Navigator.of(context).pop(),
             ),
             const SizedBox(height: 18),
-            CardBox(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Column(
-                children: [
-                  SwitchListTile.adaptive(
-                    value: _publicProfile,
-                    activeThumbColor: AppColors.purple,
-                    title: const Text(
-                      'Public profile',
-                      style: TextStyle(fontWeight: FontWeight.w800),
+            if (_loading)
+              const Center(child: CircularProgressIndicator())
+            else
+              CardBox(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Column(
+                  children: [
+                    SwitchListTile.adaptive(
+                      value: _publicProfile,
+                      activeThumbColor: AppColors.purple,
+                      title: const Text(
+                        'Public profile',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: const Text('Discoverable by other players'),
+                      onChanged: (v) => _save(publicProfile: v),
                     ),
-                    subtitle: const Text('Discoverable by other players'),
-                    onChanged: (v) => setState(() => _publicProfile = v),
-                  ),
-                  SwitchListTile.adaptive(
-                    value: _showActivity,
-                    activeThumbColor: AppColors.purple,
-                    title: const Text(
-                      'Show activity',
-                      style: TextStyle(fontWeight: FontWeight.w800),
+                    SwitchListTile.adaptive(
+                      value: _showActivity,
+                      activeThumbColor: AppColors.purple,
+                      title: const Text(
+                        'Show activity',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: const Text('Display recent matches on profile'),
+                      onChanged: (v) => _save(showActivity: v),
                     ),
-                    subtitle: const Text('Display recent matches on profile'),
-                    onChanged: (v) => setState(() => _showActivity = v),
-                  ),
-                  SwitchListTile.adaptive(
-                    value: _allowInvites,
-                    activeThumbColor: AppColors.purple,
-                    title: const Text(
-                      'Allow match invites',
-                      style: TextStyle(fontWeight: FontWeight.w800),
+                    SwitchListTile.adaptive(
+                      value: _allowInvites,
+                      activeThumbColor: AppColors.purple,
+                      title: const Text(
+                        'Allow match invites',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: const Text('Let players invite you to matches'),
+                      onChanged: (v) => _save(allowInvites: v),
                     ),
-                    subtitle: const Text('Let players invite you to matches'),
-                    onChanged: (v) => setState(() => _allowInvites = v),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 18),
-            SecondaryButton(
-              label: 'Blocked Players',
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('No blocked players.')),
-              ),
-            ),
           ],
         ),
       ),
@@ -1745,6 +3091,20 @@ class AcademyModeDashboard extends StatelessWidget {
     return FutureBuilder<OwnerScope>(
       future: AcademyService.instance.ownerScope(),
       builder: (context, scopeSnapshot) {
+        if (scopeSnapshot.hasError) {
+          return Scaffold(
+            body: AppScrollPage(
+              child: EmptyState(
+                icon: Icons.lock_outline,
+                title: 'Workspace unavailable',
+                message:
+                    'We could not load your assigned academy. Check your connection or ask your administrator to check your access.',
+                action: 'Return to sign in',
+                onTap: () => SocialAuth.signOutEverywhere(),
+              ),
+            ),
+          );
+        }
         if (!scopeSnapshot.hasData) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
@@ -1764,10 +3124,123 @@ class AcademyModeDashboard extends StatelessWidget {
                   onBack: standalone ? null : () => Navigator.of(context).pop(),
                 ),
                 const SizedBox(height: 16),
-                const LiveAcademyDashboardSummary(),
-                const ThemeModeTile(),
+                Text(
+                  'Manage today’s activity, then keep your venue ready for the next booking.',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    height: 1.5,
+                  ),
+                ),
                 const SizedBox(height: 20),
-                if (!isCourtOwner)
+                if (scope.canManageBookings) ...[
+                  PrimaryButton(
+                    label: 'Open bookings & check-in',
+                    icon: Icons.event_available_outlined,
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const LiveBookingManagementScreen(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                const LiveAcademyDashboardSummary(),
+                const SizedBox(height: 20),
+                const SectionHeader(title: 'Your venue'),
+                const SizedBox(height: 12),
+                if (scope.canManageAcademy)
+                  SettingsTile(
+                    icon: CupertinoIcons.building_2_fill,
+                    title: 'Academy profile',
+                    subtitle: 'Name, location and contact details',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const AcademyProfileManagementScreen(),
+                      ),
+                    ),
+                  ),
+                if (scope.canManageStaff)
+                  SettingsTile(
+                    icon: CupertinoIcons.person_2_fill,
+                    title: 'Your team',
+                    subtitle: 'Staff accounts and permissions',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const AcademyStaffManagementScreen(),
+                      ),
+                    ),
+                  ),
+                if (scope.canManageCourts)
+                  SettingsTile(
+                    icon: CupertinoIcons.sportscourt,
+                    title: 'Courts & availability',
+                    subtitle: 'Prices, opening hours and maintenance',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const LiveCourtManagementScreen(),
+                      ),
+                    ),
+                  ),
+                if (scope.canManageBookings)
+                  SettingsTile(
+                    icon: CupertinoIcons.calendar,
+                    title: 'Bookings & check-in',
+                    subtitle: 'Confirm, check in and collect payment',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const LiveBookingManagementScreen(),
+                      ),
+                    ),
+                  ),
+                if (scope.canManageCatalog)
+                  SettingsTile(
+                    icon: CupertinoIcons.gift,
+                    title: 'Offers',
+                    subtitle: 'Rewards and incentives for your players',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const OffersManagementScreen(),
+                      ),
+                    ),
+                  ),
+                if (scope.canManageCatalog)
+                  SettingsTile(
+                    icon: CupertinoIcons.rosette,
+                    title: 'Events',
+                    subtitle: 'Activities at your academy',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const EventManagementScreen(),
+                      ),
+                    ),
+                  ),
+                if (scope.canManageTournaments)
+                  SettingsTile(
+                    icon: CupertinoIcons.flag_fill,
+                    title: 'Create Tournament',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const CreateTournamentScreen(),
+                      ),
+                    ),
+                  ),
+                if (scope.canViewAnalytics)
+                  SettingsTile(
+                    icon: CupertinoIcons.chart_bar_alt_fill,
+                    title: 'Reports',
+                    subtitle: 'Bookings, completed sessions and revenue',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const LiveAcademyAnalyticsScreen(),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 20),
+                const SectionHeader(title: 'Workspace preferences'),
+                const SizedBox(height: 12),
+                const ThemeModeTile(),
+                if (scope.isAcademyOwner)
                   SettingsTile(
                     icon: CupertinoIcons.square_grid_2x2,
                     title: 'Customize Dashboard',
@@ -1787,82 +3260,6 @@ class AcademyModeDashboard extends StatelessWidget {
                     onPressed: () async => SocialAuth.signOutEverywhere(),
                   ),
                 ],
-                if (!isCourtOwner)
-                  SettingsTile(
-                    icon: CupertinoIcons.building_2_fill,
-                    title: 'Academy Profile & Contact',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const AcademyProfileManagementScreen(),
-                      ),
-                    ),
-                  ),
-                SettingsTile(
-                  icon: CupertinoIcons.person_2_fill,
-                  title: 'Staff & Permissions',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const AcademyStaffManagementScreen(),
-                    ),
-                  ),
-                ),
-                SettingsTile(
-                  icon: CupertinoIcons.sportscourt,
-                  title: 'Court Management',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const LiveCourtManagementScreen(),
-                    ),
-                  ),
-                ),
-                if (!isCourtOwner)
-                  SettingsTile(
-                    icon: CupertinoIcons.calendar,
-                    title: 'Booking Management',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const LiveBookingManagementScreen(),
-                      ),
-                    ),
-                  ),
-                if (!isCourtOwner)
-                  SettingsTile(
-                    icon: CupertinoIcons.gift,
-                    title: 'Offers Management',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const OffersManagementScreen(),
-                      ),
-                    ),
-                  ),
-                if (!isCourtOwner)
-                  SettingsTile(
-                    icon: CupertinoIcons.rosette,
-                    title: 'Event Management',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const EventManagementScreen(),
-                      ),
-                    ),
-                  ),
-                SettingsTile(
-                  icon: CupertinoIcons.flag_fill,
-                  title: 'Create Tournament',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const CreateTournamentScreen(),
-                    ),
-                  ),
-                ),
-                SettingsTile(
-                  icon: CupertinoIcons.chart_bar_alt_fill,
-                  title: 'Analytics',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const LiveAcademyAnalyticsScreen(),
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
@@ -1900,7 +3297,11 @@ class LiveAcademyDashboardSummary extends StatelessWidget {
                   .fold<int>(
                     0,
                     (total, b) =>
-                        total + (b['totalMinor'] as num? ?? 0).toInt(),
+                        total +
+                        (b['cashCollectedMinor'] as num? ??
+                                b['totalMinor'] as num? ??
+                                0)
+                            .toInt(),
                   );
               final pending = rows
                   .where((b) => ['pending', 'confirmed'].contains(b['status']))
@@ -1938,7 +3339,11 @@ class LiveAcademyDashboardSummary extends StatelessWidget {
                     physics: const NeverScrollableScrollPhysics(),
                     mainAxisSpacing: 12,
                     crossAxisSpacing: 12,
-                    childAspectRatio: 1.5,
+                    mainAxisExtent:
+                        170 *
+                        MediaQuery.textScalerOf(
+                          context,
+                        ).scale(1).clamp(1.0, 2.0),
                     children: [
                       _OwnerMetric(
                         label: "Today's bookings",
@@ -1947,7 +3352,8 @@ class LiveAcademyDashboardSummary extends StatelessWidget {
                       ),
                       _OwnerMetric(
                         label: 'Cash collected',
-                        value: 'JOD ${(revenue / 100).toStringAsFixed(0)}',
+                        value:
+                            '${academy.data?.data()?['currency'] ?? 'JOD'} ${(revenue / 100).toStringAsFixed(2)}',
                         icon: CupertinoIcons.money_dollar_circle,
                       ),
                       _OwnerMetric(

@@ -108,7 +108,9 @@ class LocationService {
     final response = await http
         .get(
           uri,
-          headers: const {'User-Agent': 'PlayUp/1.0 support@playup.app'},
+          headers: const {
+            'User-Agent': 'PlayUp/1.0 (+https://play-up.fit/contact)',
+          },
         )
         .timeout(const Duration(seconds: 8));
     if (response.statusCode != 200) {
@@ -136,7 +138,9 @@ class LocationService {
       final response = await http
           .get(
             uri,
-            headers: const {'User-Agent': 'PlayUp/1.0 support@playup.app'},
+            headers: const {
+              'User-Agent': 'PlayUp/1.0 (+https://play-up.fit/contact)',
+            },
           )
           .timeout(const Duration(seconds: 8));
       if (response.statusCode == 200) {

@@ -1568,14 +1568,21 @@ class Academy {
 }
 
 class AcademiesListScreen extends StatefulWidget {
-  const AcademiesListScreen({super.key});
+  final String? initialSport;
+  const AcademiesListScreen({super.key, this.initialSport});
 
   @override
   State<AcademiesListScreen> createState() => _AcademiesListScreenState();
 }
 
 class _AcademiesListScreenState extends State<AcademiesListScreen> {
-  final _search = TextEditingController();
+  late final TextEditingController _search;
+
+  @override
+  void initState() {
+    super.initState();
+    _search = TextEditingController(text: widget.initialSport ?? '');
+  }
 
   @override
   void dispose() {
@@ -1611,6 +1618,7 @@ class _AcademiesListScreenState extends State<AcademiesListScreen> {
                         .nearbyAcademies(
                           snapshot.data ?? const <Academy>[],
                           location,
+                          radiusKm: widget.initialSport == null ? 100 : 500,
                         )
                         .where(
                           (academy) =>
@@ -2797,7 +2805,7 @@ class PlayerStatsScreen extends StatelessWidget {
                                 gradient: const LinearGradient(
                                   begin: Alignment.topCenter,
                                   end: Alignment.bottomCenter,
-                                  colors: [AppColors.purple, Color(0xFFB79BFF)],
+                                  colors: [AppColors.purple, Color(0xFF75E0AF)],
                                 ),
                                 borderRadius: BorderRadius.circular(8),
                               ),
@@ -2891,15 +2899,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _load() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid != null) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
       final snap = await FirebaseFirestore.instance
           .collection('users')
-          .doc(uid)
+          .doc(user.uid)
           .get();
       final data = snap.data() ?? {};
-      _name.text = (data['displayName'] ?? 'Alex Mercer').toString();
-      _city.text = (data['city'] ?? 'Location not set').toString();
+      _name.text = (data['displayName'] ?? user.displayName ?? '').toString();
+      _city.text = (data['city'] ?? '').toString();
       _bio.text = (data['bio'] ?? '').toString();
     }
     if (mounted) setState(() => _loading = false);

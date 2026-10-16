@@ -6,13 +6,25 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'main.dart';
+import 'booking_domain.dart';
 
 // ---------------------------------------------------------------------------
 // Cancel booking
 // ---------------------------------------------------------------------------
 
 class CancelBookingScreen extends StatefulWidget {
-  const CancelBookingScreen({super.key});
+  const CancelBookingScreen({
+    super.key,
+    required this.bookingId,
+    required this.startUtc,
+    required this.totalMinor,
+    required this.currency,
+  });
+
+  final String bookingId;
+  final DateTime? startUtc;
+  final int totalMinor;
+  final String currency;
 
   @override
   State<CancelBookingScreen> createState() => _CancelBookingScreenState();
@@ -20,6 +32,8 @@ class CancelBookingScreen extends StatefulWidget {
 
 class _CancelBookingScreenState extends State<CancelBookingScreen> {
   String? _reason;
+  String? _error;
+  bool _busy = false;
   static const _reasons = [
     'Schedule conflict',
     'Found another court',
@@ -30,6 +44,9 @@ class _CancelBookingScreenState extends State<CancelBookingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final hoursUntilStart = widget.startUtc?.difference(DateTime.now()).inHours;
+    final late = hoursUntilStart != null && hoursUntilStart < 6;
+    final feeMinor = late ? (widget.totalMinor * .5).round() : 0;
     return Scaffold(
       body: AppScrollPage(
         child: Column(
@@ -45,9 +62,15 @@ class _CancelBookingScreenState extends State<CancelBookingScreen> {
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Free cancellation applies up to 6 hours before start.',
-              style: TextStyle(color: AppColors.muted, height: 1.4),
+            Text(
+              late
+                  ? 'This is a late cancellation. A ${widget.currency} ${(feeMinor / 100).toStringAsFixed(2)} fee may be due at the venue.'
+                  : 'This booking qualifies for free cancellation.',
+              style: TextStyle(
+                color: late ? AppColors.danger : AppColors.muted,
+                height: 1.4,
+                fontWeight: late ? FontWeight.w700 : FontWeight.normal,
+              ),
             ),
             const SizedBox(height: 18),
             for (final reason in _reasons)
@@ -84,7 +107,7 @@ class _CancelBookingScreenState extends State<CancelBookingScreen> {
               width: double.infinity,
               height: 56,
               child: FilledButton(
-                onPressed: () => _confirm(context),
+                onPressed: _busy ? null : () => _confirm(context),
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.danger,
                   foregroundColor: Colors.white,
@@ -92,12 +115,18 @@ class _CancelBookingScreenState extends State<CancelBookingScreen> {
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
-                child: const Text(
-                  'Cancel Booking',
-                  style: TextStyle(fontWeight: FontWeight.w900),
-                ),
+                child: _busy
+                    ? const CupertinoActivityIndicator(color: Colors.white)
+                    : const Text(
+                        'Cancel Booking',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
               ),
             ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              ErrorBanner(message: _error!),
+            ],
           ],
         ),
       ),
@@ -129,11 +158,27 @@ class _CancelBookingScreenState extends State<CancelBookingScreen> {
         ],
       ),
     );
-    if (ok == true && context.mounted) {
+    if (ok != true || !context.mounted) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await AppRepository.instance.cancelBooking(widget.bookingId, _reason!);
+      if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Booking cancelled.')));
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      Navigator.of(context).pop(true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error is DomainValidationException
+            ? error.message
+            : 'The booking could not be cancelled. Try again.';
+      });
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 }
@@ -143,7 +188,22 @@ class _CancelBookingScreenState extends State<CancelBookingScreen> {
 // ---------------------------------------------------------------------------
 
 class MatchResultsScreen extends StatelessWidget {
-  const MatchResultsScreen({super.key});
+  const MatchResultsScreen({
+    super.key,
+    this.teamAName = 'Team A',
+    this.teamBName = 'Team B',
+    this.teamAScore = 21,
+    this.teamBScore = 18,
+    this.ratingDelta = 16,
+    this.xpGained = 150,
+  });
+
+  final String teamAName;
+  final String teamBName;
+  final int teamAScore;
+  final int teamBScore;
+  final int ratingDelta;
+  final int xpGained;
 
   @override
   Widget build(BuildContext context) {
@@ -177,7 +237,11 @@ class MatchResultsScreen extends StatelessWidget {
                       borderColor: Colors.white.withValues(alpha: .08),
                       child: Row(
                         children: [
-                          _TeamScore(name: 'Team A', score: '21', winner: true),
+                          _TeamScore(
+                            name: teamAName,
+                            score: teamAScore.toString(),
+                            winner: teamAScore >= teamBScore,
+                          ),
                           const Text(
                             'VS',
                             style: TextStyle(
@@ -186,9 +250,9 @@ class MatchResultsScreen extends StatelessWidget {
                             ),
                           ),
                           _TeamScore(
-                            name: 'Team B',
-                            score: '18',
-                            winner: false,
+                            name: teamBName,
+                            score: teamBScore.toString(),
+                            winner: teamBScore > teamAScore,
                           ),
                         ],
                       ),
@@ -253,14 +317,14 @@ class MatchResultsScreen extends StatelessWidget {
                     Expanded(
                       child: _RewardPill(
                         icon: CupertinoIcons.bolt_fill,
-                        label: '+150 XP',
+                        label: '+$xpGained XP',
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: _RewardPill(
-                        icon: CupertinoIcons.circle_fill,
-                        label: '+40 Points',
+                        icon: CupertinoIcons.star_fill,
+                        label: '${ratingDelta >= 0 ? '+' : ''}$ratingDelta Elo',
                       ),
                     ),
                   ],

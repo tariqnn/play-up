@@ -7,12 +7,14 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'main.dart';
 import 'more_screens.dart';
 import 'location_service.dart';
 import 'catalog.dart';
+import 'academy_service.dart';
 
 // ---------------------------------------------------------------------------
 // Location picker & map view
@@ -545,7 +547,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// Forgot password / OTP / reset
+// Firebase password reset
 // ---------------------------------------------------------------------------
 
 class ForgotPasswordScreen extends StatefulWidget {
@@ -558,6 +560,7 @@ class ForgotPasswordScreen extends StatefulWidget {
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _email = TextEditingController();
   bool _sending = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -572,21 +575,29 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       ).showSnackBar(const SnackBar(content: Text('Enter your email first.')));
       return;
     }
-    setState(() => _sending = true);
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
     try {
       await FirebaseAuth.instance.sendPasswordResetEmail(
         email: _email.text.trim(),
       );
-    } catch (_) {
-      // Continue to the verification UI regardless (demo flow).
+      if (!mounted) return;
+      await showAdaptiveMessage(
+        context,
+        title: 'Check your email',
+        message:
+            'If an account exists for this address, Firebase has sent a secure password-reset link. Open that link to choose a new password.',
+      );
+      if (mounted) Navigator.of(context).pop();
+    } on FirebaseAuthException catch (error) {
+      if (mounted) setState(() => _error = friendlyAuthError(error));
+    } catch (error) {
+      if (mounted) setState(() => _error = friendlyAuthError(error));
+    } finally {
+      if (mounted) setState(() => _sending = false);
     }
-    if (!mounted) return;
-    setState(() => _sending = false);
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => OtpVerificationScreen(email: _email.text.trim()),
-      ),
-    );
   }
 
   @override
@@ -609,7 +620,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Enter the email linked to your account and we will send a verification code.',
+              'Enter the email linked to your account and we will send a secure reset link.',
               style: TextStyle(color: AppColors.muted, height: 1.4),
             ),
             const SizedBox(height: 22),
@@ -619,9 +630,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               icon: CupertinoIcons.mail,
               keyboardType: TextInputType.emailAddress,
             ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              ErrorBanner(message: _error!),
+            ],
             const SizedBox(height: 22),
             PrimaryButton(
-              label: _sending ? 'Sending...' : 'Send Code',
+              label: _sending ? 'Sending...' : 'Send Reset Link',
               onPressed: _sending ? () {} : _send,
             ),
           ],
@@ -858,11 +873,7 @@ class OffersManagementScreen extends StatefulWidget {
 }
 
 class _OffersManagementScreenState extends State<OffersManagementScreen> {
-  final _offers = <(String, String)>[
-    ('20% OFF Court Booking', '500 pts'),
-    ('Free Drink After Match', '1,000 pts'),
-    ('1 Free Court Hour', '2,500 pts'),
-  ];
+  late final Future<String> _academyId = AcademyService.instance.academyId();
 
   @override
   Widget build(BuildContext context) {
@@ -877,85 +888,135 @@ class _OffersManagementScreenState extends State<OffersManagementScreen> {
         ),
       ),
       body: AppScrollPage(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            PageTopBar(
-              title: 'Offers',
-              onBack: () => Navigator.of(context).pop(),
-            ),
-            const SizedBox(height: 16),
-            for (var i = 0; i < _offers.length; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: CardBox(
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 46,
-                        height: 46,
-                        decoration: BoxDecoration(
-                          color: AppColors.gold.withValues(alpha: .15),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Icon(
-                          CupertinoIcons.gift_fill,
-                          color: AppColors.gold,
-                        ),
+        child: FutureBuilder<String>(
+          future: _academyId,
+          builder: (context, academy) {
+            if (academy.hasError) {
+              return const ErrorBanner(
+                message: 'Your academy scope could not be loaded.',
+              );
+            }
+            if (!academy.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            return StreamBuilder(
+              stream: CatalogService.instance.raw('offers'),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return const ErrorBanner(
+                    message: 'Offers could not be loaded.',
+                  );
+                }
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final offers = snapshot.data!.docs
+                    .where((doc) => doc.data()['academyId'] == academy.data)
+                    .toList();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    PageTopBar(
+                      title: 'Offers',
+                      onBack: () => Navigator.of(context).pop(),
+                    ),
+                    const SizedBox(height: 16),
+                    if (offers.isEmpty)
+                      EmptyState(
+                        icon: CupertinoIcons.gift,
+                        title: 'No offers yet',
+                        message: 'Create a reward offer for your players.',
+                        action: 'Create Offer',
+                        onTap: _editor,
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _offers[i].$1,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
+                    for (final offer in offers)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: CardBox(
+                          child: Row(
+                            children: [
+                              const Icon(
+                                CupertinoIcons.gift_fill,
+                                color: AppColors.gold,
+                                size: 34,
                               ),
-                            ),
-                            Text(
-                              _offers[i].$2,
-                              style: const TextStyle(
-                                color: AppColors.muted,
-                                fontSize: 12,
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      (offer.data()['title'] ?? 'Offer')
+                                          .toString(),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${offer.data()['pointsCost'] ?? offer.data()['points'] ?? 0} pts · ${offer.data()['active'] == false ? 'Inactive' : 'Active'}',
+                                      style: const TextStyle(
+                                        color: AppColors.muted,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
+                              IconButton(
+                                tooltip: 'Edit offer',
+                                onPressed: () =>
+                                    _editor(id: offer.id, data: offer.data()),
+                                icon: const Icon(CupertinoIcons.pencil),
+                              ),
+                              IconButton(
+                                tooltip: 'Delete offer',
+                                onPressed: () => _delete('offers', offer.id),
+                                icon: const Icon(
+                                  CupertinoIcons.trash,
+                                  color: AppColors.danger,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                      IconButton(
-                        onPressed: () => _editor(index: i),
-                        icon: const Icon(
-                          CupertinoIcons.pencil,
-                          color: AppColors.purple,
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => setState(() => _offers.removeAt(i)),
-                        icon: const Icon(
-                          CupertinoIcons.trash,
-                          color: AppColors.danger,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
+                  ],
+                );
+              },
+            );
+          },
         ),
       ),
     );
   }
 
-  void _editor({int? index}) {
-    final title = TextEditingController(
-      text: index != null ? _offers[index].$1 : '',
+  Future<void> _delete(String collection, String id) async {
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialog) => CupertinoAlertDialog(
+        title: const Text('Delete this offer?'),
+        content: const Text('Players will no longer be able to redeem it.'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: const Text('Keep'),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.pop(dialog, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
     );
+    if (confirmed != true) return;
+    await CatalogService.instance.delete(collection, id);
+  }
+
+  void _editor({String? id, Map<String, dynamic>? data}) {
+    final title = TextEditingController(text: data?['title']?.toString() ?? '');
     final points = TextEditingController(
-      text: index != null
-          ? _offers[index].$2.replaceAll(RegExp(r'[^0-9]'), '')
-          : '',
+      text: (data?['pointsCost'] ?? data?['points'] ?? '').toString(),
     );
     showModalBottomSheet<void>(
       context: context,
@@ -972,7 +1033,7 @@ class _OffersManagementScreenState extends State<OffersManagementScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              index == null ? 'New Offer' : 'Edit Offer',
+              id == null ? 'New Offer' : 'Edit Offer',
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 16),
@@ -991,17 +1052,24 @@ class _OffersManagementScreenState extends State<OffersManagementScreen> {
             const SizedBox(height: 16),
             PrimaryButton(
               label: 'Save Offer',
-              onPressed: () {
-                if (title.text.trim().isEmpty) return;
-                setState(() {
-                  final entry = (title.text.trim(), '${points.text} pts');
-                  if (index != null) {
-                    _offers[index] = entry;
-                  } else {
-                    _offers.add(entry);
-                  }
+              onPressed: () async {
+                final pointsValue = int.tryParse(points.text.trim());
+                if (title.text.trim().isEmpty ||
+                    pointsValue == null ||
+                    pointsValue <= 0) {
+                  return;
+                }
+                final academyId = await _academyId;
+                await CatalogService.instance.upsert('offers', id, {
+                  'academyId': academyId,
+                  'title': title.text.trim(),
+                  'partner': 'Academy reward',
+                  'points': pointsValue,
+                  'pointsCost': pointsValue,
+                  'category': 'Academy',
+                  'active': data?['active'] != false,
                 });
-                Navigator.of(context).pop();
+                if (context.mounted) Navigator.of(context).pop();
               },
             ),
           ],
@@ -1019,10 +1087,7 @@ class EventManagementScreen extends StatefulWidget {
 }
 
 class _EventManagementScreenState extends State<EventManagementScreen> {
-  final _events = <(String, String)>[
-    ('3x3 Eid Tournament', '28-30 May'),
-    ('Padel Night Open', 'Every Friday'),
-  ];
+  late final Future<String> _academyId = AcademyService.instance.academyId();
 
   @override
   Widget build(BuildContext context) {
@@ -1037,131 +1102,211 @@ class _EventManagementScreenState extends State<EventManagementScreen> {
         ),
       ),
       body: AppScrollPage(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            PageTopBar(
-              title: 'Events',
-              onBack: () => Navigator.of(context).pop(),
-            ),
-            const SizedBox(height: 16),
-            for (var i = 0; i < _events.length; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: CardBox(
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 46,
-                        height: 46,
-                        decoration: BoxDecoration(
-                          color: AppColors.purple.withValues(alpha: .12),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Icon(
-                          CupertinoIcons.rosette,
-                          color: AppColors.purple,
-                        ),
+        child: FutureBuilder<String>(
+          future: _academyId,
+          builder: (context, academy) {
+            if (academy.hasError) {
+              return const ErrorBanner(
+                message: 'Your academy scope could not be loaded.',
+              );
+            }
+            if (!academy.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            return StreamBuilder(
+              stream: CatalogService.instance.raw('events'),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return const ErrorBanner(
+                    message: 'Events could not be loaded.',
+                  );
+                }
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final events = snapshot.data!.docs
+                    .where((doc) => doc.data()['academyId'] == academy.data)
+                    .toList();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    PageTopBar(
+                      title: 'Events',
+                      onBack: () => Navigator.of(context).pop(),
+                    ),
+                    const SizedBox(height: 16),
+                    if (events.isEmpty)
+                      EmptyState(
+                        icon: CupertinoIcons.rosette,
+                        title: 'No events yet',
+                        message: 'Create an event for your academy.',
+                        action: 'Create Event',
+                        onTap: _editor,
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _events[i].$1,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
+                    for (final event in events)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: CardBox(
+                          child: Row(
+                            children: [
+                              const Icon(
+                                CupertinoIcons.rosette,
+                                color: AppColors.purple,
+                                size: 34,
                               ),
-                            ),
-                            Text(
-                              _events[i].$2,
-                              style: const TextStyle(
-                                color: AppColors.muted,
-                                fontSize: 12,
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      (event.data()['title'] ?? 'Event')
+                                          .toString(),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    Text(
+                                      (event.data()['date'] ?? 'Date not set')
+                                          .toString(),
+                                      style: const TextStyle(
+                                        color: AppColors.muted,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
+                              IconButton(
+                                tooltip: 'Edit event',
+                                onPressed: () =>
+                                    _editor(id: event.id, data: event.data()),
+                                icon: const Icon(CupertinoIcons.pencil),
+                              ),
+                              IconButton(
+                                tooltip: 'Delete event',
+                                onPressed: () => _deleteEvent(event.id),
+                                icon: const Icon(
+                                  CupertinoIcons.trash,
+                                  color: AppColors.danger,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                      IconButton(
-                        onPressed: () => _editor(index: i),
-                        icon: const Icon(
-                          CupertinoIcons.pencil,
-                          color: AppColors.purple,
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => setState(() => _events.removeAt(i)),
-                        icon: const Icon(
-                          CupertinoIcons.trash,
-                          color: AppColors.danger,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
+                  ],
+                );
+              },
+            );
+          },
         ),
       ),
     );
   }
 
-  void _editor({int? index}) {
-    final title = TextEditingController(
-      text: index != null ? _events[index].$1 : '',
+  Future<void> _deleteEvent(String id) async {
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialog) => CupertinoAlertDialog(
+        title: const Text('Delete this event?'),
+        content: const Text('This removes it from the player app.'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: const Text('Keep'),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.pop(dialog, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
     );
-    final date = TextEditingController(
-      text: index != null ? _events[index].$2 : '',
-    );
+    if (confirmed == true) {
+      await CatalogService.instance.delete('events', id);
+    }
+  }
+
+  void _editor({String? id, Map<String, dynamic>? data}) {
+    final title = TextEditingController(text: data?['title']?.toString() ?? '');
+    final existingDateText = data?['date']?.toString() ?? '';
+    DateTime? selectedDate;
+    try {
+      selectedDate = DateFormat('MMM d, yyyy').parse(existingDateText);
+    } catch (_) {
+      selectedDate = null;
+    }
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (context) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          20,
-          20,
-          20,
-          MediaQuery.of(context).viewInsets.bottom + 20,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              index == null ? 'New Event' : 'Edit Event',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 16),
-            AppTextField(
-              controller: title,
-              label: 'Event title',
-              icon: CupertinoIcons.rosette,
-            ),
-            const SizedBox(height: 12),
-            AppTextField(
-              controller: date,
-              label: 'Date',
-              icon: CupertinoIcons.calendar,
-            ),
-            const SizedBox(height: 16),
-            PrimaryButton(
-              label: 'Save Event',
-              onPressed: () {
-                if (title.text.trim().isEmpty) return;
-                setState(() {
-                  final entry = (title.text.trim(), date.text.trim());
-                  if (index != null) {
-                    _events[index] = entry;
-                  } else {
-                    _events.add(entry);
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            20,
+            20,
+            MediaQuery.of(context).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                id == null ? 'New Event' : 'Edit Event',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 16),
+              AppTextField(
+                controller: title,
+                label: 'Event title',
+                icon: CupertinoIcons.rosette,
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: selectedDate ?? DateTime.now(),
+                    firstDate: DateTime.now().subtract(const Duration(days: 1)),
+                    lastDate: DateTime.now().add(const Duration(days: 730)),
+                  );
+                  if (picked != null) {
+                    setSheetState(() => selectedDate = picked);
                   }
-                });
-                Navigator.of(context).pop();
-              },
-            ),
-          ],
+                },
+                icon: const Icon(CupertinoIcons.calendar),
+                label: Text(
+                  selectedDate != null
+                      ? DateFormat('MMM d, yyyy').format(selectedDate!)
+                      : (existingDateText.isNotEmpty
+                            ? existingDateText
+                            : 'Choose event date'),
+                ),
+              ),
+              const SizedBox(height: 16),
+              PrimaryButton(
+                label: 'Save Event',
+                onPressed: () async {
+                  if (title.text.trim().isEmpty || selectedDate == null) {
+                    return;
+                  }
+                  final academyId = await _academyId;
+                  await CatalogService.instance.upsert('events', id, {
+                    'academyId': academyId,
+                    'title': title.text.trim(),
+                    'date': DateFormat('MMM d, yyyy').format(selectedDate!),
+                    'prize': data?['prize']?.toString() ?? '',
+                  });
+                  if (context.mounted) Navigator.of(context).pop();
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1264,7 +1409,7 @@ class AcademyAnalyticsScreen extends StatelessWidget {
                                 gradient: const LinearGradient(
                                   begin: Alignment.topCenter,
                                   end: Alignment.bottomCenter,
-                                  colors: [AppColors.purple, Color(0xFFB79BFF)],
+                                  colors: [AppColors.purple, Color(0xFF75E0AF)],
                                 ),
                                 borderRadius: BorderRadius.circular(8),
                               ),

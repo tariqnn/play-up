@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import 'main.dart';
 import 'location_service.dart';
 import 'more_screens.dart';
+import 'test_data_seed.dart';
 
 // ---------------------------------------------------------------------------
 // Shared visual presets (kept as const so icon tree-shaking still works).
@@ -226,6 +227,10 @@ Court _courtFrom(Map<String, dynamic> d, {String id = ''}) => Court(
   gradient: gradientFor(d['gradient'] as String?),
   icon: iconFor(d['icon'] as String?),
   imageUrl: (d['imageUrl'] ?? d['image'] ?? '').toString(),
+  imageUrls: (d['imageUrls'] as List? ?? const [])
+      .map((value) => value.toString())
+      .where((value) => value.trim().isNotEmpty)
+      .toList(),
   latitude: (d['latitude'] as num?)?.toDouble(),
   longitude: (d['longitude'] as num?)?.toDouble(),
   academyId: (d['academyId'] ?? '').toString(),
@@ -236,6 +241,9 @@ Court _courtFrom(Map<String, dynamic> d, {String id = ''}) => Court(
   active: d['active'] != false,
   openingHour: (d['openingHour'] as num?)?.toInt() ?? 6,
   closingHour: (d['closingHour'] as num?)?.toInt() ?? 23,
+  peakPriceMinor: (d['peakPriceMinor'] as num?)?.toInt(),
+  peakHourStart: (d['peakHourStart'] as num?)?.toInt(),
+  peakHourEnd: (d['peakHourEnd'] as num?)?.toInt(),
 );
 
 String _courtPrice(Map<String, dynamic> d) {
@@ -299,18 +307,43 @@ class CatalogService {
       _db.collection(name);
 
   // --- UI streams (mapped to view models) ---
-  Stream<List<Court>> courts() => col('courts').snapshots().map((s) {
-    final result = s.docs
-        .map((d) => _courtFrom(d.data(), id: d.id))
-        .where((court) => court.active)
-        .toList();
-    result.sort((a, b) => a.name.compareTo(b.name));
-    return result;
-  });
+  Stream<List<Court>> courts() async* {
+    // Sample records belong to isolated emulator sessions only. Never mix
+    // fictional inventory into a signed production build or its cached data.
+    if (useFirebaseEmulators) yield kTestCourts;
+    yield* col('courts')
+        .snapshots()
+        .map((s) {
+          final result = s.docs
+              .map((d) => _courtFrom(d.data(), id: d.id))
+              .where((court) => court.active)
+              .toList();
+          result.sort((a, b) => a.name.compareTo(b.name));
+          return result;
+        })
+        .handleError((e) {
+          debugPrint('Firestore courts stream error: $e');
+          return useFirebaseEmulators ? kTestCourts : <Court>[];
+        });
+  }
 
-  Stream<List<Academy>> academies() => col('academies').snapshots().map(
-    (s) => s.docs.map((d) => _academyFrom(d.id, d.data())).toList(),
-  );
+  Stream<List<Academy>> academies() async* {
+    if (useFirebaseEmulators) yield kTestAcademies;
+    yield* col('academies')
+        .snapshots()
+        .map((s) {
+          final result = s.docs
+              .where((d) => (d.data()['status'] ?? 'active') == 'active')
+              .map((d) => _academyFrom(d.id, d.data()))
+              .toList();
+          result.sort((a, b) => a.name.compareTo(b.name));
+          return result;
+        })
+        .handleError((e) {
+          debugPrint('Firestore academies stream error: $e');
+          return useFirebaseEmulators ? kTestAcademies : <Academy>[];
+        });
+  }
 
   Stream<List<Offer>> offers() => col('offers').snapshots().map(
     (s) => s.docs
@@ -409,6 +442,11 @@ class CatalogService {
 
   /// Writes all seed data. Used by the admin "Seed sample data" action.
   Future<void> seedAll() async {
+    if (!useFirebaseEmulators) {
+      throw StateError(
+        'Sample data can only be written to Firebase emulators.',
+      );
+    }
     final batch = _db.batch();
     void seed(String collection, List<Map<String, dynamic>> rows) {
       for (final row in rows) {

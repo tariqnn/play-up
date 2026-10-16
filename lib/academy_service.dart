@@ -5,19 +5,56 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
+const _useFirebaseEmulators = bool.fromEnvironment('USE_FIREBASE_EMULATORS');
+
+/// The staff Auth account and Firestore record were created successfully,
+/// but the password-setup email failed to send. Callers should offer to
+/// resend the reset email to [email] rather than creating the account again.
+class StaffSetupEmailException implements Exception {
+  StaffSetupEmailException(this.email, this.cause);
+
+  final String email;
+  final Object cause;
+
+  @override
+  String toString() =>
+      'The staff account was created, but the setup email could not be sent. $cause';
+}
+
 class OwnerScope {
   const OwnerScope({
     required this.academyId,
     required this.role,
     required this.courtIds,
+    required this.permissions,
   });
 
   final String academyId;
   final String role;
   final Set<String> courtIds;
+  final Set<String> permissions;
 
   bool get isCourtOwner => role == 'courtOwner';
-  bool get canManageAcademy => role == 'academyOwner';
+  bool get isAcademyOwner => role == 'academyOwner';
+  bool get canManageAcademy =>
+      isAcademyOwner || permissions.contains('academy.profile.manage');
+  bool get canManageStaff => isAcademyOwner;
+  bool get canManageCourts =>
+      isAcademyOwner ||
+      isCourtOwner ||
+      permissions.contains('academy.courts.manage');
+  bool get canManageBookings =>
+      isAcademyOwner ||
+      isCourtOwner ||
+      permissions.contains('academy.bookings.manage') ||
+      permissions.contains('academy.bookings.checkin');
+  bool get canManageCatalog => isAcademyOwner;
+  bool get canManageTournaments =>
+      isAcademyOwner || permissions.contains('academy.tournaments.manage');
+  bool get canViewAnalytics =>
+      isAcademyOwner ||
+      isCourtOwner ||
+      permissions.contains('academy.reports.view');
   String? get assignedCourtId =>
       isCourtOwner && courtIds.length == 1 ? courtIds.single : null;
 }
@@ -40,10 +77,18 @@ class AcademyService {
     final courtIds = (profile?['courtIds'] as List<dynamic>? ?? const [])
         .whereType<String>()
         .toSet();
+    final permissions = (profile?['permissions'] as List<dynamic>? ?? const [])
+        .whereType<String>()
+        .toSet();
     if (role == 'courtOwner' && courtIds.length != 1) {
       throw StateError('This court-owner account needs one assigned court.');
     }
-    return OwnerScope(academyId: id, role: role, courtIds: courtIds);
+    return OwnerScope(
+      academyId: id,
+      role: role,
+      courtIds: courtIds,
+      permissions: permissions,
+    );
   }
 
   Future<String> academyId() async => (await ownerScope()).academyId;
@@ -104,7 +149,6 @@ class AcademyService {
   Future<void> createStaff({
     required String displayName,
     required String email,
-    required String temporaryPassword,
     required List<String> permissions,
   }) async {
     final scope = await ownerScope();
@@ -114,9 +158,14 @@ class AcademyService {
     await _functions.httpsCallable('createAcademyStaff').call({
       'displayName': displayName,
       'email': email,
-      'temporaryPassword': temporaryPassword,
       'permissions': permissions,
     });
+    final trimmedEmail = email.trim();
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: trimmedEmail);
+    } catch (error) {
+      throw StaffSetupEmailException(trimmedEmail, error);
+    }
   }
 
   String newCourtId() => _db.collection('courts').doc().id;
@@ -151,6 +200,10 @@ class AcademyService {
     String imageUrl = '',
     int openingHour = 6,
     int closingHour = 23,
+    String timezone = 'Asia/Amman',
+    int? peakPriceMinor,
+    int? peakHourStart,
+    int? peakHourEnd,
   }) async {
     final scope = await ownerScope();
     final tenantId = scope.academyId;
@@ -173,7 +226,11 @@ class AcademyService {
       'imageUrl': imageUrl.trim(),
       'openingHour': openingHour,
       'closingHour': closingHour,
+      'timezone': timezone,
       'active': true,
+      'peakPriceMinor': ?peakPriceMinor,
+      'peakHourStart': ?peakHourStart,
+      'peakHourEnd': ?peakHourEnd,
       'blockedPeriods': <Map<String, dynamic>>[],
       'maintenancePeriods': <Map<String, dynamic>>[],
       'updatedAt': FieldValue.serverTimestamp(),
@@ -189,7 +246,7 @@ class AcademyService {
         'status': status,
       });
     } on FirebaseFunctionsException catch (error) {
-      if (!_callableUnavailable(error)) rethrow;
+      if (!_useFirebaseEmulators || !_callableUnavailable(error)) rethrow;
       final ref = _db.collection('bookings').doc(bookingId);
       final data = (await ref.get()).data();
       if (data == null) throw StateError('Booking not found.');
@@ -200,8 +257,9 @@ class AcademyService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
       if (status == 'cancelled') {
-        for (final lockId
-            in List<String>.from(data['lockIds'] as List? ?? const [])) {
+        for (final lockId in List<String>.from(
+          data['lockIds'] as List? ?? const [],
+        )) {
           batch.delete(_db.collection('bookingLocks').doc(lockId));
         }
       }
@@ -215,7 +273,7 @@ class AcademyService {
         'bookingId': bookingId,
       });
     } on FirebaseFunctionsException catch (error) {
-      if (!_callableUnavailable(error)) rethrow;
+      if (!_useFirebaseEmulators || !_callableUnavailable(error)) rethrow;
       await _db.collection('bookings').doc(bookingId).update({
         'paymentStatus': 'collected',
         'collectedAt': FieldValue.serverTimestamp(),
