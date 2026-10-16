@@ -6763,7 +6763,7 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
               ),
             const SizedBox(height: 8),
             SecondaryButton(
-              label: 'Report or Block Player',
+              label: 'Report Player',
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) =>
