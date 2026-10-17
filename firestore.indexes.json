@@ -5,7 +5,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
-        { "fieldPath": "offerId", "order": "ASCENDING" }
+        { "fieldPath": "offerId", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {
@@ -13,7 +14,16 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
+        { "fieldPath": "createdAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "bookings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "participants", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "startUtc", "order": "ASCENDING" }
       ]
     },
     {
@@ -21,7 +31,16 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
+        { "fieldPath": "createdAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "matches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "startUtc", "order": "ASCENDING" }
       ]
     },
     {
@@ -29,7 +48,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "academyId", "order": "ASCENDING" },
-        { "fieldPath": "name", "order": "ASCENDING" }
+        { "fieldPath": "name", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {
@@ -37,7 +57,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "academyId", "order": "ASCENDING" },
-        { "fieldPath": "startUtc", "order": "DESCENDING" }
+        { "fieldPath": "startUtc", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
@@ -45,7 +66,32 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "courtId", "order": "ASCENDING" },
-        { "fieldPath": "startUtc", "order": "DESCENDING" }
+        { "fieldPath": "startUtc", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "bookings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "startUtc", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "promotionUses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "promotionId", "order": "ASCENDING" },
+        { "fieldPath": "userId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "bookingLocks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "courtId", "order": "ASCENDING" },
+        { "fieldPath": "startUtc", "order": "ASCENDING" }
       ]
     }
   ],

@@ -3475,9 +3475,10 @@ class BookCourtsOnboarding extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return OnboardingLayout(
-      title: 'Book Any Court',
-      accent: 'Any Court',
-      subtitle: 'Explore top academies and book in just a few taps.',
+      title: 'Explore Real Courts',
+      accent: 'Real Courts',
+      subtitle:
+          'Explore real sports venues and contact them to confirm rates and availability.',
       footer: const Wrap(
         spacing: 10,
         runSpacing: 10,
@@ -3491,7 +3492,11 @@ class BookCourtsOnboarding extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          const SportImageCard(height: 250, icon: CupertinoIcons.sportscourt),
+          const SportImageCard(
+            height: 250,
+            icon: CupertinoIcons.sportscourt,
+            imageUrl: 'asset:assets/images/infinity_sports/court_3x3.jpeg',
+          ),
           Positioned(
             left: -4,
             right: -4,
@@ -3500,7 +3505,11 @@ class BookCourtsOnboarding extends StatelessWidget {
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
-                  const SportImageThumb(size: 76),
+                  const SportImageThumb(
+                    size: 76,
+                    imageUrl:
+                        'asset:assets/images/infinity_sports/court_3x3.jpeg',
+                  ),
                   const SizedBox(width: 14),
                   Expanded(
                     child: Column(
@@ -3514,12 +3523,12 @@ class BookCourtsOnboarding extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          'Basketball Court',
+                          'FIBA 3x3 Basketball Court',
                           style: TextStyle(color: Colors.grey.shade600),
                         ),
                         const SizedBox(height: 6),
                         const Text(
-                          'JOD 21 / hr',
+                          'Contact venue for rates',
                           style: TextStyle(fontWeight: FontWeight.w800),
                         ),
                       ],
@@ -3543,7 +3552,8 @@ class MatchmakingOnboarding extends StatelessWidget {
     return const OnboardingLayout(
       title: 'Find Players\nMatch & Play',
       accent: 'Match & Play',
-      subtitle: 'Join open matches or let us find the perfect players for you.',
+      subtitle:
+          'Browse real games when players and venue organizers publish them.',
       child: MatchQualityCard(compact: false),
     );
   }
@@ -3557,7 +3567,7 @@ class RewardsOnboarding extends StatelessWidget {
     return const OnboardingLayout(
       title: 'Earn. Level Up.\nGet Rewards.',
       accent: 'Level Up.',
-      subtitle: 'Gain XP, climb the leaderboard and unlock amazing offers.',
+      subtitle: 'Track your activity and see rewards when they are available.',
       child: LevelCard(),
     );
   }
@@ -6234,142 +6244,6 @@ class _FindingPlayersScreenState extends State<FindingPlayersScreen> {
   }
 }
 
-class MatchFoundScreen extends StatelessWidget {
-  const MatchFoundScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: DarkGradient(
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 22),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                CircleIconButton(
-                  icon: CupertinoIcons.arrow_left,
-                  dark: true,
-                  onTap: () => Navigator.of(context).pop(),
-                ),
-                const SizedBox(height: 12),
-                const Center(
-                  child: Column(
-                    children: [
-                      Text(
-                        'Match Found!',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 26,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      SizedBox(height: 5),
-                      Text(
-                        '95% Match Quality',
-                        style: TextStyle(
-                          color: AppColors.green,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  children: const [
-                    Expanded(
-                      child: PlayerMatchCard(name: 'You', level: 'Level 12'),
-                    ),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: PlayerMatchCard(name: 'Omar', level: 'Level 11'),
-                    ),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: PlayerMatchCard(name: 'Zayd', level: 'Level 10'),
-                    ),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: PlayerMatchCard(name: 'Mareo', level: 'Level 12'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                CardBox(
-                  color: Colors.white.withValues(alpha: .05),
-                  borderColor: Colors.white.withValues(alpha: .08),
-                  child: const Column(
-                    children: [
-                      DetailRow(
-                        label: 'Sport',
-                        value: 'Basketball 5v5',
-                        light: true,
-                      ),
-                      DetailRow(
-                        label: 'Date',
-                        value: 'Today, 20 May',
-                        light: true,
-                      ),
-                      DetailRow(
-                        label: 'Time',
-                        value: '8:00 PM - 9:00 PM',
-                        light: true,
-                      ),
-                      DetailRow(
-                        label: 'Court',
-                        value: 'Infinity Sports Center',
-                        light: true,
-                      ),
-                      Divider(color: Colors.white12, height: 26),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: PriceBlock(
-                              label: 'Total Price',
-                              value: 'JOD 21',
-                            ),
-                          ),
-                          Expanded(
-                            child: PriceBlock(
-                              label: 'Per Player',
-                              value: 'JOD 5.25',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const Spacer(),
-                Row(
-                  children: [
-                    Expanded(
-                      child: SecondaryButton(
-                        label: 'Not Now',
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: PrimaryButton(
-                        label: 'Join Match',
-                        onPressed: () => Navigator.of(
-                          context,
-                        ).popUntil((route) => route.isFirst),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class PaymentScreen extends StatefulWidget {
   const PaymentScreen({
     super.key,
@@ -8115,7 +7989,16 @@ class SportImageThumb extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
-        child: imageUrl.isEmpty
+        child: imageUrl.startsWith('asset:')
+            ? Image.asset(
+                imageUrl.substring(6),
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) =>
+                    const Icon(CupertinoIcons.sportscourt, color: Colors.white),
+              )
+            : imageUrl.isEmpty
             ? const Icon(CupertinoIcons.sportscourt, color: Colors.white)
             : CachedNetworkImage(
                 imageUrl: imageUrl,
@@ -8223,55 +8106,37 @@ class MatchQualityCard extends StatelessWidget {
       color: AppColors.dark,
       borderColor: const Color(0xFF153020),
       radius: 24,
-      padding: const EdgeInsets.all(22),
-      child: Column(
+      padding: EdgeInsets.all(compact ? 16 : 22),
+      child: Row(
         children: [
-          const Text(
-            'Match Found!',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 21,
-              fontWeight: FontWeight.w900,
-            ),
+          const Icon(
+            CupertinoIcons.person_3_fill,
+            color: AppColors.green,
+            size: 34,
           ),
-          const SizedBox(height: 8),
-          const Text(
-            '92% Match Quality',
-            style: TextStyle(
-              color: AppColors.green,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 18),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              Avatar(name: 'A', size: 38),
-              Avatar(name: 'O', size: 38),
-              Avatar(name: 'Z', size: 38),
-              Avatar(name: 'M', size: 38),
-              SizedBox(width: 8),
-              Text(
-                '+2',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontWeight: FontWeight.w800,
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Open matches',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const Divider(height: 32, color: Colors.white12),
-          const DetailRow(label: 'Sport', value: 'Basketball 5v5', light: true),
-          const DetailRow(
-            label: 'Level Range',
-            value: 'Intermediate',
-            light: true,
-          ),
-          const DetailRow(label: 'Time', value: 'Today, 8:00 PM', light: true),
-          const DetailRow(
-            label: 'Location',
-            value: 'Amman Sports City',
-            light: true,
+                const SizedBox(height: 6),
+                Text(
+                  'Browse real games published by players and venue organizers.',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: .72),
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -8289,90 +8154,18 @@ class LevelCard extends StatelessWidget {
       borderColor: const Color(0xFF153020),
       radius: 24,
       padding: const EdgeInsets.all(22),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: const Row(
         children: [
-          Row(
-            children: [
-              const LevelBadge(text: '12'),
-              const SizedBox(width: 18),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Level',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: .62),
-                      ),
-                    ),
-                    const Text(
-                      'Court Commander',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    const ProgressBar(value: .92),
-                    const SizedBox(height: 5),
-                    Text(
-                      '7,430 / 8,000 XP',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: .65),
-                      ),
-                    ),
-                  ],
-                ),
+          Icon(CupertinoIcons.rosette, color: AppColors.gold, size: 36),
+          SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              'Your real progress and available rewards appear here as you play.',
+              style: TextStyle(
+                color: Colors.white,
+                height: 1.4,
+                fontWeight: FontWeight.w700,
               ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          const Row(
-            children: [
-              Expanded(
-                child: DarkMetric(
-                  icon: CupertinoIcons.money_dollar_circle_fill,
-                  value: '3,250',
-                  label: 'Points',
-                  color: AppColors.gold,
-                ),
-              ),
-              Expanded(
-                child: DarkMetric(
-                  icon: CupertinoIcons.shield_fill,
-                  value: '68',
-                  label: 'Badges',
-                  color: AppColors.green,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          CardBox(
-            color: Colors.white.withValues(alpha: .05),
-            borderColor: Colors.white.withValues(alpha: .08),
-            padding: const EdgeInsets.all(12),
-            child: const Row(
-              children: [
-                AchievementBadge(
-                  icon: CupertinoIcons.flame_fill,
-                  color: AppColors.gold,
-                  small: true,
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Recent Achievement\nSharpshooter',
-                    style: TextStyle(
-                      color: Colors.white,
-                      height: 1.35,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ],
             ),
           ),
         ],
@@ -9518,102 +9311,6 @@ class ChecklistItem extends StatelessWidget {
   }
 }
 
-class PlayerMatchCard extends StatelessWidget {
-  const PlayerMatchCard({super.key, required this.name, required this.level});
-
-  final String name;
-  final String level;
-
-  @override
-  Widget build(BuildContext context) {
-    return CardBox(
-      color: Colors.white.withValues(alpha: .05),
-      borderColor: AppColors.gold.withValues(alpha: .25),
-      padding: const EdgeInsets.all(10),
-      radius: 18,
-      child: Column(
-        children: [
-          Stack(
-            clipBehavior: Clip.none,
-            children: const [
-              Avatar(name: 'A', size: 42),
-              Positioned(
-                right: -4,
-                bottom: -2,
-                child: Icon(
-                  CupertinoIcons.checkmark_circle_fill,
-                  color: AppColors.green,
-                  size: 18,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-              fontSize: 12,
-            ),
-          ),
-          Text(
-            level,
-            style: const TextStyle(
-              color: AppColors.gold,
-              fontWeight: FontWeight.w700,
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class MatchTile extends StatelessWidget {
-  const MatchTile({super.key, required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return CardBox(
-      child: Row(
-        children: [
-          const SportImageThumb(size: 64),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(fontWeight: FontWeight.w900),
-                ),
-                const SizedBox(height: 5),
-                const Text(
-                  'Needs 2 players  •  JOD 5.25 each',
-                  style: TextStyle(color: AppColors.muted, fontSize: 13),
-                ),
-              ],
-            ),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(
-              context,
-            ).push(MaterialPageRoute(builder: (_) => const MatchFoundScreen())),
-            style: FilledButton.styleFrom(backgroundColor: AppColors.purple),
-            child: const Text('Join'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class OfferCard extends StatelessWidget {
   const OfferCard({
     super.key,
@@ -9823,32 +9520,6 @@ class DetailRow extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class PriceBlock extends StatelessWidget {
-  const PriceBlock({super.key, required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(color: Colors.white60)),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w900,
-            fontSize: 18,
-          ),
-        ),
-      ],
     );
   }
 }
