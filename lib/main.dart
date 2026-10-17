@@ -2174,6 +2174,10 @@ class Court {
     this.currency = 'JOD',
     this.basePriceMinor = 0,
     this.address = '',
+    this.description = '',
+    this.phone = '',
+    this.email = '',
+    this.bookable = true,
     this.active = true,
     this.openingHour = 6,
     this.closingHour = 23,
@@ -2199,6 +2203,10 @@ class Court {
   final String currency;
   final int basePriceMinor;
   final String address;
+  final String description;
+  final String phone;
+  final String email;
+  final bool bookable;
   final bool active;
   final int openingHour;
   final int closingHour;
@@ -4509,12 +4517,18 @@ class BookScreen extends StatefulWidget {
 
 class _BookScreenState extends State<BookScreen> {
   final _search = TextEditingController();
+  late Stream<List<Court>> _courtsStream;
   late String _sport;
 
   @override
   void initState() {
     super.initState();
     _sport = widget.initialSport ?? 'All';
+    _courtsStream = CatalogService.instance.courts();
+  }
+
+  void _retryCourts() {
+    setState(() => _courtsStream = CatalogService.instance.courts());
   }
 
   @override
@@ -4586,13 +4600,22 @@ class _BookScreenState extends State<BookScreen> {
           ),
           const SizedBox(height: 12),
           StreamBuilder<List<Court>>(
-            stream: CatalogService.instance.courts(),
+            stream: _courtsStream,
             initialData: useFirebaseEmulators ? kTestCourts : const <Court>[],
             builder: (context, snapshot) {
               if (snapshot.hasError) {
-                return const ErrorBanner(
-                  message:
-                      'Courts could not load. Check your connection and try again.',
+                return CardBox(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const ErrorBanner(
+                        message:
+                            'Venues could not load. Check your connection and try again.',
+                      ),
+                      const SizedBox(height: 12),
+                      SecondaryButton(label: 'Retry', onPressed: _retryCourts),
+                    ],
+                  ),
                 );
               }
               if (snapshot.connectionState == ConnectionState.waiting &&
@@ -5264,73 +5287,14 @@ class CourtDetailsScreen extends StatelessWidget {
   final Court court;
 
   static String _aboutFor(Court court) {
-    switch (court.sport.toLowerCase()) {
-      case 'sea sports':
-        return 'A professionally operated marine activity center with certified crew, safety equipment, guided parasailing, and scuba-diving experiences for different skill levels.';
-      case 'kayaking':
-        return 'A guided kayaking base with single and tandem boats, safety equipment, calm-water routes, and instruction for first-time and experienced paddlers.';
-      case 'hiking':
-        return 'A guided outdoor experience with route planning, local trail knowledge, safety support, and small-group departures through some of Jordan’s most memorable landscapes.';
-      case 'climbing':
-        return 'A professionally guided climbing experience with route selection, certified safety equipment, technique coaching, and options for beginners through advanced climbers.';
-      case 'fitness':
-        return 'A modern performance studio offering CrossFit, HYROX preparation, strength and conditioning, mobility sessions, and private coaching in a fully equipped training space.';
-      default:
-        return '${court.subtitle}. A quality ${court.sport.toLowerCase()} venue with reliable facilities, convenient booking, and sessions for both casual and competitive players.';
-    }
-  }
-
-  static List<(IconData, String)> _facilitiesFor(Court court) {
-    switch (court.sport.toLowerCase()) {
-      case 'sea sports':
-        return const [
-          (Icons.verified_user_outlined, 'Certified'),
-          (Icons.scuba_diving_rounded, 'Gear'),
-          (CupertinoIcons.drop, 'Shower'),
-          (CupertinoIcons.camera, 'Photos'),
-        ];
-      case 'kayaking':
-        return const [
-          (Icons.kayaking_rounded, 'Kayaks'),
-          (Icons.health_and_safety_outlined, 'Safety'),
-          (Icons.groups_rounded, 'Guide'),
-          (CupertinoIcons.lock, 'Locker'),
-        ];
-      case 'hiking':
-        return const [
-          (Icons.hiking_rounded, 'Guide'),
-          (Icons.map_outlined, 'Route'),
-          (Icons.medical_services_outlined, 'First aid'),
-          (Icons.water_drop_outlined, 'Water'),
-        ];
-      case 'climbing':
-        return const [
-          (Icons.landscape_rounded, 'Routes'),
-          (Icons.health_and_safety_outlined, 'Safety'),
-          (Icons.backpack_outlined, 'Gear'),
-          (Icons.school_outlined, 'Coach'),
-        ];
-      case 'fitness':
-        return const [
-          (Icons.fitness_center_rounded, 'Equipment'),
-          (Icons.groups_rounded, 'Classes'),
-          (CupertinoIcons.drop, 'Shower'),
-          (CupertinoIcons.lock, 'Locker'),
-        ];
-      default:
-        return const [
-          (CupertinoIcons.house, 'Indoor'),
-          (CupertinoIcons.car_detailed, 'Parking'),
-          (CupertinoIcons.drop, 'Shower'),
-          (Icons.local_cafe_outlined, 'Cafe'),
-          (CupertinoIcons.lock, 'Locker'),
-        ];
-    }
+    final description = court.description.trim();
+    return description.isEmpty
+        ? 'Contact the venue to confirm available facilities and services.'
+        : description;
   }
 
   @override
   Widget build(BuildContext context) {
-    final facilities = _facilitiesFor(court);
     return Scaffold(
       body: AppScrollPage(
         topPadding: 0,
@@ -5404,16 +5368,7 @@ class CourtDetailsScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 18),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final facility in facilities)
-                    Facility(icon: facility.$1, label: facility.$2),
-                ],
-              ),
-            ),
-            const SizedBox(height: 22),
+            const SizedBox(height: 10),
             const Text(
               'About',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
@@ -5428,14 +5383,22 @@ class CourtDetailsScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 22),
-            const SectionHeader(title: 'Booking hours'),
-            const SizedBox(height: 12),
-            CardBox(
-              child: Text(
-                'Open daily from ${court.openingHour.toString().padLeft(2, '0')}:00 to ${court.closingHour.toString().padLeft(2, '0')}:00. Choose a date to see live availability.',
-                style: const TextStyle(fontWeight: FontWeight.w700),
+            if (court.bookable) ...[
+              const SectionHeader(title: 'Booking hours'),
+              const SizedBox(height: 12),
+              CardBox(
+                child: Text(
+                  'Open daily from ${court.openingHour.toString().padLeft(2, '0')}:00 to ${court.closingHour.toString().padLeft(2, '0')}:00. Choose a date to see live availability.',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
               ),
-            ),
+            ] else
+              const CardBox(
+                child: Text(
+                  'Online booking and rates are not configured yet. Contact the venue to confirm pricing and availability.',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
             const SizedBox(height: 26),
             Row(
               children: [
@@ -5459,12 +5422,30 @@ class CourtDetailsScreen extends StatelessWidget {
                 ),
                 Expanded(
                   child: PrimaryButton(
-                    label: 'Book Now',
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => SlotSelectionScreen(court: court),
-                      ),
-                    ),
+                    label: court.bookable ? 'Book Now' : 'Call venue',
+                    onPressed: court.bookable
+                        ? () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => SlotSelectionScreen(court: court),
+                            ),
+                          )
+                        : () async {
+                            final phone = court.phone.trim();
+                            if (phone.isEmpty ||
+                                !await launchUrl(
+                                  Uri(scheme: 'tel', path: phone),
+                                )) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Venue contact details are unavailable.',
+                                    ),
+                                  ),
+                                );
+                              }
+                            }
+                          },
                   ),
                 ),
               ],

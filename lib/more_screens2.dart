@@ -38,6 +38,12 @@ Stream<List<OpenMatch>> openMatchesStream() {
             .map(
               (document) => OpenMatch.fromMap(document.data(), id: document.id),
             )
+            .where(
+              (match) =>
+                  match.bookingId.isNotEmpty &&
+                  match.startUtc != null &&
+                  match.startUtc!.isAfter(DateTime.now()),
+            )
             .toList(),
       );
 }
@@ -221,6 +227,24 @@ class _OpenMatchesScreenState extends State<OpenMatchesScreen> {
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return CardBox(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const ErrorBanner(
+                          message:
+                              'Open matches could not load. Check your connection and try again.',
+                        ),
+                        const SizedBox(height: 12),
+                        SecondaryButton(
+                          label: 'Retry',
+                          onPressed: () => setState(() {}),
+                        ),
+                      ],
+                    ),
+                  );
                 }
                 final source = snapshot.data ?? const <OpenMatch>[];
                 final matches = source.where((m) {

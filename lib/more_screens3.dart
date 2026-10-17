@@ -269,13 +269,30 @@ class _MapPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-class MapViewScreen extends StatelessWidget {
+class MapViewScreen extends StatefulWidget {
   const MapViewScreen({super.key});
+
+  @override
+  State<MapViewScreen> createState() => _MapViewScreenState();
+}
+
+class _MapViewScreenState extends State<MapViewScreen> {
+  late Stream<List<Court>> _courtsStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _courtsStream = CatalogService.instance.courts();
+  }
+
+  void _retryCourts() {
+    setState(() => _courtsStream = CatalogService.instance.courts());
+  }
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<Court>>(
-      stream: CatalogService.instance.courts(),
+      stream: _courtsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
@@ -292,7 +309,7 @@ class MapViewScreen extends StatelessWidget {
                 ? LatLng(location.latitude, location.longitude)
                 : courts.isNotEmpty
                 ? LatLng(courts.first.latitude!, courts.first.longitude!)
-                : const LatLng(20, 0);
+                : const LatLng(31.9539, 35.9106);
             return Scaffold(
               body: Stack(
                 children: [
@@ -300,9 +317,7 @@ class MapViewScreen extends StatelessWidget {
                     child: FlutterMap(
                       options: MapOptions(
                         initialCenter: center,
-                        initialZoom: location == null && courts.isEmpty
-                            ? 2
-                            : 12,
+                        initialZoom: 12,
                       ),
                       children: [
                         TileLayer(
@@ -399,6 +414,22 @@ class MapViewScreen extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 12),
+                          if (snapshot.hasError)
+                            CardBox(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Venue locations could not load. The map is centered on Amman; check your connection and retry.',
+                                  ),
+                                  const SizedBox(height: 10),
+                                  SecondaryButton(
+                                    label: 'Retry',
+                                    onPressed: _retryCourts,
+                                  ),
+                                ],
+                              ),
+                            ),
                           if (courts.isEmpty)
                             const CardBox(
                               child: Text(

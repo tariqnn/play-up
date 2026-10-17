@@ -228,6 +228,7 @@ class AcademyService {
       'closingHour': closingHour,
       'timezone': timezone,
       'active': true,
+      'bookable': basePriceMinor > 0,
       'peakPriceMinor': ?peakPriceMinor,
       'peakHourStart': ?peakHourStart,
       'peakHourEnd': ?peakHourEnd,

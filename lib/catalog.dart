@@ -238,6 +238,10 @@ Court _courtFrom(Map<String, dynamic> d, {String id = ''}) => Court(
   currency: (d['currency'] ?? 'JOD').toString(),
   basePriceMinor: (d['basePriceMinor'] as num?)?.toInt() ?? 0,
   address: (d['address'] ?? '').toString(),
+  description: (d['description'] ?? '').toString(),
+  phone: (d['phone'] ?? '').toString(),
+  email: (d['email'] ?? '').toString(),
+  bookable: d['bookable'] != false,
   active: d['active'] != false,
   openingHour: (d['openingHour'] as num?)?.toInt() ?? 6,
   closingHour: (d['closingHour'] as num?)?.toInt() ?? 23,
@@ -247,6 +251,7 @@ Court _courtFrom(Map<String, dynamic> d, {String id = ''}) => Court(
 );
 
 String _courtPrice(Map<String, dynamic> d) {
+  if (d['bookable'] == false) return 'Contact venue';
   final explicit = d['price']?.toString().trim() ?? '';
   if (explicit.isNotEmpty) return explicit;
   final currency = (d['currency'] ?? 'JOD').toString();
@@ -311,38 +316,26 @@ class CatalogService {
     // Sample records belong to isolated emulator sessions only. Never mix
     // fictional inventory into a signed production build or its cached data.
     if (useFirebaseEmulators) yield kTestCourts;
-    yield* col('courts')
-        .snapshots()
-        .map((s) {
-          final result = s.docs
-              .map((d) => _courtFrom(d.data(), id: d.id))
-              .where((court) => court.active)
-              .toList();
-          result.sort((a, b) => a.name.compareTo(b.name));
-          return result;
-        })
-        .handleError((e) {
-          debugPrint('Firestore courts stream error: $e');
-          return useFirebaseEmulators ? kTestCourts : <Court>[];
-        });
+    yield* col('courts').snapshots().map((s) {
+      final result = s.docs
+          .map((d) => _courtFrom(d.data(), id: d.id))
+          .where((court) => court.active)
+          .toList();
+      result.sort((a, b) => a.name.compareTo(b.name));
+      return result;
+    });
   }
 
   Stream<List<Academy>> academies() async* {
     if (useFirebaseEmulators) yield kTestAcademies;
-    yield* col('academies')
-        .snapshots()
-        .map((s) {
-          final result = s.docs
-              .where((d) => (d.data()['status'] ?? 'active') == 'active')
-              .map((d) => _academyFrom(d.id, d.data()))
-              .toList();
-          result.sort((a, b) => a.name.compareTo(b.name));
-          return result;
-        })
-        .handleError((e) {
-          debugPrint('Firestore academies stream error: $e');
-          return useFirebaseEmulators ? kTestAcademies : <Academy>[];
-        });
+    yield* col('academies').snapshots().map((s) {
+      final result = s.docs
+          .where((d) => (d.data()['status'] ?? 'active') == 'active')
+          .map((d) => _academyFrom(d.id, d.data()))
+          .toList();
+      result.sort((a, b) => a.name.compareTo(b.name));
+      return result;
+    });
   }
 
   Stream<List<Offer>> offers() => col('offers').snapshots().map(
@@ -420,7 +413,7 @@ class CatalogService {
 
   Stream<QuerySnapshot<Map<String, dynamic>>> topPlayers() => col(
     'publicProfiles',
-  ).orderBy('xp', descending: true).limit(50).snapshots();
+  ).orderBy('xp', descending: true).limit(100).snapshots();
 
   Future<void> upsert(
     String collection,
