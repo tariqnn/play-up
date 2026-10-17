@@ -2270,36 +2270,33 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   static const _slides = [
     _WelcomeSlide(
-      imageUrl:
-          'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?w=1200&q=80',
-      badge: 'COURT BOOKINGS',
+      imageUrl: 'asset:assets/images/infinity_sports/court_basketball_ac.jpeg',
+      badge: 'REAL SPORTS VENUES',
       icon: Icons.sports_tennis_rounded,
-      title: 'Reserve Your Court\nIn Seconds',
+      title: 'Find Courts &\nVenues',
       description:
-          'Find premier Padel, Football, and Tennis courts across Amman with real-time availability, clear pricing, and instant slot holds.',
-      tags: ['Clear Pricing', 'Live Availability', 'Instant Slot Hold'],
+          'Browse real sports venues across Amman. Contact each venue to confirm current rates and availability.',
+      tags: ['Real Venues', 'Court Details', 'Contact to Confirm'],
       gradientColors: [Color(0xFF16C784), Color(0xFF087A4A)],
     ),
     _WelcomeSlide(
-      imageUrl:
-          'https://images.unsplash.com/photo-1529900748604-07564a03e7a6?w=1200&q=80',
+      imageUrl: 'asset:assets/images/infinity_sports/court_3x3.jpeg',
       badge: 'COMMUNITY & MATCHES',
       icon: CupertinoIcons.person_2_alt,
-      title: 'Join Matches &\nFind Players',
+      title: 'Find Players &\nPlay Together',
       description:
-          'Never play short-handed again. Join games at your skill level, track cash splits with teammates, and submit verified match scores.',
-      tags: ['Cash Split Tracker', 'Verified Match Scores', 'Elo Rankings'],
+          'Browse games when players and venue organizers publish them. Join live matches and coordinate with teammates.',
+      tags: ['Open Match Listings', 'Match Chat', 'Player Community'],
       gradientColors: [Color(0xFF0F766E), Color(0xFF134E4A)],
     ),
     _WelcomeSlide(
-      imageUrl:
-          'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=1200&q=80',
-      badge: 'OUTDOOR ADVENTURES',
-      icon: Icons.paragliding_rounded,
-      title: 'Explore Extreme\nSport Adventures',
+      imageUrl: 'asset:assets/images/infinity_sports/court_padel.jpeg',
+      badge: 'SPORTS AROUND AMMAN',
+      icon: CupertinoIcons.sportscourt,
+      title: 'Discover Local\nSports',
       description:
-          'Skydiving over the Dead Sea, parasailing in Aqaba, and canyoning in Wadi Mujib. Transparent JOD pricing with instant WhatsApp booking inquiries.',
-      tags: ['Aqaba Parasailing', 'Dead Sea Skydive', 'Wadi Mujib Canyoning'],
+          'Explore real venue and academy listings. More activities and events appear as local organizers add them.',
+      tags: ['Venue Listings', 'Academy Listings', 'Organizer Updates'],
       gradientColors: [Color(0xFFEA580C), Color(0xFF9A3412)],
     ),
   ];
@@ -2384,29 +2381,45 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
-                                CachedNetworkImage(
-                                  imageUrl: slide.imageUrl,
-                                  fit: BoxFit.cover,
-                                  placeholder: (context, url) => Container(
-                                    color: Colors.grey.shade900,
-                                    child: const Center(
-                                      child: Icon(
-                                        Icons.sports_rounded,
-                                        color: Colors.white54,
-                                        size: 48,
-                                      ),
-                                    ),
-                                  ),
-                                  errorWidget: (context, url, error) =>
-                                      Container(
-                                        color: Colors.grey.shade900,
-                                        child: const Icon(
-                                          Icons.sports_soccer,
+                                if (slide.imageUrl.startsWith('asset:'))
+                                  Image.asset(
+                                    slide.imageUrl.substring(6),
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) =>
+                                            Container(
+                                              color: Colors.grey.shade900,
+                                              child: const Icon(
+                                                Icons.sports_soccer,
+                                                color: Colors.white54,
+                                                size: 48,
+                                              ),
+                                            ),
+                                  )
+                                else
+                                  CachedNetworkImage(
+                                    imageUrl: slide.imageUrl,
+                                    fit: BoxFit.cover,
+                                    placeholder: (context, url) => Container(
+                                      color: Colors.grey.shade900,
+                                      child: const Center(
+                                        child: Icon(
+                                          Icons.sports_rounded,
                                           color: Colors.white54,
                                           size: 48,
                                         ),
                                       ),
-                                ),
+                                    ),
+                                    errorWidget: (context, url, error) =>
+                                        Container(
+                                          color: Colors.grey.shade900,
+                                          child: const Icon(
+                                            Icons.sports_soccer,
+                                            color: Colors.white54,
+                                            size: 48,
+                                          ),
+                                        ),
+                                  ),
                                 DecoratedBox(
                                   decoration: BoxDecoration(
                                     gradient: LinearGradient(
