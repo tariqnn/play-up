@@ -1,10 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:playup/main.dart';
 import 'package:playup/design_system.dart';
 import 'package:playup/test_data_seed.dart';
 
 void main() {
+  test('native map tile layer accepts the PlayUp request headers', () {
+    final layer = TileLayer(
+      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      userAgentPackageName: 'com.playup.playup',
+      tileProvider: NetworkTileProvider(
+        headers: {
+          'User-Agent':
+              'PlayUp/1.0.0 (+https://play-up.fit; contact: info@creativnetworks.com)',
+        },
+      ),
+    );
+
+    expect(layer, isA<TileLayer>());
+  });
+
   test('release builds reject Firebase emulator configuration', () {
     expect(
       () => validateFirebaseEnvironment(useEmulators: true, isRelease: true),
