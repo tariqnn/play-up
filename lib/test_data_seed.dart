@@ -519,7 +519,7 @@ final kTestAcademies = <Academy>[
 
 class TestState {
   TestState._() {
-    _initDefaults();
+    if (useFirebaseEmulators) _initDefaults();
   }
   static final instance = TestState._();
 

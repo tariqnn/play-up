@@ -12,7 +12,12 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, kIsWeb, TargetPlatform, kDebugMode;
+    show
+        defaultTargetPlatform,
+        kIsWeb,
+        TargetPlatform,
+        kDebugMode,
+        kReleaseMode;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -41,6 +46,18 @@ import 'sport_activities_screen.dart';
 import 'sport_hub_screen.dart';
 
 const useFirebaseEmulators = bool.fromEnvironment('USE_FIREBASE_EMULATORS');
+
+void validateFirebaseEnvironment({
+  required bool useEmulators,
+  required bool isRelease,
+}) {
+  if (useEmulators && isRelease) {
+    throw StateError(
+      'Release builds cannot connect to Firebase emulators or use UAT credentials.',
+    );
+  }
+}
+
 const privacyPolicyUrl = String.fromEnvironment(
   'PRIVACY_POLICY_URL',
   defaultValue: 'https://play-up.fit/privacy',
@@ -55,6 +72,10 @@ const firebaseAppCheckWebKey = String.fromEnvironment(
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  validateFirebaseEnvironment(
+    useEmulators: useFirebaseEmulators,
+    isRelease: kReleaseMode,
+  );
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await _configureAppCheck();
   FirebaseFirestore.instance.settings = const Settings(
@@ -826,7 +847,7 @@ class AuthGate extends StatelessWidget {
                   return const RequiredPasswordChangeScreen();
                 }
                 final role = profile['role']?.toString() ?? 'player';
-                if (!user.isAnonymous && !user.emailVerified && !kDebugMode) {
+                if (!user.isAnonymous && !user.emailVerified) {
                   return const EmailVerificationScreen();
                 }
                 if (role == 'academyOwner' ||
@@ -888,7 +909,7 @@ class AppRepository {
         'rankTitle': 'Rookie',
         'xp': 0,
         'nextLevelXp': 500,
-        'points': 100,
+        'points': 0,
         'rating': 0.0,
         'reliability': 100,
         'matches': 0,
@@ -1085,7 +1106,7 @@ class AppRepository {
       });
       return Map<String, dynamic>.from(response.data as Map);
     } on FirebaseFunctionsException catch (error) {
-      if (_callableUnavailable(error) || kDebugMode) {
+      if (useFirebaseEmulators && _callableUnavailable(error)) {
         final durationMinutes = endUtc.difference(startUtc).inMinutes;
         final durationHours = durationMinutes / 60.0;
         final hour = startUtc.toLocal().hour;
@@ -1108,7 +1129,7 @@ class AppRepository {
       );
     } catch (error) {
       if (error is DomainValidationException) rethrow;
-      if (kDebugMode) {
+      if (useFirebaseEmulators) {
         final durationMinutes = endUtc.difference(startUtc).inMinutes;
         final durationHours = durationMinutes / 60.0;
         final hour = startUtc.toLocal().hour;
@@ -1180,7 +1201,7 @@ class AppRepository {
           playerCapacity: playerCapacity,
         );
       }
-      if ((useFirebaseEmulators || kDebugMode) &&
+      if (useFirebaseEmulators &&
           ((error is FirebaseFunctionsException &&
                   _callableUnavailable(error)) ||
               error.toString().contains('permission-denied') ||
@@ -1971,7 +1992,7 @@ class AppRepository {
         'sets': sets,
       });
     } on FirebaseFunctionsException catch (e) {
-      if (_callableUnavailable(e)) {
+      if (useFirebaseEmulators && _callableUnavailable(e)) {
         await _db.collection('matches').doc(matchId).update({
           'score': {
             'teamAScore': teamAScore,
@@ -2030,7 +2051,9 @@ class AppRepository {
     required String playerId,
     required bool paid,
   }) async {
-    TestState.instance.toggleCashPaid(bookingId, playerId, paid);
+    if (useFirebaseEmulators) {
+      TestState.instance.toggleCashPaid(bookingId, playerId, paid);
+    }
     try {
       await _functions.httpsCallable('updateCashSplitStatus').call({
         'bookingId': bookingId,
@@ -2038,7 +2061,7 @@ class AppRepository {
         'paid': paid,
       });
     } on FirebaseFunctionsException catch (e) {
-      if (_callableUnavailable(e) || kDebugMode) {
+      if (useFirebaseEmulators && _callableUnavailable(e)) {
         try {
           final doc = await _db.collection('bookings').doc(bookingId).get();
           if (doc.exists) {
@@ -2062,7 +2085,6 @@ class AppRepository {
         e.message ?? 'Could not update cash status.',
       );
     } catch (_) {
-      if (kDebugMode) return;
       rethrow;
     }
   }
@@ -3236,19 +3258,6 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                 : () => SocialAuth.signOutEverywhere(),
             child: const Text('Use a different account'),
           ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const MainShell()),
-            ),
-            child: const Text(
-              'Bypass for Testing ➔',
-              style: TextStyle(
-                color: AppColors.green,
-                fontWeight: FontWeight.w900,
-                fontSize: 15,
-              ),
-            ),
-          ),
         ],
       ),
     ),
@@ -3800,9 +3809,7 @@ class HomeScreen extends StatelessWidget {
             height: 200,
             child: StreamBuilder<List<Court>>(
               stream: CatalogService.instance.courts(),
-              initialData: useFirebaseEmulators
-                  ? kTestCourts
-                  : const <Court>[],
+              initialData: useFirebaseEmulators ? kTestCourts : const <Court>[],
               builder: (context, snapshot) {
                 return ValueListenableBuilder<AppLocation?>(
                   valueListenable: LocationService.instance.current,
@@ -4580,9 +4587,7 @@ class _BookScreenState extends State<BookScreen> {
           const SizedBox(height: 12),
           StreamBuilder<List<Court>>(
             stream: CatalogService.instance.courts(),
-            initialData: useFirebaseEmulators
-                ? kTestCourts
-                : const <Court>[],
+            initialData: useFirebaseEmulators ? kTestCourts : const <Court>[],
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return const ErrorBanner(
@@ -6467,7 +6472,11 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   BookingView _view = BookingView.upcoming;
 
   Stream<List<Map<String, dynamic>>> _bookingsStream() async* {
-    yield* TestState.instance.myBookingsStream();
+    yield* AppRepository.instance.myBookingParticipation().map(
+      (snapshot) => snapshot.docs
+          .map((document) => {...document.data(), 'id': document.id})
+          .toList(),
+    );
   }
 
   @override

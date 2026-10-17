@@ -45,6 +45,18 @@ test('match chat and points ledger stay private to participants and owner', asyn
   await assertSucceeds(getDoc(doc(playerDb, 'users/player/pointsLedger/entry-a')));
   await assertFails(getDoc(doc(outsiderDb, 'users/player/pointsLedger/entry-a')));
 });
+
+test('new player profiles cannot mint points or experience', async () => {
+  const db = env.authenticatedContext('new-player').firestore();
+  await assertSucceeds(setDoc(doc(db, 'users/new-player'), {
+    uid: 'new-player', role: 'player', permissions: [], suspended: false,
+    points: 0, xp: 0, level: 1, nextLevelXp: 500, rating: 0, matches: 0,
+  }));
+  await assertFails(setDoc(doc(db, 'users/fake-points'), {
+    uid: 'fake-points', role: 'player', permissions: [], suspended: false,
+    points: 100, xp: 0, level: 1, nextLevelXp: 500, rating: 0, matches: 0,
+  }));
+});
 test.after(async () => env?.cleanup());
 
 test('academy A cannot read or modify academy B private records', async () => {

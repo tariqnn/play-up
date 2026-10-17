@@ -101,22 +101,23 @@ class AdminPanelScreen extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const AdminUsersScreen()),
               ),
             ),
-            const SizedBox(height: 12),
-            PrimaryButton(
-              label: 'Seed Sample Data',
-              icon: CupertinoIcons.cloud_upload,
-              onPressed: () => _seed(context),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Seeding writes the default courts, academies, offers and events '
-              'to Firestore. Requires a signed-in user and admin write rules.',
-              style: TextStyle(
-                color: AppColors.muted,
-                fontSize: 12,
-                height: 1.4,
+            if (useFirebaseEmulators) ...[
+              const SizedBox(height: 12),
+              PrimaryButton(
+                label: 'Seed Sample Data',
+                icon: CupertinoIcons.cloud_upload,
+                onPressed: () => _seed(context),
               ),
-            ),
+              const SizedBox(height: 8),
+              const Text(
+                'Seed data is available only in the local Firebase emulator.',
+                style: TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 12,
+                  height: 1.4,
+                ),
+              ),
+            ],
           ],
         ),
       ),

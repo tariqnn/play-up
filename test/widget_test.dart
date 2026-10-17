@@ -5,6 +5,17 @@ import 'package:playup/design_system.dart';
 import 'package:playup/test_data_seed.dart';
 
 void main() {
+  test('release builds reject Firebase emulator configuration', () {
+    expect(
+      () => validateFirebaseEnvironment(useEmulators: true, isRelease: true),
+      throwsA(isA<StateError>()),
+    );
+    expect(
+      () => validateFirebaseEnvironment(useEmulators: true, isRelease: false),
+      returnsNormally,
+    );
+  });
+
   test('demo venues cover every home sport and activity category', () {
     const expectedCategories = {
       'Padel',
@@ -46,6 +57,11 @@ void main() {
     expect(activityTitles, contains('kayak'));
     expect(activityTitles, contains('hiking'));
     expect(activityTitles, contains('climbing'));
+  });
+
+  test('production in-memory booking and match state starts empty', () async {
+    expect(await TestState.instance.myBookingsStream().first, isEmpty);
+    expect(await TestState.instance.openMatchesStream().first, isEmpty);
   });
 
   for (final brightness in Brightness.values) {

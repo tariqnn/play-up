@@ -29,6 +29,12 @@ service cloud.firestore {
         && request.resource.data.role == 'player'
         && request.resource.data.permissions == []
         && request.resource.data.suspended == false
+        && request.resource.data.get('points', 0) == 0
+        && request.resource.data.get('xp', 0) == 0
+        && request.resource.data.get('level', 1) == 1
+        && request.resource.data.get('nextLevelXp', 500) == 500
+        && request.resource.data.get('rating', 0) == 0
+        && request.resource.data.get('matches', 0) == 0
         && !('academyId' in request.resource.data);
     }
 

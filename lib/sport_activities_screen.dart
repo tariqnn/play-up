@@ -44,16 +44,19 @@ class _SportActivitiesScreenState extends State<SportActivitiesScreen> {
   @override
   Widget build(BuildContext context) {
     final needle = _search.text.trim().toLowerCase();
-    final activities = kSportActivities.where((a) {
-      final categoryMatches =
-          _selectedCategory == 'All' || a.category == _selectedCategory;
-      final queryMatches =
-          needle.isEmpty ||
-          a.title.toLowerCase().contains(needle) ||
-          a.location.toLowerCase().contains(needle) ||
-          a.category.toLowerCase().contains(needle);
-      return categoryMatches && queryMatches;
-    }).toList();
+    final activities =
+        (useFirebaseEmulators ? kSportActivities : const <SportActivity>[])
+            .where((a) {
+              final categoryMatches =
+                  _selectedCategory == 'All' || a.category == _selectedCategory;
+              final queryMatches =
+                  needle.isEmpty ||
+                  a.title.toLowerCase().contains(needle) ||
+                  a.location.toLowerCase().contains(needle) ||
+                  a.category.toLowerCase().contains(needle);
+              return categoryMatches && queryMatches;
+            })
+            .toList();
 
     return Scaffold(
       body: AppScrollPage(
@@ -109,34 +112,35 @@ class _SportActivitiesScreenState extends State<SportActivitiesScreen> {
                   ),
                 ),
                 const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.green.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(
-                        Icons.payments_outlined,
-                        size: 14,
-                        color: AppColors.green,
-                      ),
-                      SizedBox(width: 4),
-                      Text(
-                        'Curated Adventures',
-                        style: TextStyle(
+                if (useFirebaseEmulators)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.green.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(
+                          Icons.payments_outlined,
+                          size: 14,
                           color: AppColors.green,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 11,
                         ),
-                      ),
-                    ],
+                        SizedBox(width: 4),
+                        Text(
+                          'Curated Adventures',
+                          style: TextStyle(
+                            color: AppColors.green,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
               ],
             ),
             const SizedBox(height: 14),

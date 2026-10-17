@@ -24,9 +24,23 @@ import 'tournament_screens.dart';
 import 'multi_court_timeline_screen.dart';
 import 'test_data_seed.dart';
 
-/// Live open matches from Firestore merged with test matches.
-Stream<List<OpenMatch>> openMatchesStream() =>
-    TestState.instance.openMatchesStream();
+/// Open matches come from the live catalogue. Fixture matches are available
+/// only when the app is explicitly connected to the Firebase emulator.
+Stream<List<OpenMatch>> openMatchesStream() {
+  if (useFirebaseEmulators) return TestState.instance.openMatchesStream();
+  return FirebaseFirestore.instance
+      .collection('matches')
+      .where('status', isEqualTo: 'open')
+      .limit(100)
+      .snapshots()
+      .map(
+        (snapshot) => snapshot.docs
+            .map(
+              (document) => OpenMatch.fromMap(document.data(), id: document.id),
+            )
+            .toList(),
+      );
+}
 
 // ---------------------------------------------------------------------------
 // Matchmaking: open matches, match details, create match, pre-match check-in

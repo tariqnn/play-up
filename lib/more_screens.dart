@@ -1125,193 +1125,6 @@ class _AchievementCard extends StatelessWidget {
   }
 }
 
-// ignore: unused_element
-class _LegacyLevelDetailScreen extends StatelessWidget {
-  const _LegacyLevelDetailScreen();
-
-  static const _xpHistory = <(String, String, String)>[
-    ('Completed booking', 'Today', '+150 XP'),
-    ('5-star rating received', 'Yesterday', '+80 XP'),
-    ('Hosted a match', '2 days ago', '+120 XP'),
-    ('Weekly challenge', '3 days ago', '+200 XP'),
-    ('Checked in on time', '4 days ago', '+40 XP'),
-  ];
-
-  static const _ranks = <(String, String, Color)>[
-    ('Basketball', 'Gold III', AppColors.gold),
-    ('Padel', 'Level B', Color(0xFF3B82F6)),
-    ('Volleyball', 'Advanced', AppColors.green),
-    ('3x3', 'Silver I', Color(0xFF9AA4B2)),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: AppScrollPage(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            PageTopBar(
-              title: 'Level & Rank',
-              onBack: () => Navigator.of(context).pop(),
-            ),
-            const SizedBox(height: 16),
-            CardBox(
-              color: AppColors.dark,
-              borderColor: AppColors.dark,
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const LevelBadge(text: '12', size: 62),
-                      const SizedBox(width: 14),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Text(
-                            'Court Commander',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w900,
-                              fontSize: 18,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Level 12',
-                            style: TextStyle(color: Colors.white70),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  const ProgressBar(value: 7430 / 8000),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
-                      Text(
-                        '7,430 XP',
-                        style: TextStyle(
-                          color: AppColors.gold,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      Text(
-                        '570 XP to Level 13',
-                        style: TextStyle(color: Colors.white54, fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 22),
-            const Text(
-              'Your ranks',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 12),
-            for (final rank in _ranks)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: CardBox(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(CupertinoIcons.rosette, color: rank.$3),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          rank.$1,
-                          style: const TextStyle(fontWeight: FontWeight.w900),
-                        ),
-                      ),
-                      Text(
-                        rank.$2,
-                        style: TextStyle(
-                          color: rank.$3,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            const SizedBox(height: 22),
-            const Text(
-              'XP history',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 12),
-            for (final item in _xpHistory)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: CardBox(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 38,
-                        height: 38,
-                        decoration: BoxDecoration(
-                          color: AppColors.gold.withValues(alpha: .15),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          CupertinoIcons.bolt_fill,
-                          color: AppColors.gold,
-                          size: 18,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item.$1,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            Text(
-                              item.$2,
-                              style: const TextStyle(
-                                color: AppColors.muted,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Text(
-                        item.$3,
-                        style: const TextStyle(
-                          color: AppColors.green,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class LevelDetailScreen extends StatelessWidget {
   const LevelDetailScreen({super.key});
 
@@ -2753,8 +2566,24 @@ class PlayerStatsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const activity = [4.0, 6.0, 3.0, 8.0, 5.0, 9.0, 7.0];
-    const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) {
+      return Scaffold(
+        body: AppScrollPage(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              PageTopBar(
+                title: 'Stats',
+                onBack: () => Navigator.of(context).pop(),
+              ),
+              const SizedBox(height: 16),
+              const CardBox(child: Text('Sign in to see your player stats.')),
+            ],
+          ),
+        ),
+      );
+    }
     return Scaffold(
       body: AppScrollPage(
         child: Column(
@@ -2765,112 +2594,57 @@ class PlayerStatsScreen extends StatelessWidget {
               onBack: () => Navigator.of(context).pop(),
             ),
             const SizedBox(height: 16),
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              childAspectRatio: 2.1,
-              children: const [
-                StatCard(value: '64', label: 'Matches played'),
-                StatCard(value: '38', label: 'Bookings made'),
-                StatCard(value: '68%', label: 'Win rate'),
-                StatCard(value: '4.7', label: 'Avg rating'),
-                StatCard(value: '2%', label: 'No-show rate'),
-                StatCard(value: 'Basketball', label: 'Favorite sport'),
-              ],
-            ),
-            const SizedBox(height: 22),
-            const Text(
-              'Match activity',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 12),
-            CardBox(
-              child: SizedBox(
-                height: 160,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    for (var i = 0; i < activity.length; i++)
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            Container(
-                              height: activity[i] * 12,
-                              margin: const EdgeInsets.symmetric(horizontal: 5),
-                              decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [AppColors.purple, Color(0xFF75E0AF)],
-                                ),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ).animate().scaleY(
-                              begin: 0,
-                              end: 1,
-                              alignment: Alignment.bottomCenter,
-                              duration: 400.ms,
-                              delay: (i * 60).ms,
-                              curve: Curves.easeOut,
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              days[i],
-                              style: const TextStyle(
-                                color: AppColors.muted,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 22),
-            const Text(
-              'Skill progress',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 12),
-            for (final item in const [
-              ('Basketball', 0.82),
-              ('Padel', 0.6),
-              ('Volleyball', 0.45),
-            ])
-              Padding(
-                padding: const EdgeInsets.only(bottom: 14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            item.$1,
-                            style: const TextStyle(fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                        Text(
-                          '${(item.$2 * 100).round()}%',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w900,
-                            color: AppColors.purple,
-                          ),
-                        ),
-                      ],
+            StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(user.uid)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return const CardBox(
+                    child: Text(
+                      'Stats could not be loaded. Check your connection and try again.',
                     ),
-                    const SizedBox(height: 8),
-                    ProgressBar(value: item.$2, dark: false),
+                  );
+                }
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final data = snapshot.data!.data() ?? const <String, dynamic>{};
+                final matches = (data['matches'] as num?)?.toInt() ?? 0;
+                final rating = (data['rating'] as num?)?.toDouble() ?? 0;
+                final winRate = data['winRate'];
+                final level = (data['level'] as num?)?.toInt() ?? 1;
+                return GridView.count(
+                  crossAxisCount: 2,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 10,
+                  childAspectRatio: 2.1,
+                  children: [
+                    StatCard(value: '$matches', label: 'Matches played'),
+                    StatCard(
+                      value: rating > 0
+                          ? rating.toStringAsFixed(1)
+                          : 'Not rated',
+                      label: 'Player rating',
+                    ),
+                    StatCard(
+                      value: winRate is num ? '${winRate.round()}%' : '—',
+                      label: 'Win rate',
+                    ),
+                    StatCard(value: '$level', label: 'Level'),
                   ],
-                ),
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+            const CardBox(
+              child: Text(
+                'More performance insights will appear as verified match results are recorded.',
               ),
+            ),
           ],
         ),
       ),
