@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'main.dart';
 import 'more_screens.dart';
@@ -442,6 +443,36 @@ class _MapViewScreenState extends State<MapViewScreen> {
                               child: CourtListCard(court: court),
                             ),
                         ],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 68,
+                    right: 14,
+                    child: Material(
+                      color: Colors.white.withValues(alpha: .94),
+                      borderRadius: BorderRadius.circular(8),
+                      elevation: 2,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () => launchUrl(
+                          Uri.parse('https://www.openstreetmap.org/copyright'),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 6,
+                          ),
+                          child: Text(
+                            '© OpenStreetMap contributors',
+                            style: TextStyle(
+                              color: Color(0xFF263238),
+                              fontSize: 10,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
