@@ -218,6 +218,13 @@ const _eventSeed = <Map<String, dynamic>>[
 
 String? _infinityCourtPhoto(String id) {
   const photos = {
+    // Production Firestore document IDs.
+    'infinity-fiba-5x5':
+        'asset:assets/images/infinity_sports/court_basketball_ac.jpeg',
+    'infinity-fiba-3x3': 'asset:assets/images/infinity_sports/court_3x3.jpeg',
+    'infinity-padel': 'asset:assets/images/infinity_sports/court_padel.jpeg',
+    'infinity-volleyball':
+        'asset:assets/images/infinity_sports/court_volleyball.jpeg',
     'infinity-basketball-5x5':
         'asset:assets/images/infinity_sports/court_basketball_ac.jpeg',
     'infinity-basketball-3x3':
