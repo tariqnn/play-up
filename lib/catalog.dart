@@ -216,6 +216,22 @@ const _eventSeed = <Map<String, dynamic>>[
   },
 ];
 
+String? _infinityCourtPhoto(String id) {
+  const photos = {
+    'infinity-basketball-5x5':
+        'asset:assets/images/infinity_sports/court_basketball_ac.jpeg',
+    'infinity-basketball-3x3':
+        'asset:assets/images/infinity_sports/court_3x3.jpeg',
+    'infinity-padel-court':
+        'asset:assets/images/infinity_sports/court_padel.jpeg',
+    'infinity-volleyball-court':
+        'asset:assets/images/infinity_sports/court_volleyball.jpeg',
+    // No photo of the multipurpose hall is present in the source project.
+    'infinity-multipurpose-hall': '',
+  };
+  return photos[id];
+}
+
 Court _courtFrom(Map<String, dynamic> d, {String id = ''}) => Court(
   id: id.isEmpty ? (d['id'] ?? '').toString() : id,
   name: (d['name'] ?? 'Court').toString(),
@@ -226,11 +242,16 @@ Court _courtFrom(Map<String, dynamic> d, {String id = ''}) => Court(
   price: _courtPrice(d),
   gradient: gradientFor(d['gradient'] as String?),
   icon: iconFor(d['icon'] as String?),
-  imageUrl: (d['imageUrl'] ?? d['image'] ?? '').toString(),
-  imageUrls: (d['imageUrls'] as List? ?? const [])
-      .map((value) => value.toString())
-      .where((value) => value.trim().isNotEmpty)
-      .toList(),
+  imageUrl:
+      _infinityCourtPhoto(id.isEmpty ? (d['id'] ?? '').toString() : id) ??
+      (d['imageUrl'] ?? d['image'] ?? '').toString(),
+  imageUrls:
+      _infinityCourtPhoto(id.isEmpty ? (d['id'] ?? '').toString() : id) != null
+      ? const []
+      : (d['imageUrls'] as List? ?? const [])
+            .map((value) => value.toString())
+            .where((value) => value.trim().isNotEmpty)
+            .toList(),
   latitude: (d['latitude'] as num?)?.toDouble(),
   longitude: (d['longitude'] as num?)?.toDouble(),
   academyId: (d['academyId'] ?? '').toString(),
@@ -268,7 +289,9 @@ Academy _academyFrom(String id, Map<String, dynamic> d) => Academy(
   featured: d['featured'] == true,
   gradient: gradientFor(d['gradient'] as String?),
   icon: iconFor(d['icon'] as String?),
-  imageUrl: (d['imageUrl'] ?? d['image'] ?? '').toString(),
+  imageUrl: (d['name'] ?? '').toString().toLowerCase().contains('infinity')
+      ? 'asset:assets/images/infinity_sports/court_3x3.jpeg'
+      : (d['imageUrl'] ?? d['image'] ?? '').toString(),
   latitude: (d['latitude'] as num?)?.toDouble(),
   longitude: (d['longitude'] as num?)?.toDouble(),
   address: (d['address'] ?? '').toString(),
