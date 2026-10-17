@@ -5701,6 +5701,12 @@ class _BookingSetupScreenState extends State<BookingSetupScreen> {
             const SizedBox(height: 16),
             const StepIndicator(active: 1),
             const SizedBox(height: 18),
+            AnimatedBookingCourt(
+              sport: widget.court.sport,
+              players: _players,
+              courtName: widget.court.name,
+            ),
+            const SizedBox(height: 20),
             CardBox(
               color: AppColors.dark,
               borderColor: AppColors.dark,
@@ -5820,6 +5826,333 @@ class _BookingSetupScreenState extends State<BookingSetupScreen> {
       ),
     );
   }
+}
+
+/// Mobile counterpart to the animated SportCourt shown on PlayUp web.
+/// It previews the selected group and remaining places before booking review.
+class AnimatedBookingCourt extends StatelessWidget {
+  const AnimatedBookingCourt({
+    super.key,
+    required this.sport,
+    required this.players,
+    required this.courtName,
+  });
+
+  final String sport;
+  final int players;
+  final String courtName;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = sport.toLowerCase();
+    final capacity =
+        normalized.contains('tennis') || normalized.contains('padel')
+        ? 4
+        : normalized.contains('basketball')
+        ? 10
+        : 10;
+    final selected = players.clamp(1, capacity);
+    final remaining = capacity - selected;
+    final isCourt =
+        normalized.contains('basketball') ||
+        normalized.contains('tennis') ||
+        normalized.contains('padel');
+    return CardBox(
+      color: AppColors.dark,
+      borderColor: const Color(0xFF214536),
+      radius: 22,
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                CupertinoIcons.sportscourt,
+                color: AppColors.green,
+                size: 19,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${sport.toUpperCase()} COURT · ${courtName.toUpperCase()}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: .5,
+                  ),
+                ),
+              ),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                child: Text(
+                  '$remaining open',
+                  key: ValueKey(remaining),
+                  style: TextStyle(
+                    color: remaining == 0 ? AppColors.green : Colors.white70,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _CourtLegendDot(color: AppColors.green, label: 'Your group'),
+              const SizedBox(width: 14),
+              _CourtLegendDot(
+                color: Colors.white.withValues(alpha: .75),
+                label: 'Open spot',
+                hollow: true,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 190,
+            width: double.infinity,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: isCourt
+                            ? const [Color(0xFF176744), Color(0xFF0C3F32)]
+                            : const [Color(0xFF20764D), Color(0xFF104934)],
+                      ),
+                    ),
+                  ),
+                  CustomPaint(
+                    painter: _AnimatedCourtPainter(sport: normalized),
+                  ),
+                  for (var i = 0; i < capacity; i++)
+                    _BookingCourtSpot(
+                      index: i,
+                      capacity: capacity,
+                      occupied: i < selected,
+                      team: i < (capacity / 2).ceil(),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 9),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            child: Text(
+              remaining > 0
+                  ? '$selected ${selected == 1 ? 'player' : 'players'} in your group · $remaining spots available'
+                  : 'Your group fills this court',
+              key: ValueKey('$selected-$remaining'),
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CourtLegendDot extends StatelessWidget {
+  const _CourtLegendDot({
+    required this.color,
+    required this.label,
+    this.hollow = false,
+  });
+  final Color color;
+  final String label;
+  final bool hollow;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: 9,
+        height: 9,
+        decoration: BoxDecoration(
+          color: hollow ? Colors.transparent : color,
+          shape: BoxShape.circle,
+          border: Border.all(color: color, width: 1.5),
+        ),
+      ),
+      const SizedBox(width: 5),
+      Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white70,
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    ],
+  );
+}
+
+class _BookingCourtSpot extends StatelessWidget {
+  const _BookingCourtSpot({
+    required this.index,
+    required this.capacity,
+    required this.occupied,
+    required this.team,
+  });
+  final int index;
+  final int capacity;
+  final bool occupied;
+  final bool team;
+
+  @override
+  Widget build(BuildContext context) {
+    final position = _position(index, capacity);
+    return Positioned.fill(
+      child: Align(
+        alignment: Alignment(position.$1 * 2 - 1, position.$2 * 2 - 1),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutBack,
+          width: occupied ? 24 : 19,
+          height: occupied ? 24 : 19,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: occupied
+                ? (team ? AppColors.green : const Color(0xFFF4F6F5))
+                : Colors.white.withValues(alpha: .12),
+            border: Border.all(
+              color: occupied ? Colors.white : Colors.white70,
+              width: 1.4,
+            ),
+            boxShadow: [
+              if (occupied)
+                BoxShadow(
+                  color: AppColors.green.withValues(alpha: .45),
+                  blurRadius: 10,
+                ),
+            ],
+          ),
+          child: Icon(
+            occupied ? CupertinoIcons.person_fill : CupertinoIcons.add,
+            size: occupied ? 12 : 11,
+            color: occupied ? AppColors.dark : Colors.white,
+          ),
+        ),
+      ),
+    );
+  }
+
+  (double, double) _position(int i, int total) {
+    // Coordinates are fractions of the court canvas; use opposing halves.
+    const xs = [.20, .50, .80, .30, .70];
+    final sideCount = (total / 2).ceil();
+    final sideIndex = i % sideCount;
+    final x = xs[sideIndex % xs.length];
+    final y = i < sideCount
+        ? .18 + (sideIndex ~/ xs.length) * .12
+        : .64 + (sideIndex ~/ xs.length) * .12;
+    return (x, y);
+  }
+}
+
+class _AnimatedCourtPainter extends CustomPainter {
+  const _AnimatedCourtPainter({required this.sport});
+  final String sport;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final line = Paint()
+      ..color = Colors.white.withValues(alpha: .58)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.3;
+    final bounds = Rect.fromLTWH(
+      size.width * .055,
+      size.height * .06,
+      size.width * .89,
+      size.height * .88,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(bounds, const Radius.circular(9)),
+      line,
+    );
+    canvas.drawLine(
+      Offset(size.width / 2, bounds.top),
+      Offset(size.width / 2, bounds.bottom),
+      line,
+    );
+    canvas.drawCircle(
+      Offset(size.width / 2, size.height / 2),
+      size.height * .16,
+      line,
+    );
+    if (sport.contains('basketball')) {
+      for (final top in [true, false]) {
+        final y = top ? bounds.top : bounds.bottom - size.height * .19;
+        final key = Rect.fromLTWH(
+          size.width * .35,
+          y,
+          size.width * .30,
+          size.height * .19,
+        );
+        canvas.drawRect(key, line);
+        canvas.drawCircle(
+          Offset(size.width / 2, top ? y + size.height * .19 : y),
+          size.width * .17,
+          line,
+        );
+      }
+    } else if (sport.contains('tennis') || sport.contains('padel')) {
+      canvas.drawLine(
+        Offset(size.width * .20, size.height / 2),
+        Offset(size.width * .80, size.height / 2),
+        line..strokeWidth = 3,
+      );
+      canvas.drawLine(
+        Offset(size.width * .32, bounds.top),
+        Offset(size.width * .32, bounds.bottom),
+        line..strokeWidth = 1.3,
+      );
+      canvas.drawLine(
+        Offset(size.width * .68, bounds.top),
+        Offset(size.width * .68, bounds.bottom),
+        line,
+      );
+    } else {
+      canvas.drawRect(
+        Rect.fromLTWH(
+          size.width * .26,
+          bounds.top,
+          size.width * .48,
+          size.height * .16,
+        ),
+        line,
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(
+          size.width * .26,
+          bounds.bottom - size.height * .16,
+          size.width * .48,
+          size.height * .16,
+        ),
+        line,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _AnimatedCourtPainter oldDelegate) =>
+      sport != oldDelegate.sport;
 }
 
 class FindingPlayersScreen extends StatefulWidget {
