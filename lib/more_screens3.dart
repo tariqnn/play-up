@@ -325,6 +325,12 @@ class _MapViewScreenState extends State<MapViewScreen> {
                           urlTemplate:
                               'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                           userAgentPackageName: 'com.playup.playup',
+                          tileProvider: NetworkTileProvider(
+                            headers: const {
+                              'User-Agent':
+                                  'PlayUp/1.0.0 (+https://play-up.fit; contact: info@creativnetworks.com)',
+                            },
+                          ),
                         ),
                         MarkerLayer(
                           markers: [
