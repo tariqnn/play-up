@@ -2021,7 +2021,7 @@ class AppRepository {
         'accept': accept,
       });
     } on FirebaseFunctionsException catch (e) {
-      if (_callableUnavailable(e)) {
+      if (useFirebaseEmulators && _callableUnavailable(e)) {
         final uid = FirebaseAuth.instance.currentUser?.uid;
         if (accept) {
           await _db.collection('matches').doc(matchId).update({
@@ -6896,9 +6896,9 @@ class PostMatchRatingScreen extends StatefulWidget {
 }
 
 class _PostMatchRatingScreenState extends State<PostMatchRatingScreen> {
-  int _rating = 5;
+  int _rating = 0;
   final _comment = TextEditingController();
-  final _tags = <String>{'Good teamwork', 'On time'};
+  final _tags = <String>{};
   bool _submitting = false;
   String? _error;
 
@@ -6971,29 +6971,33 @@ class _PostMatchRatingScreenState extends State<PostMatchRatingScreen> {
             const SizedBox(height: 20),
             PrimaryButton(
               label: _submitting ? 'Submitting...' : 'Submit Rating',
-              onPressed: () async {
-                if (_submitting) return;
-                setState(() {
-                  _submitting = true;
-                  _error = null;
-                });
-                try {
-                  await AppRepository.instance.submitRating(
-                    _rating,
-                    _tags.toList(),
-                    _comment.text.trim(),
-                  );
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Thank you for the rating.')),
-                  );
-                  Navigator.of(context).pop();
-                } catch (error) {
-                  if (mounted) setState(() => _error = error.toString());
-                } finally {
-                  if (mounted) setState(() => _submitting = false);
-                }
-              },
+              onPressed: _submitting || _rating == 0
+                  ? null
+                  : () async {
+                      if (_submitting) return;
+                      setState(() {
+                        _submitting = true;
+                        _error = null;
+                      });
+                      try {
+                        await AppRepository.instance.submitRating(
+                          _rating,
+                          _tags.toList(),
+                          _comment.text.trim(),
+                        );
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Thank you for the rating.'),
+                          ),
+                        );
+                        Navigator.of(context).pop();
+                      } catch (error) {
+                        if (mounted) setState(() => _error = error.toString());
+                      } finally {
+                        if (mounted) setState(() => _submitting = false);
+                      }
+                    },
             ),
             if (_error != null) ...[
               const SizedBox(height: 12),
