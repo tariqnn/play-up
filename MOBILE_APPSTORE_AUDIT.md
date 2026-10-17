@@ -1,48 +1,37 @@
 # PlayUp mobile release audit
 
-Audit date: 16 October 2026
+Audit date: 17 October 2026  
+Scope: current Flutter source, production Firebase/website data, Android emulator flow, local release artifacts, and available CI status.
 
 ## Current result
 
-**Not ready for public release or store review.** The app code passes analysis and unit/widget tests, and a signed Android App Bundle is being rebuilt. Apple build 14 is available to the internal TestFlight group. The production venue catalogue contains only test/UAT records, so the app has no verified playable venues. Google Play's required store listing is incomplete; its review/publishing action is not available yet. The iOS App Store version is still `Prepare for Submission`.
+**Not ready for public release yet.** Venue discovery and the map work in the current Android emulator build. The map crash found during this audit is fixed. All five live Infinity courts are intentionally contact-only because rates and availability have not been confirmed; direct court reservations therefore remain disabled. A signed Android release bundle is built locally, but current Apple TestFlight and Google Play uploads/review status were not verified in this session.
 
-## Verified build and account state
+## Verified app and data state
 
-- `flutter analyze`: passed with no issues.
-- `flutter test`: passed, 20 tests.
-- Android release AAB: rebuilt as version code 2 from the current working tree; output is `build/app/outputs/bundle/release/app-release.aab`. Upload to Play Console is not verified.
-- Android target API is 36. New Play submissions must target API 36 or later as of 31 August 2026 ([Google Play target API requirements](https://support.google.com/googleplay/android-developer/answer/11926878?hl=en)).
-- App Store Connect app `play-up`: version 1.0 is `Prepare for Submission`; build 14 (1.0.0) is selected and is assigned to the internal `testing` group. The build is available to its current internal tester. No new iOS build containing the latest working-tree change has been created or uploaded.
-- Codemagic workflow `ios-testflight` runs on pushes to `uat-admin-platform-readiness` and submits successful builds to TestFlight. A prior run uploaded build 14 but ended with a beta-review post-processing error; build 14 was processed and assigned internally after the export-compliance response was completed in App Store Connect.
-- Play Console saved the 18+ target audience and core declarations. The dashboard still presents `Set up your store listing`; phone screenshots are required and missing. No Play release has been sent for review.
-- Play Console closed testing has 0 opted-in testers. This personal developer account must run a closed test with at least 12 opted-in testers for 14 continuous days before it can apply for production access ([Google Play testing requirements](https://support.google.com/googleplay/android-developer/answer/14151465?hl=en)).
+- The Android emulator loaded the real Infinity 3x3 listing and image. Opening the map rendered Amman OpenStreetMap tiles, the court marker/list, and visible attribution. A runtime crash caused by passing immutable HTTP headers to `flutter_map` was fixed in commit `3836bf3` on `uat-admin-platform-readiness`.
+- `BookScreen` reads the live Firestore courts catalogue. Release builds reject the Firebase Emulator flag, and test fixtures are only seeded when emulator mode is explicitly enabled.
+- Firestore readback: 1 active academy; 5 active courts, all with coordinates and all contact-only; 10 user profiles with no test-like identities; 3 public profiles with no test-like identities. The root collection list contains no `matches` or `leaderboard` collection. One legacy anonymous guest profile remains; it has no public profile or subcollections and was not classified as test/demo, so it was preserved.
+- Firebase Auth readback after cleanup: 34 accounts and no accounts matching the test/demo/UAT indicators. One account whose email local part was exactly `test` had no Firestore user profile, public profile, bookings, matches, or subcollections. It was deleted and the Auth readback confirmed it was gone.
+- Firestore Rules Emulator passed 13/13 tests in the current worktree, including the signed-participant booking-list query shape (`participants array-contains` plus `startUtc` ordering). This is rules/query verification; a real signed-in customer booking-history session was not available for end-to-end verification.
+- Production website database audit: healthy; 7 venues, 0 demo venues, 0 future games, 1 academy, 0 activities, 0 offers, 0 tournaments, and 0 community posts. Live `/venues`, `/venues/map`, `/games`, and `/leaderboards` returned HTTP 200. Unauthenticated `/bookings` redirected to login.
+- The website has one administrator account using a placeholder `.local` email. It has elevated access and six linked records, so it was preserved. Replace it with the real operator’s admin email before public launch.
 
-## Release blockers
+## Build verification
 
-1. **No verified production inventory.** Firebase `sports-app-257a0` has academy records, but the inspected academy and court documents are test/UAT entries. The three court documents are associated with `playup-test-academy`, `uat-academy-a`, and `uat-academy-b`. There is no verified Infinity Sports court record. The live app correctly shows “No venues found.”
-2. **Court prices and booking hours are not published for Infinity Sports.** The official site verifies its Amman location, contact details, and facilities/programs, but most basketball pricing is “Contact for pricing.” The volleyball course price is not a court-booking rate. Do not create bookable courts with guessed prices or schedules. [Official facilities](https://www.infinitysportsjo.com/facilities/) · [Official programs](https://www.infinitysportsjo.com/programs/)
-3. **Play Store listing is incomplete.** Google Play requires phone screenshots. Do not use fixture-generated screenshots or screenshots implying venue availability that does not exist.
-4. **Google Play production is time-gated.** A closed test and 14 days with 12 opted-in testers are required before production access; this cannot be completed today for a new personal developer app.
-5. **Public age language and app audience differ.** Play is configured for 18+, but the public Terms allow users from 16 with parental/guardian involvement. The app has no age gate. Align the app, legal pages, and Play declaration before review.
-6. **Social moderation label overstated capability.** The former “Report or Block Player” control only opens a support ticket and does not block the selected player. The UI label has been changed to “Report Player”; a real block feature is not implemented.
-7. **Deep links are misconfigured.** Android/iOS app links use `playup.app`; the production domain is `play-up.fit`. Android Digital Asset Links and Apple App Site Association files contain placeholder identifiers, and the corresponding live domain routes were verified as unavailable. Do not claim verified universal links.
-8. **Privacy disclosures need a final runtime reconciliation.** App Store privacy declarations and Play Data Safety must match actual Firebase Auth/Firestore, location/Nominatim, messaging, chat, and account deletion behavior. The public policy should identify the relevant processors and retention/deletion practices accurately.
-9. **Physical device acceptance is incomplete.** Android emulator startup was checked, but live booking, match chat, account deletion, and iOS device flows were not verified end to end on the release candidate.
+- `flutter analyze --no-pub`: passed with no issues.
+- `flutter test --no-pub`: passed 23/23 tests, including a regression test that constructs the native map tile layer with PlayUp request headers.
+- Release APK, AAB, and Flutter web builds completed from the corrected source. Android version is `1.0.0+4`; APK and AAB signatures match the existing PlayUp release certificate. The AAB contains all four Infinity court photos.
+- GitHub reports the Vercel status as successful for the current branch head. No CodeMagic check run or current App Store Connect/Play Console upload was verified here.
 
-## Implemented during this audit
+## Remaining release blockers
 
-- Changed the match chat button from “Report or Block Player” to “Report Player” so the UI does not claim an unimplemented blocking action.
-- Confirmed the feature tests and static analysis still pass after that change.
-- Rebuilt the Android AAB for version code 2. It remains local and has not been uploaded.
+1. Replace the sole website administrator’s `.local` email with a real, monitored operator account. Do not delete the existing elevated account until access is safely transferred.
+2. Configure production password-reset email through the chosen mail provider. The current production audit reports reset email as unconfigured; its provider secret must be added directly in Vercel Production settings.
+3. Set the exact registered legal operator name and address. These production fields are currently unconfigured.
+4. Keep Infinity courts contact-only until the operator supplies verified rates and bookable hours. Do not publish guessed prices or availability.
+5. Complete a real signed-in booking-history check and physical-device acceptance when a real test account/device is available. The query/rules pass does not substitute for that customer-session test.
+6. Verify the current iOS TestFlight and Google Play states, including the latest uploaded build and store-review submission. The local APK/AAB are not evidence of a store upload.
+7. Recheck store listing, age/privacy declarations, app links, and required device screenshots in the current consoles before submission; their current status was not verified in this audit.
 
-## Next steps needed for a reviewable release
-
-1. Obtain authorized Infinity Sports court prices, opening/booking hours, court names, and availability; add only verified values to the live catalogue.
-2. Resolve the 18+ age policy consistently in the app and public Terms.
-3. Complete and verify app-link association files for `play-up.fit` using the real signing certificate and Apple Team ID.
-4. Capture and upload genuine phone screenshots after production venue data and core flows are validated.
-5. Reconcile and submit the privacy/data-safety declarations; complete Apple's trader status for any intended EU distribution.
-6. Upload the Android bundle to a closed test, collect 12 opted-in testers, and keep the test active for 14 days before applying for production access.
-7. Produce a fresh iOS build from the corrected source, validate it on a physical iPhone, then submit the completed version for App Review.
-
-The current local AAB and the existing internal TestFlight build are builds, not Google Play/App Store review submissions or public releases.
+The 16 October audit has been superseded; do not use its catalogue and build-number conclusions.
