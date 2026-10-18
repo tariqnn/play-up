@@ -13,6 +13,7 @@ import 'package:share_plus/share_plus.dart';
 import 'main.dart';
 import 'catalog.dart';
 import 'location_service.dart';
+import 'map_links.dart';
 import 'more_screens.dart';
 import 'more_screens3.dart';
 import 'more_screens4.dart';
@@ -2835,19 +2836,34 @@ class BookingDetailsScreen extends StatelessWidget {
       final latitude = (data['latitude'] as num?)?.toDouble();
       final longitude = (data['longitude'] as num?)?.toDouble();
       final address = (data['address'] ?? court.address).toString().trim();
-      final query = latitude != null && longitude != null
-          ? '$latitude,$longitude'
-          : [court.name, address].where((part) => part.isNotEmpty).join(', ');
-      if (query.isEmpty) {
+      final googleMaps = MapLinks.googleDirections(
+        name: court.name,
+        address: address,
+        latitude: latitude,
+        longitude: longitude,
+      );
+      final osmMap = MapLinks.openStreetMap(
+        name: court.name,
+        address: address,
+        latitude: latitude,
+        longitude: longitude,
+      );
+      if (googleMaps == null || osmMap == null) {
         throw const DomainValidationException(
           'Directions are not configured for this court.',
         );
       }
-      final uri = Uri.https('www.google.com', '/maps/search/', {
-        'api': '1',
-        'query': query,
-      });
-      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      var opened = false;
+      try {
+        opened = await launchUrl(
+          googleMaps,
+          mode: LaunchMode.externalApplication,
+        );
+      } catch (_) {
+        // Some devices throw when no Google Maps handler is installed.
+      }
+      if (!opened &&
+          !await launchUrl(osmMap, mode: LaunchMode.externalApplication)) {
         throw const DomainValidationException('No maps app is available.');
       }
     } catch (error) {

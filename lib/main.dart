@@ -41,6 +41,7 @@ import 'booking_presentation.dart';
 import 'deep_link_routes.dart';
 import 'design_system.dart';
 import 'location_service.dart';
+import 'map_links.dart';
 import 'tournament_screens.dart';
 import 'test_data_seed.dart';
 import 'sport_activities_screen.dart';
@@ -5183,29 +5184,24 @@ class CourtDetailsScreen extends StatelessWidget {
   }
 
   Future<void> _openDirections(BuildContext context) async {
-    final query = court.latitude != null && court.longitude != null
-        ? '${court.latitude},${court.longitude}'
-        : [
-            court.name,
-            court.address,
-          ].where((part) => part.trim().isNotEmpty).join(', ');
-    if (query.isEmpty) {
+    final googleMaps = MapLinks.googleDirections(
+      name: court.name,
+      address: court.address,
+      latitude: court.latitude,
+      longitude: court.longitude,
+    );
+    final osmMap = MapLinks.openStreetMap(
+      name: court.name,
+      address: court.address,
+      latitude: court.latitude,
+      longitude: court.longitude,
+    );
+    if (googleMaps == null || osmMap == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Venue location is unavailable.')),
       );
       return;
     }
-
-    final googleMaps = Uri.https('www.google.com', '/maps/search/', {
-      'api': '1',
-      'query': query,
-    });
-    final osmMap = court.latitude != null && court.longitude != null
-        ? Uri.https('www.openstreetmap.org', '/', {
-            'mlat': '${court.latitude}',
-            'mlon': '${court.longitude}',
-          })
-        : Uri.https('www.openstreetmap.org', '/search', {'query': query});
 
     try {
       final opened = await launchUrl(
@@ -5224,10 +5220,19 @@ class CourtDetailsScreen extends StatelessWidget {
         }
       }
     } catch (_) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open directions.')),
-      );
+      try {
+        if (!await launchUrl(osmMap, mode: LaunchMode.externalApplication) &&
+            context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not open directions.')),
+          );
+        }
+      } catch (_) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open directions.')),
+        );
+      }
     }
   }
 
@@ -6620,119 +6625,142 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              children: BookingView.values
-                  .map(
-                    (view) => ChoiceChip(
-                      label: Text(switch (view) {
-                        BookingView.upcoming => 'Upcoming',
-                        BookingView.past => 'Past',
-                        BookingView.cancelled => 'Cancelled',
-                      }),
-                      selected: _view == view,
-                      onSelected: (_) => setState(() => _view = view),
+            if (FirebaseAuth.instance.currentUser?.isAnonymous != false) ...[
+              const SizedBox(height: 18),
+              CardBox(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Sign in to view your bookings.',
+                      style: TextStyle(fontWeight: FontWeight.w700),
                     ),
-                  )
-                  .toList(),
-            ),
-            const SizedBox(height: 18),
-            StreamBuilder<List<Map<String, dynamic>>>(
-              stream: _bookingsStream(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const ErrorBanner(
-                        message:
-                            'Bookings could not load. Check your connection and try again.',
-                      ),
-                      const SizedBox(height: 10),
-                      SecondaryButton(
-                        label: 'Retry',
-                        onPressed: () => setState(() {}),
-                      ),
-                    ],
-                  );
-                }
-                final now = DateTime.now();
-                final source = snapshot.data ?? const <Map<String, dynamic>>[];
-                final docs =
-                    source.where((data) {
-                      return bookingViewFor(
-                            status: data['status']?.toString() ?? '',
-                            end: (data['endUtc'] as Timestamp?)?.toDate(),
-                            now: now,
-                          ) ==
-                          _view;
-                    }).toList()..sort((a, b) {
-                      final first =
-                          (a['startUtc'] as Timestamp?)?.toDate() ?? now;
-                      final second =
-                          (b['startUtc'] as Timestamp?)?.toDate() ?? now;
-                      return _view == BookingView.upcoming
-                          ? first.compareTo(second)
-                          : second.compareTo(first);
-                    });
-                if (snapshot.connectionState == ConnectionState.waiting &&
-                    source.isEmpty) {
-                  return const Center(child: CupertinoActivityIndicator());
-                }
-                if (docs.isEmpty) {
-                  return EmptyState(
-                    icon: CupertinoIcons.calendar,
-                    title: 'No ${_view.name} bookings',
-                    message: 'Book a court and it will appear here.',
-                    action: 'Book a Court',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const Scaffold(body: BookScreen()),
+                    const SizedBox(height: 12),
+                    SecondaryButton(
+                      label: 'Sign in',
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const AuthScreen()),
                       ),
                     ),
-                  );
-                }
-                return ListView.separated(
-                  physics: const NeverScrollableScrollPhysics(),
-                  shrinkWrap: true,
-                  itemCount: docs.length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final data = docs[index];
-                    final court = Court(
-                      id: (data['courtId'] ?? '').toString(),
-                      academyId: (data['academyId'] ?? '').toString(),
-                      name: (data['courtName'] ?? 'Court').toString(),
-                      subtitle: (data['sport'] ?? 'Sports court').toString(),
-                      sport: (data['sport'] ?? 'Sport').toString(),
-                      rating: '—',
-                      distance: '',
-                      price:
-                          '${data['currency'] ?? 'JOD'} ${(((data['totalMinor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2)}',
-                      currency: (data['currency'] ?? 'JOD').toString(),
-                      basePriceMinor:
-                          (data['totalMinor'] as num?)?.toInt() ?? 0,
-                      gradient: const [Color(0xFF102A43), Color(0xFF1F7A8C)],
-                      icon: CupertinoIcons.sportscourt,
+                  ],
+                ),
+              ),
+            ] else ...[
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                children: BookingView.values
+                    .map(
+                      (view) => ChoiceChip(
+                        label: Text(switch (view) {
+                          BookingView.upcoming => 'Upcoming',
+                          BookingView.past => 'Past',
+                          BookingView.cancelled => 'Cancelled',
+                        }),
+                        selected: _view == view,
+                        onSelected: (_) => setState(() => _view = view),
+                      ),
+                    )
+                    .toList(),
+              ),
+              const SizedBox(height: 18),
+              StreamBuilder<List<Map<String, dynamic>>>(
+                stream: _bookingsStream(),
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const ErrorBanner(
+                          message:
+                              'Bookings could not load. Check your connection and try again.',
+                        ),
+                        const SizedBox(height: 10),
+                        SecondaryButton(
+                          label: 'Retry',
+                          onPressed: () => setState(() {}),
+                        ),
+                      ],
                     );
-                    return GestureDetector(
+                  }
+                  final now = DateTime.now();
+                  final source =
+                      snapshot.data ?? const <Map<String, dynamic>>[];
+                  final docs =
+                      source.where((data) {
+                        return bookingViewFor(
+                              status: data['status']?.toString() ?? '',
+                              end: (data['endUtc'] as Timestamp?)?.toDate(),
+                              now: now,
+                            ) ==
+                            _view;
+                      }).toList()..sort((a, b) {
+                        final first =
+                            (a['startUtc'] as Timestamp?)?.toDate() ?? now;
+                        final second =
+                            (b['startUtc'] as Timestamp?)?.toDate() ?? now;
+                        return _view == BookingView.upcoming
+                            ? first.compareTo(second)
+                            : second.compareTo(first);
+                      });
+                  if (snapshot.connectionState == ConnectionState.waiting &&
+                      source.isEmpty) {
+                    return const Center(child: CupertinoActivityIndicator());
+                  }
+                  if (docs.isEmpty) {
+                    return EmptyState(
+                      icon: CupertinoIcons.calendar,
+                      title: 'No ${_view.name} bookings',
+                      message: 'Book a court and it will appear here.',
+                      action: 'Book a Court',
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (_) => BookingDetailsScreen(
-                            bookingId: (data['id'] ?? '').toString(),
-                            booking: data,
-                            court: court,
-                          ),
+                          builder: (_) => const Scaffold(body: BookScreen()),
                         ),
                       ),
-                      child: BookingTile(data: data),
                     );
-                  },
-                );
-              },
-            ),
+                  }
+                  return ListView.separated(
+                    physics: const NeverScrollableScrollPhysics(),
+                    shrinkWrap: true,
+                    itemCount: docs.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final data = docs[index];
+                      final court = Court(
+                        id: (data['courtId'] ?? '').toString(),
+                        academyId: (data['academyId'] ?? '').toString(),
+                        name: (data['courtName'] ?? 'Court').toString(),
+                        subtitle: (data['sport'] ?? 'Sports court').toString(),
+                        sport: (data['sport'] ?? 'Sport').toString(),
+                        rating: '—',
+                        distance: '',
+                        price:
+                            '${data['currency'] ?? 'JOD'} ${(((data['totalMinor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2)}',
+                        currency: (data['currency'] ?? 'JOD').toString(),
+                        basePriceMinor:
+                            (data['totalMinor'] as num?)?.toInt() ?? 0,
+                        gradient: const [Color(0xFF102A43), Color(0xFF1F7A8C)],
+                        icon: CupertinoIcons.sportscourt,
+                      );
+                      return GestureDetector(
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => BookingDetailsScreen(
+                              bookingId: (data['id'] ?? '').toString(),
+                              booking: data,
+                              court: court,
+                            ),
+                          ),
+                        ),
+                        child: BookingTile(data: data),
+                      );
+                    },
+                  );
+                },
+              ),
+            ],
           ],
         ),
       ),
