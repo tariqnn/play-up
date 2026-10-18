@@ -1,8 +1,8 @@
 {
   "functions": {
     "source": "functions",
-    "runtime": "nodejs20",
-    "predeploy": ["npm --prefix functions run build"]
+    "runtime": "nodejs22",
+    "predeploy": ["node functions/scripts/predeploy-build.js"]
   },
   "firestore": {
     "rules": "firestore.rules",
@@ -16,7 +16,18 @@
     "ignore": [
       "firebase.json",
       "**/.*",
+      "!**/.well-known/**",
       "**/node_modules/**"
+    ],
+    "headers": [
+      {
+        "source": "/.well-known/apple-app-site-association",
+        "headers": [{"key": "Content-Type", "value": "application/json"}]
+      },
+      {
+        "source": "/.well-known/assetlinks.json",
+        "headers": [{"key": "Content-Type", "value": "application/json"}]
+      }
     ],
     "rewrites": [
       {
