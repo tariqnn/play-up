@@ -2116,7 +2116,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   static const _slides = [
     _WelcomeSlide(
-      imageUrl: 'asset:assets/images/infinity_sports/court_basketball_ac.jpeg',
+      imageUrl: 'asset:assets/images/sports/basketball_action.png',
       badge: 'REAL SPORTS VENUES',
       icon: Icons.sports_tennis_rounded,
       title: 'Find Courts &\nVenues',
@@ -2126,7 +2126,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       gradientColors: [Color(0xFF16C784), Color(0xFF087A4A)],
     ),
     _WelcomeSlide(
-      imageUrl: 'asset:assets/images/infinity_sports/court_3x3.jpeg',
+      imageUrl: 'asset:assets/images/sports/football_action.png',
       badge: 'COMMUNITY & MATCHES',
       icon: CupertinoIcons.person_2_alt,
       title: 'Find Players &\nPlay Together',
@@ -2136,7 +2136,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       gradientColors: [Color(0xFF0F766E), Color(0xFF134E4A)],
     ),
     _WelcomeSlide(
-      imageUrl: 'asset:assets/images/infinity_sports/court_padel.jpeg',
+      imageUrl: 'asset:assets/images/sports/volleyball_action.png',
       badge: 'SPORTS AROUND AMMAN',
       icon: CupertinoIcons.sportscourt,
       title: 'Discover Local\nSports',
@@ -3941,29 +3941,22 @@ class HomeSportCarousel extends StatefulWidget {
 class _HomeSportCarouselState extends State<HomeSportCarousel> {
   static const _items = <_HomeSportItem>[
     _HomeSportItem(
-      sport: 'Padel',
-      icon: Icons.sports_tennis_rounded,
-      imageUrl: 'asset:assets/images/infinity_sports/court_padel.jpeg',
-      badge: 'Infinity Sports',
+      sport: 'Football',
+      icon: Icons.sports_soccer_rounded,
+      imageUrl: 'asset:assets/images/sports/football_action.png',
+      badge: 'Team Play',
     ),
     _HomeSportItem(
       sport: 'Basketball',
       icon: Icons.sports_basketball_rounded,
-      imageUrl: 'asset:assets/images/infinity_sports/court_basketball_ac.jpeg',
-      badge: 'Infinity Sports',
-    ),
-    _HomeSportItem(
-      sport: 'FIBA 3x3',
-      icon: Icons.sports_basketball_rounded,
-      imageUrl: 'asset:assets/images/infinity_sports/court_3x3.jpeg',
-      badge: 'Infinity Sports',
+      imageUrl: 'asset:assets/images/sports/basketball_action.png',
+      badge: 'Court Sport',
     ),
     _HomeSportItem(
       sport: 'Volleyball',
       icon: Icons.sports_volleyball_rounded,
-      imageUrl:
-          'https://images.unsplash.com/photo-1612872087720-bb876e2e67d1?w=900&q=82',
-      badge: 'Sand & Court',
+      imageUrl: 'asset:assets/images/sports/volleyball_action.png',
+      badge: 'Team Play',
     ),
     _HomeSportItem(
       sport: 'Sea Sports',

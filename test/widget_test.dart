@@ -112,6 +112,16 @@ void main() {
     expect(find.text('PlayUp'), findsOneWidget);
     expect(find.text('Next'), findsOneWidget);
     expect(find.text('Continue as Guest'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Image &&
+            widget.image is AssetImage &&
+            (widget.image as AssetImage).assetName ==
+                'assets/images/sports/basketball_action.png',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('sports and adventure carousel moves without playback controls', (
@@ -134,7 +144,10 @@ void main() {
     expect(find.text('Pause'), findsNothing);
     expect(find.text('Play'), findsNothing);
     expect(find.text('Motion off'), findsNothing);
-    expect(find.text('Padel'), findsWidgets);
+    expect(find.text('Football'), findsWidgets);
+    expect(find.text('Basketball'), findsWidgets);
+    expect(find.text('Volleyball'), findsWidgets);
+    expect(find.text('Infinity Sports'), findsNothing);
 
     final pageView = tester.widget<PageView>(find.byType(PageView));
     final initialPage = pageView.controller!.page!;
