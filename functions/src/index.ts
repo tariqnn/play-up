@@ -26,7 +26,19 @@ async function sendPlayUpAuthEmail(kind: "resetPassword" | "verifyEmail", email:
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {Authorization: `Bearer ${resendApiKey.value()}`, "Content-Type": "application/json"},
-    body: JSON.stringify({from: playUpEmailFrom.value(), to: [email], subject: message.subject, html: message.html, text: message.text}),
+    body: JSON.stringify({
+      from: playUpEmailFrom.value(),
+      to: [email],
+      subject: message.subject,
+      html: message.html,
+      text: message.text,
+      attachments: [{
+        path: "https://play-up.fit/playup-email-logo.png",
+        filename: "playup-logo.png",
+        content_type: "image/png",
+        content_id: "playup-logo",
+      }],
+    }),
   });
   if (!response.ok) {
     // Do not log the recipient, provider response, or the one-time action link.
