@@ -398,7 +398,25 @@ class CatalogService {
           queryMatches &&
           (distance == null || distance <= radiusKm);
     }).toList();
+    // Keep the three real Infinity court photos at the top of the initial
+    // Explore list, independent of the user's location sort. The multipurpose
+    // hall has no verified court photo, so it must not displace the padel photo.
+    const featuredInfinityCourtIds = <String>[
+      'infinity-fiba-3x3',
+      'infinity-basketball-3x3',
+      'infinity-fiba-5x5',
+      'infinity-basketball-5x5',
+      'infinity-padel',
+      'infinity-padel-court',
+    ];
+    int featuredRank(Court court) {
+      final rank = featuredInfinityCourtIds.indexOf(court.id);
+      return rank < 0 ? featuredInfinityCourtIds.length : rank;
+    }
+
     result.sort((a, b) {
+      final featuredOrder = featuredRank(a).compareTo(featuredRank(b));
+      if (featuredOrder != 0) return featuredOrder;
       final aDistance = a.distanceKmFrom(location);
       final bDistance = b.distanceKmFrom(location);
       if (aDistance == null && bDistance == null) {
