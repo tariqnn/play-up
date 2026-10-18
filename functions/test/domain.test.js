@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {calculateTotal, calculateSettlement, overlaps, assertTransition, calculateEffectiveHourlyRate, calculateRatingDelta, calculateNextReliability, canPublishPublicProfile} = require("../lib/domain.js");
+const {buildAuthEmail, playUpActionLink} = require("../lib/auth-email.js");
 
 test("public profiles exclude guests, demo accounts, test names, and private users", () => {
   assert.equal(canPublishPublicProfile({role: "player", displayName: "Tariq"}), true);
@@ -33,6 +34,30 @@ test("overlap uses half-open intervals", () => {
 test("terminal booking statuses cannot reopen", () => {
   assert.throws(() => assertTransition("cancelled", "confirmed"));
   assert.doesNotThrow(() => assertTransition("confirmed", "checkedIn"));
+});
+
+test("PlayUp auth emails show a text logo without remote or inline image loading", () => {
+  const email = buildAuthEmail("resetPassword", "https://play-up.fit/auth/action?mode=resetPassword&token=unit-test");
+  assert.equal(email.subject, "Reset your PlayUp password");
+  assert.match(email.html, /bgcolor="#10231b"/);
+  assert.match(email.html, /PlayUp<\/td>/);
+  assert.match(email.html, /#22e879/);
+  assert.doesNotMatch(email.html, /<img\b|cid:|playup-email-logo\.png/);
+  assert.doesNotMatch(email.html, /Â·/);
+  assert.match(email.text, /Reset password: https:\/\/play-up\.fit\/auth\/action/);
+});
+
+test("PlayUp auth actions use the branded action page and retain Firebase parameters", () => {
+  const link = playUpActionLink(
+    "https://sports-app-257a0.firebaseapp.com/__/auth/action?mode=resetPassword&oobCode=unit-code&apiKey=unit-api-key",
+    "resetPassword",
+  );
+  const actionUrl = new URL(link);
+  assert.equal(actionUrl.origin, "https://play-up.fit");
+  assert.equal(actionUrl.pathname, "/auth/action");
+  assert.equal(actionUrl.searchParams.get("mode"), "resetPassword");
+  assert.equal(actionUrl.searchParams.get("oobCode"), "unit-code");
+  assert.equal(actionUrl.searchParams.get("apiKey"), "unit-api-key");
 });
 
 test("cash settlement snapshots platform commission in minor units", () => {

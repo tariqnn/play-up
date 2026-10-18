@@ -32,12 +32,6 @@ async function sendPlayUpAuthEmail(kind: "resetPassword" | "verifyEmail", email:
       subject: message.subject,
       html: message.html,
       text: message.text,
-      attachments: [{
-        path: "https://play-up.fit/playup-email-logo.png",
-        filename: "playup-logo.png",
-        content_type: "image/png",
-        content_id: "playup-logo",
-      }],
     }),
   });
   if (!response.ok) {
