@@ -38,6 +38,7 @@ import 'more_screens3.dart';
 import 'more_screens4.dart';
 import 'booking_domain.dart';
 import 'booking_presentation.dart';
+import 'deep_link_routes.dart';
 import 'design_system.dart';
 import 'location_service.dart';
 import 'tournament_screens.dart';
@@ -594,52 +595,83 @@ class ThemeModeTile extends StatelessWidget {
 final appMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 class DeepLinkService {
-  static const _pendingKey = 'pending_booking_invite';
+  static const _pendingBookingKey = 'pending_booking_invite';
+  static const _pendingMatchKey = 'pending_match_invite';
   static final _links = AppLinks();
+  static StreamSubscription<User?>? _authChanges;
+
   static Future<void> start() async {
     final initial = await _links.getInitialLink();
     if (initial != null) await _handle(initial);
     _links.uriLinkStream.listen(_handle);
+    _authChanges ??= FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user != null && !user.isAnonymous) unawaited(consumePending());
+    });
   }
 
   static Future<void> _handle(Uri uri) async {
-    final parts = uri.pathSegments;
-    String? token;
-    if (uri.scheme == 'playup' && uri.host == 'booking' && parts.isNotEmpty) {
-      token = parts.last;
-    }
-    if (parts.length >= 3 && parts[0] == 'join' && parts[1] == 'booking') {
-      token = parts[2];
-    }
-    if (token == null || token.isEmpty) return;
-    if (FirebaseAuth.instance.currentUser == null) {
-      await (await SharedPreferences.getInstance()).setString(
-        _pendingKey,
-        token,
-      );
+    final invite = parsePlayUpInvite(uri);
+    if (invite == null) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) {
+      final prefs = await SharedPreferences.getInstance();
+      final key = invite.type == PlayUpInviteType.booking
+          ? _pendingBookingKey
+          : _pendingMatchKey;
+      await prefs.setString(key, invite.id);
       return;
     }
-    await _join(token);
+    switch (invite.type) {
+      case PlayUpInviteType.booking:
+        await _joinBooking(invite.id);
+        break;
+      case PlayUpInviteType.match:
+        await _joinMatch(invite.id);
+        break;
+    }
   }
 
   static Future<void> consumePending() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) return;
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString(_pendingKey);
-    if (token == null) return;
-    await prefs.remove(_pendingKey);
-    await _join(token);
+    final bookingToken = prefs.getString(_pendingBookingKey);
+    if (bookingToken != null && await _joinBooking(bookingToken)) {
+      await prefs.remove(_pendingBookingKey);
+    }
+    final matchId = prefs.getString(_pendingMatchKey);
+    if (matchId != null && await _joinMatch(matchId)) {
+      await prefs.remove(_pendingMatchKey);
+    }
   }
 
-  static Future<void> _join(String token) async {
+  static Future<bool> _joinBooking(String token) async {
     try {
       await AppRepository.instance.joinBookingInvite(token);
       appMessengerKey.currentState?.showSnackBar(
         const SnackBar(content: Text('You joined the booking.')),
       );
+      return true;
     } catch (error) {
       appMessengerKey.currentState?.showSnackBar(
         SnackBar(content: Text(error.toString())),
       );
+      return false;
+    }
+  }
+
+  static Future<bool> _joinMatch(String matchId) async {
+    try {
+      await AppRepository.instance.joinExistingMatch(matchId);
+      appMessengerKey.currentState?.showSnackBar(
+        const SnackBar(content: Text('You joined the match.')),
+      );
+      return true;
+    } catch (error) {
+      appMessengerKey.currentState?.showSnackBar(
+        SnackBar(content: Text(error.toString())),
+      );
+      return false;
     }
   }
 }
@@ -1189,55 +1221,6 @@ class AppRepository {
       return bookingId;
     } catch (error) {
       if (error is DomainValidationException) rethrow;
-      if (useFirebaseEmulators &&
-          (promotionCode?.trim().isEmpty ?? true) &&
-          error is FirebaseFunctionsException &&
-          _callableUnavailable(error)) {
-        return _createBookingDirect(
-          court: court,
-          matchmaking: matchmaking,
-          startUtc: startUtc,
-          endUtc: endUtc,
-          playerCapacity: playerCapacity,
-        );
-      }
-      if (useFirebaseEmulators &&
-          ((error is FirebaseFunctionsException &&
-                  _callableUnavailable(error)) ||
-              error.toString().contains('permission-denied') ||
-              error.toString().contains('not-found'))) {
-        final durationMinutes = endUtc.difference(startUtc).inMinutes;
-        final durationHours = durationMinutes / 60.0;
-        final hour = startUtc.toLocal().hour;
-        final hourlyRateMinor = court.effectiveHourlyRateMinor(hour);
-        final totalMinor = (hourlyRateMinor * durationHours).round();
-        final bookingId = 'bk-${DateTime.now().millisecondsSinceEpoch}';
-
-        TestState.instance.addBooking({
-          'id': bookingId,
-          'userId': user.uid,
-          'courtId': court.id,
-          'courtName': court.name,
-          'sport': court.sport,
-          'startUtc': Timestamp.fromDate(startUtc),
-          'endUtc': Timestamp.fromDate(endUtc),
-          'durationMinutes': durationMinutes,
-          'status': 'confirmed',
-          'paymentStatus': 'pending',
-          'paymentMethod': 'cash',
-          'currency': court.currency,
-          'totalMinor': totalMinor,
-          'subtotalMinor': totalMinor,
-          'discountMinor': 0,
-          'playerCapacity': playerCapacity,
-          'participants': [user.uid],
-          'playerNames': [user.displayName ?? 'Champion'],
-          'cashPaidPlayers': [user.uid],
-          'createdAt': Timestamp.now(),
-          'updatedAt': Timestamp.now(),
-        });
-        return bookingId;
-      }
       if (error is FirebaseFunctionsException) {
         throw DomainValidationException(
           error.message ?? 'Booking could not be confirmed.',
@@ -1271,115 +1254,6 @@ class AppRepository {
       error.code == 'not-found' ||
       error.code == 'unimplemented' ||
       (error.message ?? '').toLowerCase().contains('not found');
-
-  Future<String> _createBookingDirect({
-    required Court court,
-    required bool matchmaking,
-    required DateTime startUtc,
-    required DateTime endUtc,
-    required int playerCapacity,
-  }) async {
-    final user = FirebaseAuth.instance.currentUser!;
-    final start = startUtc.toUtc();
-    final end = endUtc.toUtc();
-    final durationMinutes = end.difference(start).inMinutes;
-    if (durationMinutes < 30 ||
-        durationMinutes > 240 ||
-        durationMinutes % 30 != 0) {
-      throw const DomainValidationException(
-        'Choose a 30-minute to 4-hour time range.',
-      );
-    }
-    final courtRef = _db.collection('courts').doc(court.id);
-    final bookingRef = _bookings.doc();
-    final starts = <DateTime>[
-      for (
-        var cursor = start;
-        cursor.isBefore(end);
-        cursor = cursor.add(const Duration(minutes: 30))
-      )
-        cursor,
-    ];
-    final lockRefs = starts
-        .map(
-          (slot) => _db
-              .collection('bookingLocks')
-              .doc(BookingPolicy.slotKey(court.id, slot)),
-        )
-        .toList();
-    await _db.runTransaction((transaction) async {
-      final liveCourt = (await transaction.get(courtRef)).data();
-      if (liveCourt == null || liveCourt['active'] == false) {
-        throw const DomainValidationException('Court is unavailable.');
-      }
-      for (final ref in lockRefs) {
-        if ((await transaction.get(ref)).exists) {
-          throw const DomainValidationException(
-            'This time was just booked. Choose another slot.',
-          );
-        }
-      }
-      final subtotal = ((court.basePriceMinor * durationMinutes) / 60).round();
-      final record = <String, dynamic>{
-        'userId': user.uid,
-        'academyId': court.academyId,
-        'courtId': court.id,
-        'courtName': court.name,
-        'sport': court.sport,
-        'startUtc': Timestamp.fromDate(start),
-        'endUtc': Timestamp.fromDate(end),
-        'durationMinutes': durationMinutes,
-        'status': 'pending',
-        'currency': court.currency,
-        'subtotalMinor': subtotal,
-        'discountMinor': 0,
-        'totalMinor': subtotal,
-        'paymentMethod': 'cash',
-        'paymentStatus': 'pending',
-        'matchmaking': matchmaking,
-        'playerCapacity': playerCapacity,
-        'participants': [user.uid],
-        'lockIds': lockRefs.map((ref) => ref.id).toList(),
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-      transaction.set(bookingRef, record);
-      for (var i = 0; i < lockRefs.length; i++) {
-        final slotStart = starts[i];
-        transaction.set(lockRefs[i], {
-          'bookingId': bookingRef.id,
-          'userId': user.uid,
-          'courtId': court.id,
-          'startUtc': Timestamp.fromDate(slotStart),
-          'endUtc': Timestamp.fromDate(
-            slotStart.add(const Duration(minutes: 30)),
-          ),
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-      }
-    });
-    unawaited(
-      _createBookingNotice(
-        userId: user.uid,
-        bookingId: bookingRef.id,
-        courtName: court.name,
-        startUtc: start,
-        type: 'bookingCreated',
-        title: 'Booking requested',
-      ),
-    );
-    unawaited(
-      _createBookingNotice(
-        userId: user.uid,
-        bookingId: bookingRef.id,
-        courtName: court.name,
-        startUtc: start,
-        type: 'bookingReminder',
-        title: 'Upcoming booking reminder',
-      ),
-    );
-    return bookingRef.id;
-  }
 
   Future<void> _createBookingNotice({
     required String userId,
@@ -1456,19 +1330,6 @@ class AppRepository {
       });
       return (response.data as Map)['matchId'].toString();
     } catch (error) {
-      if (useFirebaseEmulators &&
-          error is FirebaseFunctionsException &&
-          _callableUnavailable(error)) {
-        return _createMatchDirect(
-          title: title,
-          sport: sport,
-          type: type,
-          capacity: capacity,
-          skill: skill,
-          court: court,
-          startUtc: startUtc,
-        );
-      }
       if (error is FirebaseFunctionsException) {
         throw DomainValidationException(
           error.message ?? 'The match could not be created.',
@@ -1879,7 +1740,14 @@ class AppRepository {
       final result = await _functions.httpsCallable('createBookingInvite').call(
         {'bookingId': bookingId},
       );
-      return (result.data as Map)['url'].toString();
+      final data = Map<String, dynamic>.from(result.data as Map);
+      final token = data['token']?.toString().trim() ?? '';
+      if (token.isEmpty) {
+        throw const DomainValidationException(
+          'The booking invite did not include a valid link token.',
+        );
+      }
+      return 'https://play-up.fit/join/booking/$token';
     } on FirebaseFunctionsException catch (error) {
       if (useFirebaseEmulators && _callableUnavailable(error)) {
         final user = FirebaseAuth.instance.currentUser;
@@ -1907,7 +1775,7 @@ class AppRepository {
           'expiresAt': data['endUtc'],
           'createdAt': FieldValue.serverTimestamp(),
         });
-        return 'https://playup.app/join/booking/$token';
+        return 'https://play-up.fit/join/booking/$token';
       }
       throw DomainValidationException(
         error.message ?? 'Invite link could not be created.',
@@ -2051,9 +1919,6 @@ class AppRepository {
     required String playerId,
     required bool paid,
   }) async {
-    if (useFirebaseEmulators) {
-      TestState.instance.toggleCashPaid(bookingId, playerId, paid);
-    }
     try {
       await _functions.httpsCallable('updateCashSplitStatus').call({
         'bookingId': bookingId,
@@ -2061,26 +1926,6 @@ class AppRepository {
         'paid': paid,
       });
     } on FirebaseFunctionsException catch (e) {
-      if (useFirebaseEmulators && _callableUnavailable(e)) {
-        try {
-          final doc = await _db.collection('bookings').doc(bookingId).get();
-          if (doc.exists) {
-            final paidPlayers = List<String>.from(
-              doc.data()?['cashPaidPlayers'] as List? ?? [],
-            );
-            if (paid && !paidPlayers.contains(playerId)) {
-              paidPlayers.add(playerId);
-            } else if (!paid) {
-              paidPlayers.remove(playerId);
-            }
-            await _db.collection('bookings').doc(bookingId).update({
-              'cashPaidPlayers': paidPlayers,
-              'updatedAt': FieldValue.serverTimestamp(),
-            });
-          }
-        } catch (_) {}
-        return;
-      }
       throw DomainValidationException(
         e.message ?? 'Could not update cash status.',
       );
@@ -4626,21 +4471,6 @@ class _BookScreenState extends State<BookScreen> {
             stream: _courtsStream,
             initialData: useFirebaseEmulators ? kTestCourts : const <Court>[],
             builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return CardBox(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const ErrorBanner(
-                        message:
-                            'Venues could not load. Check your connection and try again.',
-                      ),
-                      const SizedBox(height: 12),
-                      SecondaryButton(label: 'Retry', onPressed: _retryCourts),
-                    ],
-                  ),
-                );
-              }
               if (snapshot.connectionState == ConnectionState.waiting &&
                   !snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
@@ -4664,6 +4494,24 @@ class _BookScreenState extends State<BookScreen> {
                         )
                       : nearby;
                   if (list.isEmpty) {
+                    if (snapshot.hasError) {
+                      return CardBox(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const ErrorBanner(
+                              message:
+                                  'Venues could not load. Check your connection and try again.',
+                            ),
+                            const SizedBox(height: 12),
+                            SecondaryButton(
+                              label: 'Retry',
+                              onPressed: _retryCourts,
+                            ),
+                          ],
+                        ),
+                      );
+                    }
                     return EmptyState(
                       icon: CupertinoIcons.sportscourt,
                       title: 'No venues found',
@@ -4677,7 +4525,7 @@ class _BookScreenState extends State<BookScreen> {
                       ),
                     );
                   }
-                  return ListView.separated(
+                  final venueList = ListView.separated(
                     physics: const NeverScrollableScrollPhysics(),
                     shrinkWrap: true,
                     itemBuilder: (_, index) =>
@@ -4685,6 +4533,24 @@ class _BookScreenState extends State<BookScreen> {
                     separatorBuilder: (context, index) =>
                         const SizedBox(height: 12),
                     itemCount: list.length,
+                  );
+                  if (!snapshot.hasError) return venueList;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const CardBox(
+                        child: Text(
+                          'Showing saved venue details. Confirm current availability directly with the venue.',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SecondaryButton(
+                        label: 'Retry connection',
+                        onPressed: _retryCourts,
+                      ),
+                      const SizedBox(height: 12),
+                      venueList,
+                    ],
                   );
                 },
               );
@@ -5316,6 +5182,55 @@ class CourtDetailsScreen extends StatelessWidget {
         : description;
   }
 
+  Future<void> _openDirections(BuildContext context) async {
+    final query = court.latitude != null && court.longitude != null
+        ? '${court.latitude},${court.longitude}'
+        : [
+            court.name,
+            court.address,
+          ].where((part) => part.trim().isNotEmpty).join(', ');
+    if (query.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Venue location is unavailable.')),
+      );
+      return;
+    }
+
+    final googleMaps = Uri.https('www.google.com', '/maps/search/', {
+      'api': '1',
+      'query': query,
+    });
+    final osmMap = court.latitude != null && court.longitude != null
+        ? Uri.https('www.openstreetmap.org', '/', {
+            'mlat': '${court.latitude}',
+            'mlon': '${court.longitude}',
+          })
+        : Uri.https('www.openstreetmap.org', '/search', {'query': query});
+
+    try {
+      final opened = await launchUrl(
+        googleMaps,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened) {
+        final fallbackOpened = await launchUrl(
+          osmMap,
+          mode: LaunchMode.externalApplication,
+        );
+        if (!fallbackOpened && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not open directions.')),
+          );
+        }
+      }
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open directions.')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -5404,6 +5319,11 @@ class CourtDetailsScreen extends StatelessWidget {
                 height: 1.45,
                 fontSize: 15,
               ),
+            ),
+            const SizedBox(height: 16),
+            SecondaryButton(
+              label: 'Open directions',
+              onPressed: () => _openDirections(context),
             ),
             const SizedBox(height: 22),
             if (court.bookable) ...[
@@ -6722,9 +6642,19 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
               stream: _bookingsStream(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
-                  return const ErrorBanner(
-                    message:
-                        'Bookings could not load. Check your connection and try again.',
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const ErrorBanner(
+                        message:
+                            'Bookings could not load. Check your connection and try again.',
+                      ),
+                      const SizedBox(height: 10),
+                      SecondaryButton(
+                        label: 'Retry',
+                        onPressed: () => setState(() {}),
+                      ),
+                    ],
                   );
                 }
                 final now = DateTime.now();

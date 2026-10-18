@@ -75,9 +75,8 @@ void main() {
     expect(activityTitles, contains('climbing'));
   });
 
-  test('production in-memory booking and match state starts empty', () async {
-    expect(await TestState.instance.myBookingsStream().first, isEmpty);
-    expect(await TestState.instance.openMatchesStream().first, isEmpty);
+  test('emulator mode is disabled in the production app configuration', () {
+    expect(useFirebaseEmulators, isFalse);
   });
 
   for (final brightness in Brightness.values) {

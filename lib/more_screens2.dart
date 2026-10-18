@@ -22,12 +22,9 @@ import 'academy_service.dart';
 import 'booking_domain.dart';
 import 'tournament_screens.dart';
 import 'multi_court_timeline_screen.dart';
-import 'test_data_seed.dart';
 
-/// Open matches come from the live catalogue. Fixture matches are available
-/// only when the app is explicitly connected to the Firebase emulator.
+/// Open matches are read from the live Firestore catalogue.
 Stream<List<OpenMatch>> openMatchesStream() {
-  if (useFirebaseEmulators) return TestState.instance.openMatchesStream();
   return FirebaseFirestore.instance
       .collection('matches')
       .where('status', isEqualTo: 'open')
@@ -877,7 +874,7 @@ class MatchDetailsScreen extends StatelessWidget {
                         '⏰ Time: ${match.time}\n'
                         '💰 Cash Fee: ${match.pricePerPlayer}\n'
                         '👥 Need ${match.needed} more player${match.needed == 1 ? '' : 's'}!\n\n'
-                        '👉 Join match: https://playup.app/m/${match.id ?? ''}';
+                        '👉 Join match: https://play-up.fit/join/match/${match.id ?? ''}';
                     final waUri = Uri.parse(
                       'whatsapp://send?text=${Uri.encodeComponent(waText)}',
                     );

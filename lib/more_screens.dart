@@ -10,6 +10,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'catalog.dart';
+import 'leaderboard_domain.dart';
 import 'location_service.dart';
 import 'main.dart';
 import 'more_screens2.dart';
@@ -506,18 +507,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 );
                 final filteredDocs = docs.where((doc) {
                   final profile = doc.data();
-                  final displayName = (profile['displayName'] ?? '')
-                      .toString()
-                      .trim();
-                  if (profile['isTest'] == true ||
-                      RegExp(
-                        r'\b(uat|demo|test player|sample player|test academy)\b',
-                        caseSensitive: false,
-                      ).hasMatch(displayName) ||
-                      displayName.isEmpty ||
-                      displayName == 'Player') {
-                    return false;
-                  }
+                  if (!isLeaderboardProfileEligible(profile)) return false;
                   if (_tab == 0) return true;
                   if (_tab == 1) {
                     return myCity.isNotEmpty &&
