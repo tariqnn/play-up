@@ -619,16 +619,24 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
 // ---------------------------------------------------------------------------
 
 class ForgotPasswordScreen extends StatefulWidget {
-  const ForgotPasswordScreen({super.key});
+  const ForgotPasswordScreen({super.key, this.initialEmail = ''});
+
+  final String initialEmail;
 
   @override
   State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
 }
 
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
-  final _email = TextEditingController();
+  late final TextEditingController _email;
   bool _sending = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _email = TextEditingController(text: widget.initialEmail.trim());
+  }
 
   @override
   void dispose() {
@@ -672,8 +680,25 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         return;
       }
       if (mounted) setState(() => _error = friendlyAuthError(error));
+    } on FirebaseFunctionsException catch (error) {
+      if (!mounted) return;
+      final message = switch (error.code) {
+        'invalid-argument' => 'Enter a valid email address and try again.',
+        'unauthenticated' || 'permission-denied' =>
+          'PlayUp could not verify this app installation. Update PlayUp and try again. If this continues, contact support.',
+        'unavailable' || 'deadline-exceeded' =>
+          'Password reset email is temporarily unavailable. Please try again in a few minutes.',
+        _ =>
+          'We could not send the reset email. Check your connection and try again.',
+      };
+      setState(() => _error = message);
     } catch (error) {
-      if (mounted) setState(() => _error = friendlyAuthError(error));
+      if (mounted) {
+        setState(
+          () => _error =
+              'We could not send the reset email. Check your connection and try again.',
+        );
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }

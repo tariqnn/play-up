@@ -2901,7 +2901,9 @@ class _AuthScreenState extends State<AuthScreen> {
                       child: TextButton(
                         onPressed: () => Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (_) => const ForgotPasswordScreen(),
+                            builder: (_) => ForgotPasswordScreen(
+                              initialEmail: _email.text.trim(),
+                            ),
                           ),
                         ),
                         child: const Text(
