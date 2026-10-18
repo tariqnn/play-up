@@ -8384,6 +8384,25 @@ class CourtCarouselCard extends StatelessWidget {
 
   final Court court;
 
+  String get _sportImage {
+    final sport = '${court.sport} ${court.subtitle}'.toLowerCase();
+    if (sport.contains('football') || sport.contains('soccer')) {
+      return 'asset:assets/images/sports/football_action.png';
+    }
+    if (sport.contains('volleyball')) {
+      return 'asset:assets/images/sports/volleyball_action.png';
+    }
+    if (sport.contains('basketball') || sport.contains('3x3')) {
+      return 'asset:assets/images/sports/basketball_action.png';
+    }
+    if (sport.contains('padel') || sport.contains('tennis')) {
+      return 'asset:assets/images/tennis_federer.png';
+    }
+    // This compact home preview is sport themed. The venue's actual photos
+    // remain available after opening its detail page.
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
     final location = LocationService.instance.current.value;
@@ -8407,7 +8426,7 @@ class CourtCarouselCard extends StatelessWidget {
                 height: 96,
                 icon: court.icon,
                 gradient: court.gradient,
-                imageUrl: court.imageUrl,
+                imageUrl: _sportImage,
               ),
               Padding(
                 padding: const EdgeInsets.all(12),
