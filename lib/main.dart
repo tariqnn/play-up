@@ -248,7 +248,7 @@ String friendlyAuthError(Object error) {
       case 'invalid-email':
         return 'That email address doesn\'t look right. Please check it.';
       case 'user-not-found':
-        return 'No account found with this email. Try creating one instead.';
+        return 'Email or password is incorrect. Please try again.';
       case 'wrong-password':
       case 'invalid-credential':
         return 'Email or password is incorrect. Please try again.';

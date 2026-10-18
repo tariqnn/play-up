@@ -659,6 +659,17 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       );
       if (mounted) Navigator.of(context).pop();
     } on FirebaseAuthException catch (error) {
+      if (error.code == 'user-not-found' || error.code == 'user-disabled') {
+        if (!mounted) return;
+        await showAdaptiveMessage(
+          context,
+          title: 'Check your email',
+          message:
+              'If an account exists for this address, Firebase has sent a secure password-reset link. Open that link to choose a new password.',
+        );
+        if (mounted) Navigator.of(context).pop();
+        return;
+      }
       if (mounted) setState(() => _error = friendlyAuthError(error));
     } catch (error) {
       if (mounted) setState(() => _error = friendlyAuthError(error));
