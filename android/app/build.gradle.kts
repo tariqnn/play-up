@@ -32,10 +32,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.playup.playup"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -57,12 +54,32 @@ android {
         release {
             if (keystorePropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
+            } else {
+                signingConfig = null
             }
             isMinifyEnabled = true
             isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
     }
 }
+
+// Never let a store release silently fall back to the debug signing key.
+gradle.startParameter.taskNames
+    .filter { task ->
+        task.contains("release", ignoreCase = true) &&
+            (task.startsWith("assemble", ignoreCase = true) ||
+                task.startsWith("bundle", ignoreCase = true) ||
+                task.startsWith("package", ignoreCase = true))
+    }
+    .takeIf { it.isNotEmpty() }
+    ?.let {
+        if (!keystorePropertiesFile.exists()) {
+            throw GradleException(
+                "Release signing is not configured. Add android/key.properties and the Play upload keystore before building a release.",
+            )
+        }
+    }
 
 flutter {
     source = "../.."
