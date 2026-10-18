@@ -8250,6 +8250,25 @@ class RewardsPointsCard extends StatelessWidget {
   }
 }
 
+String _sportPreviewImage(Court court) {
+  final sport = '${court.sport} ${court.subtitle}'.toLowerCase();
+  if (sport.contains('football') || sport.contains('soccer')) {
+    return 'asset:assets/images/sports/football_action.png';
+  }
+  if (sport.contains('volleyball')) {
+    return 'asset:assets/images/sports/volleyball_action.png';
+  }
+  if (sport.contains('basketball') || sport.contains('3x3')) {
+    return 'asset:assets/images/sports/basketball_action.png';
+  }
+  if (sport.contains('padel') || sport.contains('tennis')) {
+    return 'asset:assets/images/tennis_federer.png';
+  }
+  // Keep the directory and home previews sport themed. Real venue photos
+  // remain available on each venue's detail page.
+  return '';
+}
+
 class CourtListCard extends StatelessWidget {
   const CourtListCard({super.key, required this.court});
 
@@ -8278,7 +8297,7 @@ class CourtListCard extends StatelessWidget {
                   height: 156,
                   icon: court.icon,
                   gradient: court.gradient,
-                  imageUrl: court.imageUrl,
+                  imageUrl: _sportPreviewImage(court),
                 ),
                 Positioned(
                   top: 10,
@@ -8384,25 +8403,6 @@ class CourtCarouselCard extends StatelessWidget {
 
   final Court court;
 
-  String get _sportImage {
-    final sport = '${court.sport} ${court.subtitle}'.toLowerCase();
-    if (sport.contains('football') || sport.contains('soccer')) {
-      return 'asset:assets/images/sports/football_action.png';
-    }
-    if (sport.contains('volleyball')) {
-      return 'asset:assets/images/sports/volleyball_action.png';
-    }
-    if (sport.contains('basketball') || sport.contains('3x3')) {
-      return 'asset:assets/images/sports/basketball_action.png';
-    }
-    if (sport.contains('padel') || sport.contains('tennis')) {
-      return 'asset:assets/images/tennis_federer.png';
-    }
-    // This compact home preview is sport themed. The venue's actual photos
-    // remain available after opening its detail page.
-    return '';
-  }
-
   @override
   Widget build(BuildContext context) {
     final location = LocationService.instance.current.value;
@@ -8426,7 +8426,7 @@ class CourtCarouselCard extends StatelessWidget {
                 height: 96,
                 icon: court.icon,
                 gradient: court.gradient,
-                imageUrl: _sportImage,
+                imageUrl: _sportPreviewImage(court),
               ),
               Padding(
                 padding: const EdgeInsets.all(12),
