@@ -26,6 +26,11 @@ export function canPublishPublicProfile(data: Record<string, unknown> | undefine
     !/\b(uat|demo|test|sample)\b/.test(email);
 }
 
+export function canHostExternalMatches(data: Record<string, unknown>): boolean {
+  const permissions = Array.isArray(data.permissions) ? data.permissions : [];
+  return data.role === "superAdmin" || permissions.includes("matchmaking.manage");
+}
+
 export function calculateTotal(input: PricingInput): {
   subtotalMinor: number;
   discountMinor: number;

@@ -1256,31 +1256,6 @@ class AppRepository {
       error.code == 'unimplemented' ||
       (error.message ?? '').toLowerCase().contains('not found');
 
-  Future<void> _createBookingNotice({
-    required String userId,
-    required String bookingId,
-    required String courtName,
-    required DateTime startUtc,
-    required String type,
-    required String title,
-  }) async {
-    try {
-      await _db.collection('notifications').add({
-        'userId': userId,
-        'type': type,
-        'title': title,
-        'body':
-            '$courtName at ${DateFormat('EEE, d MMM - h:mm a').format(startUtc.toLocal())}',
-        'bookingId': bookingId,
-        'startUtc': Timestamp.fromDate(startUtc),
-        'read': false,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-    } catch (error) {
-      debugPrint('booking notification skipped: $error');
-    }
-  }
-
   Future<String> createMatch({
     required String title,
     required String sport,
@@ -1305,16 +1280,24 @@ class AppRepository {
       if (venueNote.trim().length < 3) {
         throw const DomainValidationException('Add the court or venue note.');
       }
-      return _createMatchDirect(
-        title: title,
-        sport: sport,
-        type: type,
-        capacity: capacity,
-        skill: skill,
-        startUtc: startUtc,
-        externalVenue: true,
-        venueNote: venueNote,
-      );
+      try {
+        final response = await _functions
+            .httpsCallable('createExternalMatch')
+            .call({
+              'title': title,
+              'sport': sport,
+              'type': type,
+              'capacity': capacity,
+              'skill': skill,
+              'startUtc': startUtc.toUtc().toIso8601String(),
+              'venueNote': venueNote.trim(),
+            });
+        return (response.data as Map)['matchId'].toString();
+      } on FirebaseFunctionsException catch (error) {
+        throw DomainValidationException(
+          error.message ?? 'The match could not be created.',
+        );
+      }
     }
     if (court == null) {
       throw const DomainValidationException('Choose an available court.');
@@ -1338,140 +1321,6 @@ class AppRepository {
       }
       rethrow;
     }
-  }
-
-  Future<String> _createMatchDirect({
-    required String title,
-    required String sport,
-    required String type,
-    required int capacity,
-    required String skill,
-    required DateTime startUtc,
-    Court? court,
-    bool externalVenue = false,
-    String venueNote = '',
-  }) async {
-    final user = FirebaseAuth.instance.currentUser!;
-    final start = startUtc.toUtc();
-    final end = start.add(const Duration(hours: 1));
-    if (!start.isAfter(DateTime.now().toUtc())) {
-      throw const DomainValidationException('Choose a future match time.');
-    }
-    if (capacity < 2 || capacity > 30) {
-      throw const DomainValidationException('Capacity must be 2-30 players.');
-    }
-    final profile = (await _users.doc(user.uid).get()).data() ?? const {};
-    final hostName = (profile['displayName'] ?? user.displayName ?? 'Player')
-        .toString();
-    final matchRef = _matches.doc();
-    if (externalVenue) {
-      await matchRef.set({
-        'hostId': user.uid,
-        'hostName': hostName,
-        'title': title,
-        'sport': sport,
-        'academyId': '',
-        'courtId': '',
-        'courtName': venueNote.trim(),
-        'venueNote': venueNote.trim(),
-        'source': 'external',
-        'startUtc': Timestamp.fromDate(start),
-        'skillRange': skill,
-        'type': type == 'Competitive' ? 'Competitive' : 'Casual',
-        'ranked': type == 'Competitive',
-        'status': 'open',
-        'capacity': capacity,
-        'currency': 'JOD',
-        'totalMinor': 0,
-        'players': [user.uid],
-        'playerNames': [hostName],
-        'neededPlayers': capacity - 1,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      return matchRef.id;
-    }
-    final selectedCourt = court!;
-    final bookingRef = _bookings.doc();
-    final lockRef = _db
-        .collection('bookingLocks')
-        .doc(BookingPolicy.slotKey(selectedCourt.id, start));
-    await _db.runTransaction((transaction) async {
-      final lock = await transaction.get(lockRef);
-      if (lock.exists) {
-        throw const DomainValidationException(
-          'This court was just booked. Choose another time.',
-        );
-      }
-      final price = selectedCourt.basePriceMinor;
-      transaction.set(lockRef, {
-        'bookingId': bookingRef.id,
-        'userId': user.uid,
-        'courtId': selectedCourt.id,
-        'startUtc': Timestamp.fromDate(start),
-        'endUtc': Timestamp.fromDate(end),
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-      transaction.set(bookingRef, {
-        'userId': user.uid,
-        'academyId': selectedCourt.academyId,
-        'courtId': selectedCourt.id,
-        'courtName': selectedCourt.name,
-        'sport': sport,
-        'startUtc': Timestamp.fromDate(start),
-        'endUtc': Timestamp.fromDate(end),
-        'durationMinutes': 60,
-        'status': 'pending',
-        'currency': selectedCourt.currency,
-        'subtotalMinor': price,
-        'discountMinor': 0,
-        'totalMinor': price,
-        'paymentMethod': 'cash',
-        'paymentStatus': 'pending',
-        'matchmaking': true,
-        'playerCapacity': capacity,
-        'participants': [user.uid],
-        'lockIds': [lockRef.id],
-        'matchId': matchRef.id,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      transaction.set(matchRef, {
-        'hostId': user.uid,
-        'hostName': hostName,
-        'title': title,
-        'sport': sport,
-        'academyId': selectedCourt.academyId,
-        'courtId': selectedCourt.id,
-        'courtName': selectedCourt.name,
-        'bookingId': bookingRef.id,
-        'source': 'playupCourt',
-        'startUtc': Timestamp.fromDate(start),
-        'skillRange': skill,
-        'type': type == 'Competitive' ? 'Competitive' : 'Casual',
-        'ranked': type == 'Competitive',
-        'status': 'open',
-        'capacity': capacity,
-        'currency': selectedCourt.currency,
-        'totalMinor': price,
-        'players': [user.uid],
-        'playerNames': [hostName],
-        'neededPlayers': capacity - 1,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    });
-    unawaited(
-      _createBookingNotice(
-        userId: user.uid,
-        bookingId: bookingRef.id,
-        courtName: selectedCourt.name,
-        startUtc: start,
-        type: 'bookingReminder',
-        title: 'Upcoming match reminder',
-      ),
-    );
-    return matchRef.id;
   }
 
   Future<Set<String>> availableCourtIds({

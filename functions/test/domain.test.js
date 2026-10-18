@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const {calculateTotal, calculateSettlement, overlaps, assertTransition, calculateEffectiveHourlyRate, calculateRatingDelta, calculateNextReliability, canPublishPublicProfile} = require("../lib/domain.js");
+const {calculateTotal, calculateSettlement, overlaps, assertTransition, calculateEffectiveHourlyRate, calculateRatingDelta, calculateNextReliability, canHostExternalMatches, canPublishPublicProfile} = require("../lib/domain.js");
 const {buildAuthEmail, playUpActionLink} = require("../lib/auth-email.js");
 
 test("public profiles exclude guests, demo accounts, test names, and private users", () => {
@@ -14,6 +14,13 @@ test("public profiles exclude guests, demo accounts, test names, and private use
   assert.equal(canPublishPublicProfile({role: "player", displayName: "Sam Player"}), true);
   assert.equal(canPublishPublicProfile({role: "player", displayName: "Private Player", privacyPreferences: {publicProfile: false}}), false);
   assert.equal(canPublishPublicProfile({role: "player", displayName: "Test account", email: "player@playup-demo.test"}), false);
+});
+
+test("only authorized platform accounts can host external matches", () => {
+  assert.equal(canHostExternalMatches({role: "superAdmin", permissions: []}), true);
+  assert.equal(canHostExternalMatches({role: "platformAdmin", permissions: ["matchmaking.manage"]}), true);
+  assert.equal(canHostExternalMatches({role: "academyOwner", permissions: ["academy.bookings.manage"]}), false);
+  assert.equal(canHostExternalMatches({role: "player", permissions: []}), false);
 });
 
 test("server calculates percentage discounts in minor units", () => {

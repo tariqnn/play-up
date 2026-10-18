@@ -6,7 +6,7 @@ import {HttpsError, onCall} from "firebase-functions/v2/https";
 import {onDocumentCreated, onDocumentWritten} from "firebase-functions/v2/firestore";
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import {setGlobalOptions} from "firebase-functions/v2/options";
-import {assertTransition, calculateEffectiveHourlyRate, calculateNextReliability, calculateRatingDelta, calculateSettlement, calculateTotal, canPublishPublicProfile, overlaps} from "./domain";
+import {assertTransition, calculateEffectiveHourlyRate, calculateNextReliability, calculateRatingDelta, calculateSettlement, calculateTotal, canHostExternalMatches, canPublishPublicProfile, overlaps} from "./domain";
 import {randomBytes} from "node:crypto";
 import {defineSecret, defineString} from "firebase-functions/params";
 import {buildAuthEmail, playUpActionLink} from "./auth-email";
@@ -1140,6 +1140,68 @@ export const createMatch = onCall(callableOptions, async (request) => {
     });
   });
   return {matchId: ref.id, bookingId: bookingRef.id};
+});
+
+export const createExternalMatch = onCall(callableOptions, async (request) => {
+  const uid = requireAuth(request);
+  const user = await profile(uid);
+  if (!canHostExternalMatches(user)) {
+    throw new HttpsError("permission-denied", "This account is not enabled for external match hosting.");
+  }
+  const title = text(request.data?.title, "title");
+  const sport = text(request.data?.sport, "sport");
+  const skill = text(request.data?.skill, "skill");
+  const venueNote = text(request.data?.venueNote, "venueNote");
+  if (title.length > 100 || sport.length > 40 || skill.length > 40 || venueNote.length > 200) {
+    throw new HttpsError("invalid-argument", "One or more match details are too long.");
+  }
+  const start = date(request.data?.startUtc, "startUtc");
+  const capacity = Number(request.data?.capacity);
+  if (!Number.isInteger(capacity) || capacity < 2 || capacity > 30) {
+    throw new HttpsError("invalid-argument", "Capacity must be 2-30.");
+  }
+  if (start <= new Date()) throw new HttpsError("invalid-argument", "Match must be in the future.");
+  if (start.valueOf() % (30 * 60_000) !== 0) {
+    throw new HttpsError("invalid-argument", "Match start time must use 30-minute boundaries.");
+  }
+  const type = request.data?.type === "Competitive" ? "Competitive" : "Casual";
+  const matchRef = db.collection("matches").doc();
+  await db.runTransaction(async (tx) => {
+    tx.create(matchRef, {
+      hostId: uid,
+      hostName: user.displayName ?? "Player",
+      title,
+      sport,
+      academyId: "",
+      courtId: "",
+      courtName: venueNote,
+      venueNote,
+      bookingId: null,
+      source: "external",
+      startUtc: Timestamp.fromDate(start),
+      endUtc: Timestamp.fromDate(new Date(start.valueOf() + 60 * 60_000)),
+      skillRange: skill,
+      type,
+      ranked: type === "Competitive",
+      status: "open",
+      capacity,
+      currency: "JOD",
+      totalMinor: 0,
+      players: [uid],
+      playerNames: [user.displayName ?? "Player"],
+      neededPlayers: capacity - 1,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.create(db.collection("auditLogs").doc(), {
+      actorId: uid,
+      action: "match.createExternal",
+      entity: "match",
+      entityId: matchRef.id,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  });
+  return {matchId: matchRef.id};
 });
 
 export const listAvailableCourts = onCall(callableOptions, async (request) => {
