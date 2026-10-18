@@ -3943,29 +3943,20 @@ class _HomeSportCarouselState extends State<HomeSportCarousel> {
     _HomeSportItem(
       sport: 'Padel',
       icon: Icons.sports_tennis_rounded,
-      imageUrl:
-          'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?w=900&q=82',
-      badge: 'Popular',
-    ),
-    _HomeSportItem(
-      sport: 'Football',
-      icon: Icons.sports_soccer_rounded,
-      imageUrl:
-          'https://images.unsplash.com/photo-1529900748604-07564a03e7a6?w=900&q=82',
-      badge: '7v7 & 5v5',
-    ),
-    _HomeSportItem(
-      sport: 'Tennis',
-      icon: Icons.sports_tennis_rounded,
-      imageUrl: 'asset:assets/images/tennis_federer.png',
-      badge: 'Clay & Hard',
+      imageUrl: 'asset:assets/images/infinity_sports/court_padel.jpeg',
+      badge: 'Infinity Sports',
     ),
     _HomeSportItem(
       sport: 'Basketball',
       icon: Icons.sports_basketball_rounded,
-      imageUrl:
-          'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=900&q=82',
-      badge: 'Full & 3x3',
+      imageUrl: 'asset:assets/images/infinity_sports/court_basketball_ac.jpeg',
+      badge: 'Infinity Sports',
+    ),
+    _HomeSportItem(
+      sport: 'FIBA 3x3',
+      icon: Icons.sports_basketball_rounded,
+      imageUrl: 'asset:assets/images/infinity_sports/court_3x3.jpeg',
+      badge: 'Infinity Sports',
     ),
     _HomeSportItem(
       sport: 'Volleyball',
