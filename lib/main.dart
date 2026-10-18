@@ -3558,8 +3558,12 @@ class HomeScreen extends StatelessWidget {
                     final list = nearby.isEmpty ? allCourts : nearby;
                     return ListView.separated(
                       scrollDirection: Axis.horizontal,
-                      itemBuilder: (_, index) =>
-                          CourtCarouselCard(court: list[index]),
+                      itemBuilder: (_, index) => CourtCarouselCard(
+                        court: list[index],
+                        previewImageUrl: index < _homeCourtPreviewImages.length
+                            ? _homeCourtPreviewImages[index]
+                            : null,
+                      ),
                       separatorBuilder: (context, index) =>
                           const SizedBox(width: 12),
                       itemCount: list.length,
@@ -8118,6 +8122,12 @@ String _sportPreviewImage(Court court) {
   return '';
 }
 
+const _homeCourtPreviewImages = <String>[
+  'asset:assets/images/sports/football_action.png',
+  'asset:assets/images/sports/basketball_action.png',
+  'asset:assets/images/sports/volleyball_action.png',
+];
+
 class CourtListCard extends StatelessWidget {
   const CourtListCard({super.key, required this.court});
 
@@ -8248,9 +8258,14 @@ class CourtListCard extends StatelessWidget {
 }
 
 class CourtCarouselCard extends StatelessWidget {
-  const CourtCarouselCard({super.key, required this.court});
+  const CourtCarouselCard({
+    super.key,
+    required this.court,
+    this.previewImageUrl,
+  });
 
   final Court court;
+  final String? previewImageUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -8275,7 +8290,7 @@ class CourtCarouselCard extends StatelessWidget {
                 height: 96,
                 icon: court.icon,
                 gradient: court.gradient,
-                imageUrl: _sportPreviewImage(court),
+                imageUrl: previewImageUrl ?? _sportPreviewImage(court),
               ),
               Padding(
                 padding: const EdgeInsets.all(12),
