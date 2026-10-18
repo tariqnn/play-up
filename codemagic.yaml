@@ -40,8 +40,7 @@ workflows:
         script: |
           find ios -name "Podfile" -execdir pod install \;
       - name: Configure iOS code signing
-        script: >-
-          xcode-project use-profiles --custom-export-options='{"testFlightInternalTestingOnly": true}'
+        script: xcode-project use-profiles
       - name: Build signed IPA
         script: |
           flutter build ipa --release \
