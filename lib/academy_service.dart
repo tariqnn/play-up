@@ -162,7 +162,9 @@ class AcademyService {
     });
     final trimmedEmail = email.trim();
     try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: trimmedEmail);
+      await _functions.httpsCallable('sendPlayUpPasswordReset').call({
+        'email': trimmedEmail,
+      });
     } catch (error) {
       throw StaffSetupEmailException(trimmedEmail, error);
     }

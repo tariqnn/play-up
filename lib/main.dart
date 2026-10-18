@@ -2626,7 +2626,11 @@ class _AuthScreenState extends State<AuthScreen> {
       }
       if (!mounted) return;
       if (_isSignUp) {
-        await user?.sendEmailVerification();
+        if (user != null) {
+          await FirebaseFunctions.instanceFor(region: 'me-central1')
+              .httpsCallable('sendPlayUpEmailVerification')
+              .call();
+        }
         if (!mounted) return;
         Navigator.of(context).popUntil((route) => route.isFirst);
       } else {
@@ -3070,7 +3074,9 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
       _message = null;
     });
     try {
-      await FirebaseAuth.instance.currentUser?.sendEmailVerification();
+      await FirebaseFunctions.instanceFor(region: 'me-central1')
+          .httpsCallable('sendPlayUpEmailVerification')
+          .call();
       setState(() => _message = 'A new verification email was sent.');
     } on FirebaseAuthException catch (error) {
       setState(() => _message = friendlyAuthError(error));

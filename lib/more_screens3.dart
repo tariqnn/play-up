@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -647,15 +648,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       _error = null;
     });
     try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(
-        email: _email.text.trim(),
-      );
+      await FirebaseFunctions.instanceFor(region: 'me-central1')
+          .httpsCallable('sendPlayUpPasswordReset')
+          .call({'email': _email.text.trim()});
       if (!mounted) return;
       await showAdaptiveMessage(
         context,
         title: 'Check your email',
         message:
-            'If an account exists for this address, Firebase has sent a secure password-reset link. Open that link to choose a new password.',
+            'If an account exists for this address, PlayUp has sent a secure password-reset link. Open it to choose a new password.',
       );
       if (mounted) Navigator.of(context).pop();
     } on FirebaseAuthException catch (error) {
@@ -665,7 +666,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           context,
           title: 'Check your email',
           message:
-              'If an account exists for this address, Firebase has sent a secure password-reset link. Open that link to choose a new password.',
+              'If an account exists for this address, PlayUp has sent a secure password-reset link. Open it to choose a new password.',
         );
         if (mounted) Navigator.of(context).pop();
         return;

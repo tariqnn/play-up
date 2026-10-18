@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -918,9 +918,11 @@ class AcademyStaffManagementScreen extends StatelessWidget {
                         label: 'Resend',
                         onPressed: () async {
                           try {
-                            await FirebaseAuth.instance.sendPasswordResetEmail(
-                              email: error.email,
-                            );
+                            await FirebaseFunctions.instanceFor(
+                              region: 'me-central1',
+                            ).httpsCallable('sendPlayUpPasswordReset').call({
+                              'email': error.email,
+                            });
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
