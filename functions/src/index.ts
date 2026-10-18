@@ -8,6 +8,8 @@ import {onSchedule} from "firebase-functions/v2/scheduler";
 import {setGlobalOptions} from "firebase-functions/v2/options";
 import {assertTransition, calculateEffectiveHourlyRate, calculateNextReliability, calculateRatingDelta, calculateSettlement, calculateTotal, canPublishPublicProfile, overlaps} from "./domain";
 import {randomBytes} from "node:crypto";
+import {defineSecret, defineString} from "firebase-functions/params";
+import {buildAuthEmail, playUpActionLink} from "./auth-email";
 
 initializeApp();
 setGlobalOptions({region: "me-central1", maxInstances: 20});
@@ -15,6 +17,57 @@ const db = getFirestore();
 const callableOptions = {
   enforceAppCheck: process.env.FUNCTIONS_EMULATOR !== "true",
 };
+const resendApiKey = defineSecret("RESEND_API_KEY");
+const playUpEmailFrom = defineString("PLAYUP_EMAIL_FROM", {default: "PlayUp <noreply@notify.play-up.fit>"});
+
+async function sendPlayUpAuthEmail(kind: "resetPassword" | "verifyEmail", email: string, firebaseLink: string) {
+  const link = playUpActionLink(firebaseLink, kind);
+  const message = buildAuthEmail(kind, link);
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {Authorization: `Bearer ${resendApiKey.value()}`, "Content-Type": "application/json"},
+    body: JSON.stringify({from: playUpEmailFrom.value(), to: [email], subject: message.subject, html: message.html, text: message.text}),
+  });
+  if (!response.ok) {
+    // Do not log the recipient, provider response, or the one-time action link.
+    console.error("PlayUp transactional email provider rejected a message", response.status);
+    throw new HttpsError("unavailable", "Email delivery is temporarily unavailable.");
+  }
+}
+
+export const sendPlayUpPasswordReset = onCall({...callableOptions, secrets: [resendApiKey]}, async (request) => {
+  const email = typeof request.data?.email === "string" ? request.data.email.trim().toLowerCase() : "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    throw new HttpsError("invalid-argument", "Enter a valid email address.");
+  }
+  try {
+    const actionSettings = {url: "https://play-up.fit/auth/action", handleCodeInApp: false};
+    const link = await getAuth().generatePasswordResetLink(email, actionSettings);
+    await sendPlayUpAuthEmail("resetPassword", email, link);
+  } catch (error) {
+    if ((error as {code?: string})?.code === "auth/user-not-found" || (error as {code?: string})?.code === "auth/user-disabled") return {accepted: true};
+    if (error instanceof HttpsError) throw error;
+    console.error("PlayUp password reset could not be sent");
+    throw new HttpsError("unavailable", "Email delivery is temporarily unavailable.");
+  }
+  return {accepted: true};
+});
+
+export const sendPlayUpEmailVerification = onCall({...callableOptions, secrets: [resendApiKey]}, async (request) => {
+  const uid = requireAnyAuth(request);
+  try {
+    const user = await getAuth().getUser(uid);
+    if (!user.email) throw new HttpsError("failed-precondition", "This account has no email address.");
+    if (user.emailVerified) return {accepted: true, alreadyVerified: true};
+    const link = await getAuth().generateEmailVerificationLink(user.email, {url: "https://play-up.fit/auth/action", handleCodeInApp: false});
+    await sendPlayUpAuthEmail("verifyEmail", user.email, link);
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    console.error("PlayUp verification email could not be sent");
+    throw new HttpsError("unavailable", "Email delivery is temporarily unavailable.");
+  }
+  return {accepted: true};
+});
 
 export const syncPublicProfile = onDocumentWritten("users/{userId}", async (event) => {
   const data = event.data?.after.data();
