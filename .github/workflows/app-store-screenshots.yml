@@ -28,6 +28,7 @@ jobs:
         run: |
           flutter --version
           flutter pub get
+          flutter precache --ios
           (cd ios && pod install)
 
       - name: Capture iPhone with Dynamic Island screenshot
