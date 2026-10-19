@@ -55,8 +55,16 @@ jobs:
           PY
           )"
           echo "Booting iPhone simulator $DEVICE_ID"
-          open -a Simulator --args -CurrentDeviceUDID "$DEVICE_ID" || true
-          xcrun simctl boot "$DEVICE_ID" || true
+          python3 - "$DEVICE_ID" <<'PY'
+          import subprocess, sys
+          device = sys.argv[1]
+          for command in (["open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", device], ["xcrun", "simctl", "boot", device]):
+              try:
+                  subprocess.run(command, check=False, timeout=90)
+              except subprocess.TimeoutExpired:
+                  subprocess.run(["xcrun", "simctl", "list", "devices", "available"], timeout=30)
+                  raise SystemExit(f"Command timed out after 90 seconds: {' '.join(command)}")
+          PY
           python3 - <<PY
           import subprocess
           try:
@@ -93,8 +101,16 @@ jobs:
           PY
           )"
           echo "Booting iPad simulator $DEVICE_ID"
-          open -a Simulator --args -CurrentDeviceUDID "$DEVICE_ID" || true
-          xcrun simctl boot "$DEVICE_ID" || true
+          python3 - "$DEVICE_ID" <<'PY'
+          import subprocess, sys
+          device = sys.argv[1]
+          for command in (["open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", device], ["xcrun", "simctl", "boot", device]):
+              try:
+                  subprocess.run(command, check=False, timeout=90)
+              except subprocess.TimeoutExpired:
+                  subprocess.run(["xcrun", "simctl", "list", "devices", "available"], timeout=30)
+                  raise SystemExit(f"Command timed out after 90 seconds: {' '.join(command)}")
+          PY
           python3 - <<PY
           import subprocess
           try:
