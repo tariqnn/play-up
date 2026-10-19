@@ -1582,17 +1582,19 @@ class AppRepository {
     return _userBlocks
         .where('participantIds', arrayContains: uid)
         .snapshots()
-        .map((snapshot) => {
-          for (final doc in snapshot.docs)
-            if ((doc.data()['participantIds'] as List?)
-                    ?.whereType<String>()
-                    .any((id) => id != uid) ==
-                true)
-              (doc.data()['participantIds'] as List)
-                      .whereType<String>()
-                      .firstWhere((id) => id != uid):
-                  doc.data(),
-        });
+        .map(
+          (snapshot) => {
+            for (final doc in snapshot.docs)
+              if ((doc.data()['participantIds'] as List?)
+                      ?.whereType<String>()
+                      .any((id) => id != uid) ==
+                  true)
+                (doc.data()['participantIds'] as List)
+                    .whereType<String>()
+                    .firstWhere((id) => id != uid): doc
+                    .data(),
+          },
+        );
   }
 
   Future<void> blockMatchParticipant(String userId) async {
@@ -2008,7 +2010,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   static const _slides = [
     _WelcomeSlide(
-      imageUrl: 'asset:assets/images/sports/basketball_action.png',
+      imageUrl: 'asset:assets/images/sports/basketball_court_ball.png',
       badge: 'REAL SPORTS VENUES',
       icon: Icons.sports_tennis_rounded,
       title: 'Find Courts &\nVenues',
@@ -2018,7 +2020,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       gradientColors: [Color(0xFF16C784), Color(0xFF087A4A)],
     ),
     _WelcomeSlide(
-      imageUrl: 'asset:assets/images/sports/football_action.png',
+      imageUrl: 'asset:assets/images/sports/football_court_ball.png',
       badge: 'COMMUNITY & MATCHES',
       icon: CupertinoIcons.person_2_alt,
       title: 'Find Players &\nPlay Together',
@@ -2028,7 +2030,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       gradientColors: [Color(0xFF0F766E), Color(0xFF134E4A)],
     ),
     _WelcomeSlide(
-      imageUrl: 'asset:assets/images/sports/volleyball_action.png',
+      imageUrl: 'asset:assets/images/sports/volleyball_court_ball.png',
       badge: 'SPORTS AROUND AMMAN',
       icon: CupertinoIcons.sportscourt,
       title: 'Discover Local\nSports',
@@ -2519,9 +2521,9 @@ class _AuthScreenState extends State<AuthScreen> {
       if (!mounted) return;
       if (_isSignUp) {
         if (user != null) {
-          await FirebaseFunctions.instanceFor(region: 'me-central1')
-              .httpsCallable('sendPlayUpEmailVerification')
-              .call();
+          await FirebaseFunctions.instanceFor(
+            region: 'me-central1',
+          ).httpsCallable('sendPlayUpEmailVerification').call();
         }
         if (!mounted) return;
         Navigator.of(context).popUntil((route) => route.isFirst);
@@ -2968,9 +2970,9 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
       _message = null;
     });
     try {
-      await FirebaseFunctions.instanceFor(region: 'me-central1')
-          .httpsCallable('sendPlayUpEmailVerification')
-          .call();
+      await FirebaseFunctions.instanceFor(
+        region: 'me-central1',
+      ).httpsCallable('sendPlayUpEmailVerification').call();
       setState(() => _message = 'A new verification email was sent.');
     } on FirebaseAuthException catch (error) {
       setState(() => _message = friendlyAuthError(error));
@@ -3254,7 +3256,7 @@ class BookCourtsOnboarding extends StatelessWidget {
           const SportImageCard(
             height: 250,
             icon: CupertinoIcons.sportscourt,
-            imageUrl: 'asset:assets/images/sports/basketball_action.png',
+            imageUrl: 'asset:assets/images/sports/basketball_court_ball.png',
           ),
           Positioned(
             left: -4,
@@ -3266,7 +3268,8 @@ class BookCourtsOnboarding extends StatelessWidget {
                 children: [
                   const SportImageThumb(
                     size: 76,
-                    imageUrl: 'asset:assets/images/sports/basketball_action.png',
+                    imageUrl:
+                        'asset:assets/images/sports/basketball_court_ball.png',
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -3600,12 +3603,8 @@ class HomeScreen extends StatelessWidget {
                     final list = nearby.isEmpty ? allCourts : nearby;
                     return ListView.separated(
                       scrollDirection: Axis.horizontal,
-                      itemBuilder: (_, index) => CourtCarouselCard(
-                        court: list[index],
-                        previewImageUrl: index < _homeCourtPreviewImages.length
-                            ? _homeCourtPreviewImages[index]
-                            : null,
-                      ),
+                      itemBuilder: (_, index) =>
+                          CourtCarouselCard(court: list[index]),
                       separatorBuilder: (context, index) =>
                           const SizedBox(width: 12),
                       itemCount: list.length,
@@ -3838,19 +3837,19 @@ class _HomeSportCarouselState extends State<HomeSportCarousel> {
     _HomeSportItem(
       sport: 'Football',
       icon: Icons.sports_soccer_rounded,
-      imageUrl: 'asset:assets/images/sports/football_action.png',
+      imageUrl: 'asset:assets/images/sports/football_court_ball.png',
       badge: 'Team Play',
     ),
     _HomeSportItem(
       sport: 'Basketball',
       icon: Icons.sports_basketball_rounded,
-      imageUrl: 'asset:assets/images/sports/basketball_action.png',
+      imageUrl: 'asset:assets/images/sports/basketball_court_ball.png',
       badge: 'Court Sport',
     ),
     _HomeSportItem(
       sport: 'Volleyball',
       icon: Icons.sports_volleyball_rounded,
-      imageUrl: 'asset:assets/images/sports/volleyball_action.png',
+      imageUrl: 'asset:assets/images/sports/volleyball_court_ball.png',
       badge: 'Team Play',
     ),
     _HomeSportItem(
@@ -6896,9 +6895,11 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text('$action $name?'),
-        content: Text(currentlyBlockedByMe
-            ? 'This player will be able to interact with you in match chat again.'
-            : 'You will no longer see this player\'s match messages or send messages in a match that includes them. Support can still receive a report.'),
+        content: Text(
+          currentlyBlockedByMe
+              ? 'This player will be able to interact with you in match chat again.'
+              : 'You will no longer see this player\'s match messages or send messages in a match that includes them. Support can still receive a report.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -6920,14 +6921,21 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$name ${currentlyBlockedByMe ? 'unblocked' : 'blocked'}')),
+        SnackBar(
+          content: Text(
+            '$name ${currentlyBlockedByMe ? 'unblocked' : 'blocked'}',
+          ),
+        ),
       );
     } catch (error) {
       if (!mounted) return;
       await showAdaptiveMessage(
         context,
         title: 'Could not ${action.toLowerCase()} player',
-        message: error.toString().replaceFirst('DomainValidationException: ', ''),
+        message: error.toString().replaceFirst(
+          'DomainValidationException: ',
+          '',
+        ),
       );
     }
   }
@@ -6953,7 +6961,7 @@ class _ParticipantChat extends StatelessWidget {
   final List<String> playerNames;
   final Map<String, Map<String, dynamic>> blockedParticipants;
   final Future<void> Function(String userId, String name, bool blockedByMe)
-      onToggleBlock;
+  onToggleBlock;
   final void Function(String userId, String name) onReport;
 
   @override
@@ -6972,7 +6980,9 @@ class _ParticipantChat extends StatelessWidget {
               if (players[index] != FirebaseAuth.instance.currentUser?.uid)
                 _MatchParticipantSafetyRow(
                   userId: players[index],
-                  name: index < playerNames.length && playerNames[index].trim().isNotEmpty
+                  name:
+                      index < playerNames.length &&
+                          playerNames[index].trim().isNotEmpty
                       ? playerNames[index].trim()
                       : 'Player',
                   block: blockedParticipants[players[index]],
@@ -7000,10 +7010,11 @@ class _ParticipantChat extends StatelessWidget {
             );
           }
           final messages = (snapshot.data?.docs ?? const [])
-              .where((doc) =>
-                  !blockedParticipants.containsKey(
-                    doc.data()['userId']?.toString(),
-                  ))
+              .where(
+                (doc) => !blockedParticipants.containsKey(
+                  doc.data()['userId']?.toString(),
+                ),
+              )
               .toList();
           if (messages.isEmpty) {
             return const CardBox(
@@ -7071,7 +7082,7 @@ class _MatchParticipantSafetyRow extends StatelessWidget {
   final String name;
   final Map<String, dynamic>? block;
   final Future<void> Function(String userId, String name, bool blockedByMe)
-      onToggleBlock;
+  onToggleBlock;
   final void Function(String userId, String name) onReport;
 
   @override
@@ -7083,12 +7094,23 @@ class _MatchParticipantSafetyRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.w700))),
+          Expanded(
+            child: Text(
+              name,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
           TextButton(
             onPressed: blockedByThem
                 ? null
                 : () => onToggleBlock(userId, name, blockedByMe),
-            child: Text(blockedByThem ? 'Blocked you' : blockedByMe ? 'Unblock' : 'Block'),
+            child: Text(
+              blockedByThem
+                  ? 'Blocked you'
+                  : blockedByMe
+                  ? 'Unblock'
+                  : 'Block',
+            ),
           ),
           TextButton(
             onPressed: () => onReport(userId, name),
@@ -7422,7 +7444,11 @@ class SettingsScreen extends StatelessWidget {
 }
 
 class SupportScreen extends StatefulWidget {
-  const SupportScreen({super.key, required this.category, this.initialMessage = ''});
+  const SupportScreen({
+    super.key,
+    required this.category,
+    this.initialMessage = '',
+  });
 
   final String category;
   final String initialMessage;
@@ -8321,27 +8347,25 @@ class RewardsPointsCard extends StatelessWidget {
 String _sportPreviewImage(Court court) {
   final sport = '${court.sport} ${court.subtitle}'.toLowerCase();
   if (sport.contains('football') || sport.contains('soccer')) {
-    return 'asset:assets/images/sports/football_action.png';
+    return 'asset:assets/images/sports/football_court_ball.png';
   }
   if (sport.contains('volleyball')) {
-    return 'asset:assets/images/sports/volleyball_action.png';
+    return 'asset:assets/images/sports/volleyball_court_ball.png';
   }
   if (sport.contains('basketball') || sport.contains('3x3')) {
-    return 'asset:assets/images/sports/basketball_action.png';
+    return 'asset:assets/images/sports/basketball_court_ball.png';
   }
   if (sport.contains('padel') || sport.contains('tennis')) {
-    return 'asset:assets/images/tennis_federer.png';
+    return 'asset:assets/images/sports/tennis_court_ball.png';
   }
-  // Keep the directory and home previews sport themed. Real venue photos
-  // remain available on each venue's detail page.
+  // Generic sports imagery shows equipment and courts without stock people.
   return '';
 }
 
-const _homeCourtPreviewImages = <String>[
-  'asset:assets/images/sports/football_action.png',
-  'asset:assets/images/sports/basketball_action.png',
-  'asset:assets/images/sports/volleyball_action.png',
-];
+String _courtCardImage(Court court) {
+  final venueImages = court.galleryImages;
+  return venueImages.isNotEmpty ? venueImages.first : _sportPreviewImage(court);
+}
 
 class CourtListCard extends StatelessWidget {
   const CourtListCard({super.key, required this.court});
@@ -8371,7 +8395,7 @@ class CourtListCard extends StatelessWidget {
                   height: 156,
                   icon: court.icon,
                   gradient: court.gradient,
-                  imageUrl: _sportPreviewImage(court),
+                  imageUrl: _courtCardImage(court),
                 ),
                 Positioned(
                   top: 10,
@@ -8473,14 +8497,9 @@ class CourtListCard extends StatelessWidget {
 }
 
 class CourtCarouselCard extends StatelessWidget {
-  const CourtCarouselCard({
-    super.key,
-    required this.court,
-    this.previewImageUrl,
-  });
+  const CourtCarouselCard({super.key, required this.court});
 
   final Court court;
-  final String? previewImageUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -8505,7 +8524,7 @@ class CourtCarouselCard extends StatelessWidget {
                 height: 96,
                 icon: court.icon,
                 gradient: court.gradient,
-                imageUrl: previewImageUrl ?? _sportPreviewImage(court),
+                imageUrl: _courtCardImage(court),
               ),
               Padding(
                 padding: const EdgeInsets.all(12),

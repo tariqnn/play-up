@@ -115,7 +115,7 @@ final kTestCourts = <Court>[
     imageUrl:
         'https://images.unsplash.com/photo-1595435934249-5df7ed86e1c0?w=1200&q=80',
     imageUrls: const [
-      'asset:assets/images/tennis_federer.png',
+      'asset:assets/images/sports/tennis_court_ball.png',
       'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=1200&q=80',
     ],
     gradient: gradientFor('purple'),

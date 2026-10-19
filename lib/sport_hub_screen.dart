@@ -56,17 +56,17 @@ class SportHubScreen extends StatelessWidget {
   static String _sportImage(String sport) {
     switch (sport.toLowerCase()) {
       case 'padel':
-        return 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?w=1200&q=80';
+        return 'asset:assets/images/sports/tennis_court_ball.png';
       case 'football':
-        return 'https://images.unsplash.com/photo-1529900748604-07564a03e7a6?w=1200&q=80';
+        return 'asset:assets/images/sports/football_court_ball.png';
       case 'tennis':
-        return 'asset:assets/images/tennis_federer.png';
+        return 'asset:assets/images/sports/tennis_court_ball.png';
       case 'basketball':
-        return 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&q=80';
+        return 'asset:assets/images/sports/basketball_court_ball.png';
       case 'volleyball':
-        return 'https://images.unsplash.com/photo-1612872087720-bb876e2e67d1?w=1200&q=80';
+        return 'asset:assets/images/sports/volleyball_court_ball.png';
       case 'badminton':
-        return 'https://images.unsplash.com/photo-1722087642932-9b070e9a066e?w=1200&q=80';
+        return 'asset:assets/images/sports/tennis_court_ball.png';
       case 'sea sports':
         return 'https://images.unsplash.com/photo-1632904074880-b77f02b6d01e?w=1200&q=80';
       case 'dodgeball':

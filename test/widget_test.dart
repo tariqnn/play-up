@@ -118,9 +118,40 @@ void main() {
             widget is Image &&
             widget.image is AssetImage &&
             (widget.image as AssetImage).assetName ==
-                'assets/images/sports/basketball_action.png',
+                'assets/images/sports/basketball_court_ball.png',
       ),
       findsOneWidget,
+    );
+  });
+
+  testWidgets('court cards prefer the venue photo over generic sport art', (
+    tester,
+  ) async {
+    const court = Court(
+      id: 'infinity-fiba-5x5',
+      name: 'Infinity Basketball Court',
+      subtitle: 'Indoor basketball court',
+      rating: 'Not rated',
+      distance: 'Distance unavailable',
+      price: 'Contact venue',
+      gradient: [Color(0xFF102A43), Color(0xFF1F7A8C)],
+      icon: Icons.sports_basketball,
+      imageUrl: 'asset:assets/images/infinity_sports/court_basketball_ac.jpeg',
+      sport: 'Basketball',
+    );
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: CourtCarouselCard(court: court)),
+      ),
+    );
+
+    final imageCard = tester.widget<SportImageCard>(
+      find.byType(SportImageCard),
+    );
+    expect(
+      imageCard.imageUrl,
+      'asset:assets/images/infinity_sports/court_basketball_ac.jpeg',
     );
   });
 
