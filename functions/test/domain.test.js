@@ -43,13 +43,15 @@ test("terminal booking statuses cannot reopen", () => {
   assert.doesNotThrow(() => assertTransition("confirmed", "checkedIn"));
 });
 
-test("PlayUp auth emails show a text logo without remote or inline image loading", () => {
+test("PlayUp auth emails use the hosted logo with a text fallback", () => {
   const email = buildAuthEmail("resetPassword", "https://play-up.fit/auth/action?mode=resetPassword&token=unit-test");
   assert.equal(email.subject, "Reset your PlayUp password");
   assert.match(email.html, /bgcolor="#10231b"/);
-  assert.match(email.html, /PlayUp<\/td>/);
+  assert.match(email.html, /src="https:\/\/play-up\.fit\/playup-email-logo\.png"/);
+  assert.match(email.html, /alt="PlayUp"/);
+  assert.match(email.html, /<span[^>]*>PlayUp<\/span>/);
   assert.match(email.html, /#22e879/);
-  assert.doesNotMatch(email.html, /<img\b|cid:|playup-email-logo\.png/);
+  assert.doesNotMatch(email.html, /cid:/);
   assert.doesNotMatch(email.html, /Â·/);
   assert.match(email.text, /Reset password: https:\/\/play-up\.fit\/auth\/action/);
 });
