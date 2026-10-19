@@ -45,6 +45,7 @@ workflows:
         script: |
           flutter build ipa --release \
             --build-number=$PROJECT_BUILD_NUMBER \
+            --dart-define=APPLE_SIGN_IN_ENABLED=true \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa
