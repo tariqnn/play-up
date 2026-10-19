@@ -29,6 +29,10 @@ jobs:
       - name: Resolve Flutter and iOS dependencies
         run: |
           flutter --version
+          # Flutter 3.44 enables Swift Package Manager by default. This app's
+          # custom iOS project still uses CocoaPods, so keep the workflow on
+          # the dependency manager committed in ios/Podfile.lock.
+          flutter config --no-enable-swift-package-manager
           flutter pub get
           flutter precache --ios
           (cd ios && pod install)
