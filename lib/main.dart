@@ -2521,9 +2521,22 @@ class _AuthScreenState extends State<AuthScreen> {
       if (!mounted) return;
       if (_isSignUp) {
         if (user != null) {
-          await FirebaseFunctions.instanceFor(
-            region: 'me-central1',
-          ).httpsCallable('sendPlayUpEmailVerification').call();
+          // Account creation is already committed at this point. A temporary
+          // verification-email outage must not make signup look unsuccessful
+          // or leave the user on a form they can no longer submit.
+          _emailVerificationNotice.value = null;
+          try {
+            await FirebaseFunctions.instanceFor(
+              region: 'me-central1',
+            ).httpsCallable('sendPlayUpEmailVerification').call();
+            _emailVerificationNotice.value =
+                'A verification email was sent to ${user.email ?? 'your email address'}.';
+          } catch (_) {
+            // EmailVerificationScreen provides a retry action after AuthGate
+            // observes this newly authenticated, unverified account.
+            _emailVerificationNotice.value =
+                'Your account is ready, but we couldn’t send the verification email. Tap Resend below to try again.';
+          }
         }
         if (!mounted) return;
         Navigator.of(context).popUntil((route) => route.isFirst);
@@ -2925,6 +2938,8 @@ class _AuthThemeButton extends StatelessWidget {
   );
 }
 
+final _emailVerificationNotice = ValueNotifier<String?>(null);
+
 class EmailVerificationScreen extends StatefulWidget {
   const EmailVerificationScreen({super.key});
 
@@ -2937,6 +2952,23 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
   bool _checking = false;
   bool _sending = false;
   String? _message;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailVerificationNotice.addListener(_syncNotice);
+    _message = _emailVerificationNotice.value;
+  }
+
+  void _syncNotice() {
+    if (mounted) setState(() => _message = _emailVerificationNotice.value);
+  }
+
+  @override
+  void dispose() {
+    _emailVerificationNotice.removeListener(_syncNotice);
+    super.dispose();
+  }
 
   Future<void> _check() async {
     setState(() {
@@ -2973,9 +3005,14 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
       await FirebaseFunctions.instanceFor(
         region: 'me-central1',
       ).httpsCallable('sendPlayUpEmailVerification').call();
-      setState(() => _message = 'A new verification email was sent.');
+      _emailVerificationNotice.value = 'A new verification email was sent.';
     } on FirebaseAuthException catch (error) {
       setState(() => _message = friendlyAuthError(error));
+    } catch (_) {
+      setState(
+        () => _message =
+            'We couldn’t send the email. Check your connection and try again.',
+      );
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -2995,7 +3032,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
           ),
           const SizedBox(height: 10),
           Text(
-            'We sent a secure verification link to ${FirebaseAuth.instance.currentUser?.email ?? 'your email address'}.',
+            'Verify the account for ${FirebaseAuth.instance.currentUser?.email ?? 'your email address'}. If the message hasn’t arrived, request another below.',
             style: TextStyle(
               height: 1.5,
               color: Theme.of(context).colorScheme.onSurfaceVariant,
