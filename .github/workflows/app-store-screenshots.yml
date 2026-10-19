@@ -79,7 +79,7 @@ jobs:
           PY
           echo "iPhone simulator booted; starting Flutter screenshot capture"
           xcrun simctl status_bar "$DEVICE_ID" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
-          flutter drive --no-pub -d "$DEVICE_ID" \
+          flutter drive --verbose --no-pub -d "$DEVICE_ID" \
             --driver=test_driver/integration_test.dart \
             --target=integration_test/store_screenshot_test.dart \
             --dart-define=PLAYUP_STORE_SCREENSHOT_TEST=true \
@@ -129,7 +129,7 @@ jobs:
           PY
           echo "iPad simulator booted; starting Flutter screenshot capture"
           xcrun simctl status_bar "$DEVICE_ID" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
-          flutter drive --no-pub -d "$DEVICE_ID" \
+          flutter drive --verbose --no-pub -d "$DEVICE_ID" \
             --driver=test_driver/integration_test.dart \
             --target=integration_test/store_screenshot_test.dart \
             --dart-define=PLAYUP_STORE_SCREENSHOT_TEST=true \
