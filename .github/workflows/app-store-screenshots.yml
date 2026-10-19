@@ -21,7 +21,9 @@ jobs:
       - name: Install stable Flutter from the official repository
         shell: bash
         run: |
-          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          # Match the SDK used to resolve the committed pubspec.lock. Tracking
+          # stable moved to 3.47 during this run and changed iOS plugin setup.
+          git clone --depth 1 --branch 3.44.6 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
 
       - name: Resolve Flutter and iOS dependencies
