@@ -43,6 +43,21 @@ const kSkillLevels = <String>[
   'Competitive',
 ];
 
+String _setupErrorMessage(Object error) {
+  if (error is FirebaseAuthException) return friendlyAuthError(error);
+  if (error is FirebaseException) {
+    return switch (error.code) {
+      'permission-denied' =>
+        'We couldn’t access your player profile. Please try again or contact support if this keeps happening.',
+      'unavailable' || 'deadline-exceeded' =>
+        'We couldn’t reach PlayUp. Check your connection and try again.',
+      _ => 'We couldn’t save your setup. Please try again.',
+    };
+  }
+  if (error is StateError) return error.message.toString();
+  return 'We couldn’t save your setup. Please try again.';
+}
+
 /// A tappable pill used across the setup and filter flows.
 class SelectablePill extends StatelessWidget {
   const SelectablePill({
@@ -121,6 +136,8 @@ class SportsSelectionScreen extends StatefulWidget {
 
 class _SportsSelectionScreenState extends State<SportsSelectionScreen> {
   final _selected = <String>{};
+  bool _loading = true;
+  String? _loadError;
 
   @override
   void initState() {
@@ -129,24 +146,40 @@ class _SportsSelectionScreenState extends State<SportsSelectionScreen> {
   }
 
   Future<void> _loadSports() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    final snapshot = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .get();
-    if (!mounted) return;
     setState(() {
-      _selected
-        ..clear()
-        ..addAll(
-          List<String>.from(snapshot.data()?['sports'] as List? ?? const []),
-        );
+      _loading = true;
+      _loadError = null;
     });
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) {
+        throw StateError('Your session ended. Sign in again to continue.');
+      }
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      if (!mounted) return;
+      setState(() {
+        _selected
+          ..clear()
+          ..addAll(
+            List<String>.from(snapshot.data()?['sports'] as List? ?? const []),
+          );
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadError = _setupErrorMessage(error);
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       body: AppScrollPage(
         child: Column(
@@ -157,52 +190,114 @@ class _SportsSelectionScreenState extends State<SportsSelectionScreen> {
               onBack: () => Navigator.of(context).pop(),
             ),
             const SizedBox(height: 18),
-            const Text(
-              'Choose your sports',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Pick the sports you play so we can tailor matches and courts.',
-              style: TextStyle(color: AppColors.muted, height: 1.4),
-            ),
-            const SizedBox(height: 22),
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 1.35,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (final sport in kSportOptions)
-                  _SportSelectCard(
-                    sport: sport,
-                    selected: _selected.contains(sport.label),
-                    onTap: () => setState(() {
-                      if (!_selected.add(sport.label)) {
-                        _selected.remove(sport.label);
-                      }
-                    }),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Build your player profile',
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Choose the sports you play. We’ll use them to make court and match suggestions more relevant.',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: scheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    '${_selected.length} selected',
+                    style: TextStyle(
+                      color: scheme.onPrimaryContainer,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 24),
-            PrimaryButton(
-              label: 'Continue',
-              onPressed: _selected.isEmpty
-                  ? () => ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Select at least one sport.'),
-                      ),
-                    )
-                  : () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            SkillLevelScreen(sports: _selected.toList()),
-                      ),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 52),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_loadError != null) ...[
+              ErrorBanner(message: _loadError!),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _loadSports,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Try again'),
+              ),
+            ] else ...[
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final columns = constraints.maxWidth >= 620 ? 3 : 2;
+                  return GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: kSportOptions.length,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: columns,
+                      mainAxisSpacing: 12,
+                      crossAxisSpacing: 12,
+                      mainAxisExtent: 116,
                     ),
-            ),
+                    itemBuilder: (context, index) {
+                      final sport = kSportOptions[index];
+                      return _SportSelectCard(
+                        sport: sport,
+                        selected: _selected.contains(sport.label),
+                        onTap: () => setState(() {
+                          if (!_selected.add(sport.label)) {
+                            _selected.remove(sport.label);
+                          }
+                        }),
+                      );
+                    },
+                  );
+                },
+              ),
+              const SizedBox(height: 20),
+              Text(
+                _selected.isEmpty
+                    ? 'Choose at least one sport to continue.'
+                    : 'You can change these choices any time in your profile.',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 12),
+              PrimaryButton(
+                label: 'Continue',
+                onPressed: _selected.isEmpty
+                    ? null
+                    : () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              SkillLevelScreen(sports: _selected.toList()),
+                        ),
+                      ),
+              ),
+            ],
           ],
         ),
       ),
@@ -223,46 +318,83 @@ class _SportSelectCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.selectionClick();
-        onTap();
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: selected
-              ? AppColors.purple.withValues(alpha: .08)
-              : AppColors.surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: selected ? AppColors.purple : AppColors.line,
-            width: selected ? 2 : 1,
-          ),
+    final scheme = Theme.of(context).colorScheme;
+    final borderRadius = BorderRadius.circular(20);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      decoration: BoxDecoration(
+        color: selected ? scheme.primaryContainer : scheme.surfaceContainerLow,
+        borderRadius: borderRadius,
+        border: Border.all(
+          color: selected ? scheme.primary : scheme.outlineVariant,
+          width: selected ? 1.8 : 1,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(sport.icon, color: AppColors.purple, size: 26),
-                const Spacer(),
-                Icon(
-                  selected
-                      ? CupertinoIcons.checkmark_circle_fill
-                      : CupertinoIcons.circle,
-                  color: selected ? AppColors.purple : AppColors.line,
-                  size: 22,
-                ),
-              ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: borderRadius),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () {
+            HapticFeedback.selectionClick();
+            onTap();
+          },
+          borderRadius: borderRadius,
+          child: Semantics(
+            button: true,
+            selected: selected,
+            label: sport.label,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? scheme.primary.withValues(alpha: .14)
+                              : scheme.secondaryContainer,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(
+                          sport.icon,
+                          color: selected
+                              ? scheme.primary
+                              : scheme.onSecondaryContainer,
+                          size: 23,
+                        ),
+                      ),
+                      const Spacer(),
+                      Icon(
+                        selected
+                            ? CupertinoIcons.checkmark_circle_fill
+                            : CupertinoIcons.circle,
+                        color: selected ? scheme.primary : scheme.outline,
+                        size: 22,
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  Text(
+                    sport.label,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      color: selected
+                          ? scheme.onPrimaryContainer
+                          : scheme.onSurface,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const Spacer(),
-            Text(
-              sport.label,
-              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -285,36 +417,42 @@ class _SkillLevelScreenState extends State<SkillLevelScreen> {
   String _preferredTime = 'Evening';
   bool _publicProfile = true;
   bool _saving = false;
+  String? _error;
 
   Future<void> _finish() async {
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-          'sports': widget.sports,
-          'skillLevels': _levels,
-          'preferredTime': _preferredTime,
-          'publicProfile': _publicProfile,
-          'setupComplete': true,
-        }, SetOptions(merge: true));
+      if (user == null) {
+        throw StateError('Your session ended. Sign in again to finish setup.');
       }
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'sports': widget.sports,
+        'skillLevels': _levels,
+        'preferredTime': _preferredTime,
+        'publicProfile': _publicProfile,
+        'setupComplete': true,
+      }, SetOptions(merge: true));
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const SetupCompleteScreen()),
       );
     } catch (error) {
       if (mounted) {
-        setState(() => _saving = false);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.toString())));
+        setState(() {
+          _saving = false;
+          _error = _setupErrorMessage(error);
+        });
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       body: AppScrollPage(
         child: Column(
@@ -325,14 +463,16 @@ class _SkillLevelScreenState extends State<SkillLevelScreen> {
               onBack: () => Navigator.of(context).pop(),
             ),
             const SizedBox(height: 18),
-            const Text(
-              'How do you play?',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+            Text(
+              'Set your playing style',
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Set your level for each sport so we match you fairly.',
-              style: TextStyle(color: AppColors.muted, height: 1.4),
+              style: TextStyle(color: scheme.onSurfaceVariant, height: 1.45),
             ),
             const SizedBox(height: 20),
             for (final sport in widget.sports) ...[
@@ -358,9 +498,11 @@ class _SkillLevelScreenState extends State<SkillLevelScreen> {
               ),
               const SizedBox(height: 18),
             ],
-            const Text(
-              'Preferred play time',
-              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+            Text(
+              'When do you usually play?',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 10),
             Wrap(
@@ -386,16 +528,23 @@ class _SkillLevelScreenState extends State<SkillLevelScreen> {
                   'Public profile',
                   style: TextStyle(fontWeight: FontWeight.w900),
                 ),
-                subtitle: const Text(
+                subtitle: Text(
                   'Let other players discover and invite you.',
-                  style: TextStyle(color: AppColors.muted, fontSize: 13),
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 13,
+                  ),
                 ),
               ),
             ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              ErrorBanner(message: _error!),
+            ],
             const SizedBox(height: 24),
             PrimaryButton(
               label: _saving ? 'Saving...' : 'Finish Setup',
-              onPressed: _saving ? () {} : _finish,
+              onPressed: _saving ? null : _finish,
             ),
           ],
         ),
@@ -409,6 +558,7 @@ class SetupCompleteScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       body: AppScrollPage(
         child: Column(
@@ -419,24 +569,26 @@ class SetupCompleteScreen extends StatelessWidget {
               height: 110,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: AppColors.purple.withValues(alpha: .12),
+                color: scheme.primaryContainer,
               ),
-              child: const Icon(
+              child: Icon(
                 CupertinoIcons.checkmark_alt,
-                color: AppColors.purple,
+                color: scheme.primary,
                 size: 64,
               ),
             ).animate().scale(duration: 340.ms, curve: Curves.easeOutBack),
             const SizedBox(height: 26),
-            const Text(
+            Text(
               'You are all set!',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 10),
-            const Text(
+            Text(
               'Your player profile is ready. Book a court, find a match, and start levelling up.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.muted, height: 1.5),
+              style: TextStyle(color: scheme.onSurfaceVariant, height: 1.5),
             ),
             const SizedBox(height: 30),
             PrimaryButton(

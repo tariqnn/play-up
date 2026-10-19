@@ -351,6 +351,10 @@ class CatalogService {
           .map((d) => _courtFrom(d.data(), id: d.id))
           .where((court) => court.active)
           .toList();
+      // Demo runs can start before the fixture seeder finishes. Keep the
+      // local UAT catalog visible until emulator data is present; production
+      // builds never use this fallback.
+      if (useFirebaseEmulators && result.isEmpty) return kTestCourts;
       result.sort((a, b) => a.name.compareTo(b.name));
       return result;
     });

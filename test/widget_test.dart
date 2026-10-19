@@ -177,11 +177,19 @@ void main() {
     expect(find.text('Motion off'), findsNothing);
     expect(find.text('Football'), findsWidgets);
     expect(find.text('Basketball'), findsWidgets);
-    expect(find.text('Volleyball'), findsWidgets);
     expect(find.text('Infinity Sports'), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget.runtimeType.toString() == 'CachedNetworkImage',
+      ),
+      findsNothing,
+    );
 
     final pageView = tester.widget<PageView>(find.byType(PageView));
     final initialPage = pageView.controller!.page!;
+    await tester.drag(find.byType(PageView), const Offset(-950, 0));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('Tennis'), findsWidgets);
     await tester.pump(const Duration(seconds: 4));
     await tester.pump(const Duration(milliseconds: 450));
     expect(pageView.controller!.page!, greaterThan(initialPage));
