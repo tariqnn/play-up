@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
@@ -101,41 +100,10 @@ class AdminPanelScreen extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const AdminUsersScreen()),
               ),
             ),
-            if (useFirebaseEmulators) ...[
-              const SizedBox(height: 12),
-              PrimaryButton(
-                label: 'Seed Sample Data',
-                icon: CupertinoIcons.cloud_upload,
-                onPressed: () => _seed(context),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Seed data is available only in the local Firebase emulator.',
-                style: TextStyle(
-                  color: AppColors.muted,
-                  fontSize: 12,
-                  height: 1.4,
-                ),
-              ),
-            ],
           ],
         ),
       ),
     );
-  }
-
-  Future<void> _seed(BuildContext context) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await FirebaseFunctions.instanceFor(
-        region: 'me-central1',
-      ).httpsCallable('seedUat').call();
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Sample data written to Firestore.')),
-      );
-    } catch (error) {
-      messenger.showSnackBar(SnackBar(content: Text('Seed failed: $error')));
-    }
   }
 }
 

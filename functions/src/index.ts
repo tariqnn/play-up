@@ -335,13 +335,6 @@ function bookingIsActive(booking: FirebaseFirestore.DocumentData): boolean {
   return ["pending", "confirmed", "checkedIn"].includes(String(booking.status));
 }
 
-function requireUatProject(): void {
-  const projectId = process.env.GCLOUD_PROJECT ?? "";
-  if (process.env.FUNCTIONS_EMULATOR !== "true" && !projectId.toLowerCase().includes("uat")) {
-    throw new HttpsError("failed-precondition", "UAT tools are disabled in this project.");
-  }
-}
-
 export const quoteBooking = onCall(callableOptions, async (request) => {
   const uid = requireAuth(request);
   await profile(uid);
@@ -1330,43 +1323,6 @@ export const registerTournament = onCall(callableOptions, async (request) => {
     tx.update(ref, {registrationCount: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp()});
   });
   return {ok: true, paymentStatus: 'pending'};
-});
-
-export const seedUat = onCall(callableOptions, async (request) => {
-  requireUatProject();
-  const uid = requireAuth(request);
-  const user = await profile(uid);
-  if (user.role !== "superAdmin") throw new HttpsError("permission-denied", "Super administrator required.");
-  const academyA = db.collection("academies").doc("uat-academy-a");
-  const academyB = db.collection("academies").doc("uat-academy-b");
-  const batch = db.batch();
-  batch.set(academyA, {name: "Amman North Academy", status: "active", currency: "JOD", createdAt: FieldValue.serverTimestamp()});
-  batch.set(academyB, {name: "Amman South Academy", status: "active", currency: "JOD", createdAt: FieldValue.serverTimestamp()});
-  batch.set(db.collection("courts").doc("uat-court-a1"), {academyId: academyA.id, name: "North Padel 1", sport: "Padel", active: true, basePriceMinor: 1800, currency: "JOD", openingHour: 6, closingHour: 23, timezone: "Asia/Amman", blockedPeriods: [], maintenancePeriods: [], createdAt: FieldValue.serverTimestamp()});
-  batch.set(db.collection("courts").doc("uat-court-b1"), {academyId: academyB.id, name: "South Basketball 1", sport: "Basketball", active: true, basePriceMinor: 2100, currency: "JOD", openingHour: 6, closingHour: 23, timezone: "Asia/Amman", blockedPeriods: [], maintenancePeriods: [], createdAt: FieldValue.serverTimestamp()});
-  batch.set(db.collection("sports").doc("padel"), {name: "Padel", active: true});
-  batch.set(db.collection("sports").doc("basketball"), {name: "Basketball", active: true});
-  batch.set(db.collection("promotions").doc("uat-welcome"), {code: "UATWELCOME", active: true, discountType: "percentage", discountValue: 10, usageLimit: 100, usageCount: 0, startsAt: Timestamp.fromDate(new Date("2026-01-01T00:00:00Z")), endsAt: Timestamp.fromDate(new Date("2027-12-31T23:59:59Z"))});
-  batch.set(db.collection("auditLogs").doc(), {actorId: uid, action: "uat.seed", entity: "platform", entityId: "uat", createdAt: FieldValue.serverTimestamp()});
-  await batch.commit();
-  return {ok: true, academies: 2, courts: 2};
-});
-
-export const createUatUser = onCall(callableOptions, async (request) => {
-  requireUatProject();
-  const uid = requireAuth(request);
-  const actor = await profile(uid);
-  if (actor.role !== "superAdmin") throw new HttpsError("permission-denied", "Super administrator required.");
-  const email = text(request.data?.email, "email").toLowerCase();
-  const displayName = text(request.data?.displayName, "displayName");
-  const role = text(request.data?.role, "role");
-  const allowedRoles = ["platformAdmin", "academyOwner", "courtOwner", "academyStaff", "player"];
-  if (!allowedRoles.includes(role)) throw new HttpsError("invalid-argument", "Role is invalid.");
-  const password = text(request.data?.temporaryPassword, "temporaryPassword");
-  if (password.length < 12) throw new HttpsError("invalid-argument", "Temporary password must have at least 12 characters.");
-  const created = await getAuth().createUser({email, displayName, password, emailVerified: true});
-  await db.collection("users").doc(created.uid).set({uid: created.uid, email, displayName, role, permissions: Array.isArray(request.data?.permissions) ? request.data.permissions : [], academyId: request.data?.academyId ?? null, suspended: false, mustChangePassword: true, createdAt: FieldValue.serverTimestamp()});
-  return {uid: created.uid};
 });
 
 export const createAcademyStaff = onCall(callableOptions, async (request) => {
