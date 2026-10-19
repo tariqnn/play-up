@@ -54,8 +54,17 @@ jobs:
               raise SystemExit("No supported iPhone with Dynamic Island is available on this runner.")
           PY
           )"
+          echo "Booting iPhone simulator $DEVICE_ID"
           xcrun simctl boot "$DEVICE_ID" || true
-          xcrun simctl bootstatus "$DEVICE_ID" -b
+          python3 - <<PY
+          import subprocess
+          try:
+              subprocess.run(["xcrun", "simctl", "bootstatus", "$DEVICE_ID", "-b"], check=True, timeout=360)
+          except subprocess.TimeoutExpired:
+              subprocess.run(["xcrun", "simctl", "list", "devices", "available"])
+              raise SystemExit("iPhone simulator did not finish booting within 6 minutes")
+          PY
+          echo "iPhone simulator booted; starting Flutter screenshot capture"
           xcrun simctl status_bar "$DEVICE_ID" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
           flutter drive --no-pub -d "$DEVICE_ID" \
             --driver=test_driver/integration_test.dart \
@@ -82,8 +91,17 @@ jobs:
               raise SystemExit("No 13-inch iPad Pro simulator is available on this runner.")
           PY
           )"
+          echo "Booting iPad simulator $DEVICE_ID"
           xcrun simctl boot "$DEVICE_ID" || true
-          xcrun simctl bootstatus "$DEVICE_ID" -b
+          python3 - <<PY
+          import subprocess
+          try:
+              subprocess.run(["xcrun", "simctl", "bootstatus", "$DEVICE_ID", "-b"], check=True, timeout=360)
+          except subprocess.TimeoutExpired:
+              subprocess.run(["xcrun", "simctl", "list", "devices", "available"])
+              raise SystemExit("iPad simulator did not finish booting within 6 minutes")
+          PY
+          echo "iPad simulator booted; starting Flutter screenshot capture"
           xcrun simctl status_bar "$DEVICE_ID" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
           flutter drive --no-pub -d "$DEVICE_ID" \
             --driver=test_driver/integration_test.dart \
