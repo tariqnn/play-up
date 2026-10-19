@@ -9,7 +9,7 @@ import {setGlobalOptions} from "firebase-functions/v2/options";
 import {assertTransition, calculateEffectiveHourlyRate, calculateNextReliability, calculateRatingDelta, calculateSettlement, calculateTotal, canHostExternalMatches, canPublishPublicProfile, overlaps, userBlockDocumentId} from "./domain";
 import {randomBytes} from "node:crypto";
 import {defineSecret, defineString} from "firebase-functions/params";
-import {buildAuthEmail, playUpActionLink} from "./auth-email";
+import {buildAuthEmail, PLAYUP_EMAIL_LOGO_CID, PLAYUP_EMAIL_LOGO_URL, playUpActionLink} from "./auth-email";
 
 initializeApp();
 setGlobalOptions({region: "me-central1", maxInstances: 20});
@@ -32,6 +32,11 @@ async function sendPlayUpAuthEmail(kind: "resetPassword" | "verifyEmail", email:
       subject: message.subject,
       html: message.html,
       text: message.text,
+      attachments: [{
+        path: PLAYUP_EMAIL_LOGO_URL,
+        filename: "playup-logo.png",
+        content_id: PLAYUP_EMAIL_LOGO_CID,
+      }],
     }),
   });
   if (!response.ok) {
