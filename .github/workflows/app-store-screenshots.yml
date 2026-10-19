@@ -43,7 +43,11 @@ jobs:
           set -euo pipefail
           DEVICE_ID="$(python3 - <<'PY'
           import json, subprocess
-          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True))
+          try:
+              listing = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True, timeout=30)
+          except subprocess.TimeoutExpired:
+              raise SystemExit("CoreSimulator device listing did not respond within 30 seconds")
+          data = json.loads(listing)
           devices = [device for group in data["devices"].values() for device in group]
           for preferred in ("iPhone 16 Pro", "iPhone 17 Pro"):
               match = next((device for device in devices if device["name"] == preferred), None)
@@ -88,7 +92,11 @@ jobs:
           set -euo pipefail
           DEVICE_ID="$(python3 - <<'PY'
           import json, subprocess
-          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True))
+          try:
+              listing = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True, timeout=30)
+          except subprocess.TimeoutExpired:
+              raise SystemExit("CoreSimulator device listing did not respond within 30 seconds")
+          data = json.loads(listing)
           devices = [device for group in data["devices"].values() for device in group]
           names = ("iPad Pro 13-inch (M5)", "iPad Pro 13-inch (M4)")
           for preferred in names:
