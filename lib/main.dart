@@ -3256,7 +3256,7 @@ class BookCourtsOnboarding extends StatelessWidget {
           const SportImageCard(
             height: 250,
             icon: CupertinoIcons.sportscourt,
-            imageUrl: 'asset:assets/images/sports/basketball_court_ball.png',
+            imageUrl: 'asset:assets/images/infinity_sports/court_3x3.jpeg',
           ),
           Positioned(
             left: -4,
@@ -3269,7 +3269,7 @@ class BookCourtsOnboarding extends StatelessWidget {
                   const SportImageThumb(
                     size: 76,
                     imageUrl:
-                        'asset:assets/images/sports/basketball_court_ball.png',
+                        'asset:assets/images/infinity_sports/court_3x3.jpeg',
                   ),
                   const SizedBox(width: 14),
                   Expanded(
