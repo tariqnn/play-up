@@ -1,9 +1,16 @@
+import {createHash} from "node:crypto";
+
 export type PricingInput = {
   basePriceMinor: number;
   durationMinutes: number;
   discountType?: "percentage" | "fixed";
   discountValue?: number;
 };
+
+export function userBlockDocumentId(firstUserId: string, secondUserId: string): string {
+  const pair = [firstUserId.trim(), secondUserId.trim()].sort();
+  return createHash("sha256").update(`${pair[0]}\u0000${pair[1]}`).digest("hex");
+}
 
 export function canPublishPublicProfile(data: Record<string, unknown> | undefined): boolean {
   if (!data || data.role !== "player" || data.isTest === true || data.isDemo === true ||

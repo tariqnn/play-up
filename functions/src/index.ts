@@ -6,7 +6,7 @@ import {HttpsError, onCall} from "firebase-functions/v2/https";
 import {onDocumentCreated, onDocumentWritten} from "firebase-functions/v2/firestore";
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import {setGlobalOptions} from "firebase-functions/v2/options";
-import {assertTransition, calculateEffectiveHourlyRate, calculateNextReliability, calculateRatingDelta, calculateSettlement, calculateTotal, canHostExternalMatches, canPublishPublicProfile, overlaps} from "./domain";
+import {assertTransition, calculateEffectiveHourlyRate, calculateNextReliability, calculateRatingDelta, calculateSettlement, calculateTotal, canHostExternalMatches, canPublishPublicProfile, overlaps, userBlockDocumentId} from "./domain";
 import {randomBytes} from "node:crypto";
 import {defineSecret, defineString} from "firebase-functions/params";
 import {buildAuthEmail, playUpActionLink} from "./auth-email";
@@ -931,9 +931,56 @@ export const sendMatchMessage = onCall(callableOptions, async (request) => {
   if (body.length > 1000) throw new HttpsError("invalid-argument", "Message is too long.");
   const match = (await db.collection("matches").doc(matchId).get()).data();
   if (!match || !(match.players ?? []).includes(uid)) throw new HttpsError("permission-denied", "Join this match before chatting.");
+  const otherPlayers: string[] = (match.players ?? []).filter((playerId: string) => playerId !== uid);
+  const blockChecks = await Promise.all(otherPlayers.map((playerId) =>
+    db.collection("userBlocks").doc(userBlockDocumentId(uid, playerId)).get(),
+  ));
+  if (blockChecks.some((block) => block.exists)) {
+    throw new HttpsError("failed-precondition", "Chat is unavailable while a blocked player is in this match.");
+  }
   const ref = db.collection("matches").doc(matchId).collection("messages").doc();
   await ref.set({userId: uid, displayName: user.displayName ?? "Player", body, createdAt: FieldValue.serverTimestamp()});
   return {messageId: ref.id};
+});
+
+export const blockUser = onCall(callableOptions, async (request) => {
+  const uid = requireAuth(request);
+  await profile(uid);
+  const blockedUserId = text(request.data?.userId, "userId");
+  if (blockedUserId === uid) throw new HttpsError("invalid-argument", "You cannot block your own account.");
+  const blockedProfile = await db.collection("users").doc(blockedUserId).get();
+  if (!blockedProfile.exists || blockedProfile.data()?.suspended === true) {
+    throw new HttpsError("not-found", "That player is not available.");
+  }
+  const ref = db.collection("userBlocks").doc(userBlockDocumentId(uid, blockedUserId));
+  await db.runTransaction(async (tx) => {
+    const existing = await tx.get(ref);
+    if (existing.exists) {
+      if (existing.data()?.blockerId === uid) return;
+      throw new HttpsError("failed-precondition", "This player has already blocked your account.");
+    }
+    tx.create(ref, {
+      blockerId: uid,
+      blockedUserId,
+      participantIds: [uid, blockedUserId],
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  });
+  return {ok: true};
+});
+
+export const unblockUser = onCall(callableOptions, async (request) => {
+  const uid = requireAuth(request);
+  await profile(uid);
+  const blockedUserId = text(request.data?.userId, "userId");
+  if (blockedUserId === uid) throw new HttpsError("invalid-argument", "Invalid blocked player.");
+  const ref = db.collection("userBlocks").doc(userBlockDocumentId(uid, blockedUserId));
+  const block = await ref.get();
+  if (block.exists && block.data()?.blockerId !== uid) {
+    throw new HttpsError("permission-denied", "Only the player who blocked this account can unblock it.");
+  }
+  if (block.exists) await ref.delete();
+  return {ok: true};
 });
 
 export const recordCashPayment = onCall(callableOptions, async (request) => {

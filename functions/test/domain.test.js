@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const {calculateTotal, calculateSettlement, overlaps, assertTransition, calculateEffectiveHourlyRate, calculateRatingDelta, calculateNextReliability, canHostExternalMatches, canPublishPublicProfile} = require("../lib/domain.js");
+const {calculateTotal, calculateSettlement, overlaps, assertTransition, calculateEffectiveHourlyRate, calculateRatingDelta, calculateNextReliability, canHostExternalMatches, canPublishPublicProfile, userBlockDocumentId} = require("../lib/domain.js");
 const {buildAuthEmail, playUpActionLink} = require("../lib/auth-email.js");
 
 test("public profiles exclude guests, demo accounts, test names, and private users", () => {
@@ -21,6 +21,11 @@ test("only authorized platform accounts can host external matches", () => {
   assert.equal(canHostExternalMatches({role: "platformAdmin", permissions: ["matchmaking.manage"]}), true);
   assert.equal(canHostExternalMatches({role: "academyOwner", permissions: ["academy.bookings.manage"]}), false);
   assert.equal(canHostExternalMatches({role: "player", permissions: []}), false);
+});
+
+test("user block document IDs are symmetric and collision resistant for pair ordering", () => {
+  assert.equal(userBlockDocumentId("player_a", "player-b"), userBlockDocumentId("player-b", "player_a"));
+  assert.notEqual(userBlockDocumentId("player_a", "player-b"), userBlockDocumentId("player", "a_player-b"));
 });
 
 test("server calculates percentage discounts in minor units", () => {

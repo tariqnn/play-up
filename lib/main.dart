@@ -916,6 +916,8 @@ class AppRepository {
       _db.collection('matches');
   CollectionReference<Map<String, dynamic>> get _supportTickets =>
       _db.collection('supportTickets');
+  CollectionReference<Map<String, dynamic>> get _userBlocks =>
+      _db.collection('userBlocks');
 
   Future<void> ensureUserProfile(User user) async {
     // Guest mode is deliberately account-less. Do not create loyalty,
@@ -1571,6 +1573,47 @@ class AppRepository {
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> match(String matchId) =>
       _matches.doc(matchId).snapshots();
+
+  Stream<Map<String, Map<String, dynamic>>> blockedMatchParticipants() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || FirebaseAuth.instance.currentUser?.isAnonymous == true) {
+      return Stream.value(const <String, Map<String, dynamic>>{});
+    }
+    return _userBlocks
+        .where('participantIds', arrayContains: uid)
+        .snapshots()
+        .map((snapshot) => {
+          for (final doc in snapshot.docs)
+            if ((doc.data()['participantIds'] as List?)
+                    ?.whereType<String>()
+                    .any((id) => id != uid) ==
+                true)
+              (doc.data()['participantIds'] as List)
+                      .whereType<String>()
+                      .firstWhere((id) => id != uid):
+                  doc.data(),
+        });
+  }
+
+  Future<void> blockMatchParticipant(String userId) async {
+    try {
+      await _functions.httpsCallable('blockUser').call({'userId': userId});
+    } on FirebaseFunctionsException catch (error) {
+      throw DomainValidationException(
+        error.message ?? 'This player could not be blocked.',
+      );
+    }
+  }
+
+  Future<void> unblockMatchParticipant(String userId) async {
+    try {
+      await _functions.httpsCallable('unblockUser').call({'userId': userId});
+    } on FirebaseFunctionsException catch (error) {
+      throw DomainValidationException(
+        error.message ?? 'This player could not be unblocked.',
+      );
+    }
+  }
 
   Future<void> sendMatchMessage(String matchId, String body) async {
     try {
@@ -6758,6 +6801,9 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
                   final players = List<String>.from(
                     snapshot.data?.data()?['players'] as List? ?? const [],
                   );
+                  final playerNames = List<String>.from(
+                    snapshot.data?.data()?['playerNames'] as List? ?? const [],
+                  );
                   if (!players.contains(user.uid)) {
                     return const CardBox(
                       child: Text(
@@ -6765,11 +6811,39 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
                       ),
                     );
                   }
-                  return _ParticipantChat(
-                    matchId: widget.matchId!,
-                    controller: _message,
-                    sending: _sending,
-                    onSend: _send,
+                  return StreamBuilder<Map<String, Map<String, dynamic>>>(
+                    stream: AppRepository.instance.blockedMatchParticipants(),
+                    builder: (context, blockSnapshot) {
+                      if (blockSnapshot.hasError) {
+                        return const CardBox(
+                          child: Text(
+                            'Safety settings could not be loaded. Chat is unavailable until you reconnect.',
+                          ),
+                        );
+                      }
+                      if (!blockSnapshot.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      return _ParticipantChat(
+                        matchId: widget.matchId!,
+                        controller: _message,
+                        sending: _sending,
+                        onSend: _send,
+                        players: players,
+                        playerNames: playerNames,
+                        blockedParticipants: blockSnapshot.data!,
+                        onToggleBlock: _toggleParticipantBlock,
+                        onReport: (userId, name) => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => SupportScreen(
+                              category: 'Report player',
+                              initialMessage:
+                                  'Match: ${widget.matchId}\nPlayer: $name\nPlayer ID: $userId\nReason: ',
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   );
                 },
               ),
@@ -6811,6 +6885,52 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
       if (mounted) setState(() => _sending = false);
     }
   }
+
+  Future<void> _toggleParticipantBlock(
+    String userId,
+    String name,
+    bool currentlyBlockedByMe,
+  ) async {
+    final action = currentlyBlockedByMe ? 'Unblock' : 'Block';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('$action $name?'),
+        content: Text(currentlyBlockedByMe
+            ? 'This player will be able to interact with you in match chat again.'
+            : 'You will no longer see this player\'s match messages or send messages in a match that includes them. Support can still receive a report.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(action),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      if (currentlyBlockedByMe) {
+        await AppRepository.instance.unblockMatchParticipant(userId);
+      } else {
+        await AppRepository.instance.blockMatchParticipant(userId);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$name ${currentlyBlockedByMe ? 'unblocked' : 'blocked'}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      await showAdaptiveMessage(
+        context,
+        title: 'Could not ${action.toLowerCase()} player',
+        message: error.toString().replaceFirst('DomainValidationException: ', ''),
+      );
+    }
+  }
 }
 
 class _ParticipantChat extends StatelessWidget {
@@ -6819,15 +6939,55 @@ class _ParticipantChat extends StatelessWidget {
     required this.controller,
     required this.sending,
     required this.onSend,
+    required this.players,
+    required this.playerNames,
+    required this.blockedParticipants,
+    required this.onToggleBlock,
+    required this.onReport,
   });
   final String matchId;
   final TextEditingController controller;
   final bool sending;
   final VoidCallback onSend;
+  final List<String> players;
+  final List<String> playerNames;
+  final Map<String, Map<String, dynamic>> blockedParticipants;
+  final Future<void> Function(String userId, String name, bool blockedByMe)
+      onToggleBlock;
+  final void Function(String userId, String name) onReport;
 
   @override
   Widget build(BuildContext context) => Column(
     children: [
+      CardBox(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Match players',
+              style: TextStyle(fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 8),
+            for (var index = 0; index < players.length; index++)
+              if (players[index] != FirebaseAuth.instance.currentUser?.uid)
+                _MatchParticipantSafetyRow(
+                  userId: players[index],
+                  name: index < playerNames.length && playerNames[index].trim().isNotEmpty
+                      ? playerNames[index].trim()
+                      : 'Player',
+                  block: blockedParticipants[players[index]],
+                  onToggleBlock: onToggleBlock,
+                  onReport: onReport,
+                ),
+          ],
+        ),
+      ),
+      if (players.any((id) => blockedParticipants.containsKey(id)))
+        const CardBox(
+          child: Text(
+            'Chat is paused because this match includes a blocked player. You can leave the match or unblock the player to continue.',
+          ),
+        ),
       StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: AppRepository.instance.matchMessages(matchId),
         builder: (context, snapshot) {
@@ -6839,7 +6999,12 @@ class _ParticipantChat extends StatelessWidget {
               child: Text('Messages could not be loaded. Try again.'),
             );
           }
-          final messages = snapshot.data?.docs ?? const [];
+          final messages = (snapshot.data?.docs ?? const [])
+              .where((doc) =>
+                  !blockedParticipants.containsKey(
+                    doc.data()['userId']?.toString(),
+                  ))
+              .toList();
           if (messages.isEmpty) {
             return const CardBox(
               child: Text('No messages yet. Start the conversation.'),
@@ -6877,18 +7042,62 @@ class _ParticipantChat extends StatelessWidget {
         },
       ),
       const SizedBox(height: 12),
-      AppTextField(
-        controller: controller,
-        label: 'Message the players',
-        icon: CupertinoIcons.chat_bubble,
-      ),
-      const SizedBox(height: 12),
-      PrimaryButton(
-        label: sending ? 'Sending...' : 'Send',
-        onPressed: sending ? null : onSend,
-      ),
+      if (!players.any((id) => blockedParticipants.containsKey(id))) ...[
+        AppTextField(
+          controller: controller,
+          label: 'Message the players',
+          icon: CupertinoIcons.chat_bubble,
+        ),
+        const SizedBox(height: 12),
+        PrimaryButton(
+          label: sending ? 'Sending...' : 'Send',
+          onPressed: sending ? null : onSend,
+        ),
+      ],
     ],
   );
+}
+
+class _MatchParticipantSafetyRow extends StatelessWidget {
+  const _MatchParticipantSafetyRow({
+    required this.userId,
+    required this.name,
+    required this.block,
+    required this.onToggleBlock,
+    required this.onReport,
+  });
+
+  final String userId;
+  final String name;
+  final Map<String, dynamic>? block;
+  final Future<void> Function(String userId, String name, bool blockedByMe)
+      onToggleBlock;
+  final void Function(String userId, String name) onReport;
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final blockedByMe = block?['blockerId'] == uid;
+    final blockedByThem = block != null && !blockedByMe;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.w700))),
+          TextButton(
+            onPressed: blockedByThem
+                ? null
+                : () => onToggleBlock(userId, name, blockedByMe),
+            child: Text(blockedByThem ? 'Blocked you' : blockedByMe ? 'Unblock' : 'Block'),
+          ),
+          TextButton(
+            onPressed: () => onReport(userId, name),
+            child: const Text('Report'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class PostMatchRatingScreen extends StatefulWidget {
@@ -7213,9 +7422,10 @@ class SettingsScreen extends StatelessWidget {
 }
 
 class SupportScreen extends StatefulWidget {
-  const SupportScreen({super.key, required this.category});
+  const SupportScreen({super.key, required this.category, this.initialMessage = ''});
 
   final String category;
+  final String initialMessage;
 
   @override
   State<SupportScreen> createState() => _SupportScreenState();
@@ -7225,6 +7435,12 @@ class _SupportScreenState extends State<SupportScreen> {
   final _message = TextEditingController();
   bool _submitting = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _message.text = widget.initialMessage;
+  }
 
   @override
   void dispose() {
