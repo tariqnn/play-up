@@ -45,7 +45,7 @@ jobs:
           import json, subprocess
           data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True))
           devices = [device for group in data["devices"].values() for device in group]
-          for preferred in ("iPhone 17 Pro", "iPhone 16 Pro"):
+          for preferred in ("iPhone 16 Pro", "iPhone 17 Pro"):
               match = next((device for device in devices if device["name"] == preferred), None)
               if match:
                   print(match["udid"])
@@ -55,6 +55,7 @@ jobs:
           PY
           )"
           echo "Booting iPhone simulator $DEVICE_ID"
+          open -a Simulator --args -CurrentDeviceUDID "$DEVICE_ID" || true
           xcrun simctl boot "$DEVICE_ID" || true
           python3 - <<PY
           import subprocess
@@ -92,6 +93,7 @@ jobs:
           PY
           )"
           echo "Booting iPad simulator $DEVICE_ID"
+          open -a Simulator --args -CurrentDeviceUDID "$DEVICE_ID" || true
           xcrun simctl boot "$DEVICE_ID" || true
           python3 - <<PY
           import subprocess
