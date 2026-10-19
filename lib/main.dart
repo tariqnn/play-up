@@ -3627,6 +3627,11 @@ class HomeScreen extends StatelessWidget {
               stream: CatalogService.instance.courts(),
               initialData: useFirebaseEmulators ? kTestCourts : const <Court>[],
               builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return const Center(
+                    child: Text('Courts could not load. Open Explore to retry.'),
+                  );
+                }
                 return ValueListenableBuilder<AppLocation?>(
                   valueListenable: LocationService.instance.current,
                   builder: (context, location, _) {
@@ -3638,6 +3643,11 @@ class HomeScreen extends StatelessWidget {
                     // Keep loaded venues visible when the device location is
                     // outside Jordan; production never substitutes fixtures.
                     final list = nearby.isEmpty ? allCourts : nearby;
+                    if (list.isEmpty) {
+                      return const Center(
+                        child: Text('No courts are available yet.'),
+                      );
+                    }
                     return ListView.separated(
                       scrollDirection: Axis.horizontal,
                       itemBuilder: (_, index) =>
@@ -3890,53 +3900,10 @@ class _HomeSportCarouselState extends State<HomeSportCarousel> {
       badge: 'Team Play',
     ),
     _HomeSportItem(
-      sport: 'Sea Sports',
-      icon: Icons.scuba_diving_rounded,
-      imageUrl:
-          'https://images.unsplash.com/photo-1632904074880-b77f02b6d01e?w=900&q=82',
-      badge: 'Parasailing • Diving',
-    ),
-    _HomeSportItem(
-      sport: 'Dodgeball',
-      icon: Icons.sports_handball_rounded,
-      imageUrl:
-          'https://images.unsplash.com/photo-1593786930094-d5c8164ac771?w=900&q=82',
-      badge: 'Team Play',
-    ),
-    _HomeSportItem(
-      sport: 'Kayaking',
-      icon: Icons.kayaking_rounded,
-      imageUrl:
-          'https://images.unsplash.com/photo-1480480565647-1c4385c7c0bf?w=900&q=82',
-      badge: 'Water',
-    ),
-    _HomeSportItem(
-      sport: 'Hiking',
-      icon: Icons.hiking_rounded,
-      imageUrl:
-          'https://images.unsplash.com/photo-1551632811-561732d1e306?w=900&q=82',
-      badge: 'Outdoors',
-    ),
-    _HomeSportItem(
-      sport: 'Climbing',
-      icon: Icons.landscape_rounded,
-      imageUrl:
-          'https://images.unsplash.com/photo-1522163182402-834f871fd851?w=900&q=82',
-      badge: 'Challenge',
-    ),
-    _HomeSportItem(
-      sport: 'Badminton',
+      sport: 'Tennis',
       icon: Icons.sports_tennis_rounded,
-      imageUrl:
-          'https://images.unsplash.com/photo-1722087642932-9b070e9a066e?w=900&q=82',
+      imageUrl: 'asset:assets/images/sports/tennis_court_ball.png',
       badge: 'Singles • Doubles',
-    ),
-    _HomeSportItem(
-      sport: 'Fitness',
-      icon: Icons.fitness_center_rounded,
-      imageUrl:
-          'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=900&q=82',
-      badge: 'CrossFit • HYROX',
     ),
   ];
 
@@ -3949,8 +3916,8 @@ class _HomeSportCarouselState extends State<HomeSportCarousel> {
   void initState() {
     super.initState();
     _controller = PageController(
-      viewportFraction: .38,
-      initialPage: _items.length * 1000,
+      viewportFraction: .76,
+      initialPage: 0,
     );
   }
 
@@ -3968,13 +3935,14 @@ class _HomeSportCarouselState extends State<HomeSportCarousel> {
   void _restartTimer() {
     _timer?.cancel();
     if (!_motionAllowed) return;
-    _timer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+    _timer = Timer.periodic(const Duration(seconds: 4), (_) {
       if (!mounted || !_controller.hasClients || _userDragging) return;
-      final position = _controller.position;
-      final nextOffset = position.pixels + 0.55;
-      if (nextOffset <= position.maxScrollExtent) {
-        _controller.jumpTo(nextOffset);
-      }
+      unawaited(
+        _controller.nextPage(
+          duration: const Duration(milliseconds: 450),
+          curve: Curves.easeInOut,
+        ),
+      );
     });
   }
 
@@ -4017,7 +3985,7 @@ class _HomeSportCarouselState extends State<HomeSportCarousel> {
               child: PageView.builder(
                 controller: _controller,
                 padEnds: false,
-                pageSnapping: false,
+                pageSnapping: true,
                 allowImplicitScrolling: true,
                 itemBuilder: (context, index) {
                   final item = _items[index % _items.length];
