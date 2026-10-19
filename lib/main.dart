@@ -48,6 +48,9 @@ import 'sport_activities_screen.dart';
 import 'sport_hub_screen.dart';
 
 const useFirebaseEmulators = bool.fromEnvironment('USE_FIREBASE_EMULATORS');
+const isStoreScreenshotTest = bool.fromEnvironment(
+  'PLAYUP_STORE_SCREENSHOT_TEST',
+);
 
 void validateFirebaseEnvironment({
   required bool useEmulators,
@@ -115,7 +118,11 @@ Future<void> main() async {
   runApp(const PlayUpApp());
   unawaited(DeepLinkService.start());
   unawaited(LocationService.instance.initialize());
-  if (!useFirebaseEmulators) unawaited(_configureMessaging());
+  // Store screenshots run unattended in an iOS Simulator. Suppress the native
+  // notification-permission prompt only in that explicitly flagged debug run.
+  if (!useFirebaseEmulators && !isStoreScreenshotTest) {
+    unawaited(_configureMessaging());
+  }
 }
 
 Future<void> _configureAppCheck() async {

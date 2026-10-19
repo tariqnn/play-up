@@ -1,0 +1,99 @@
+name: Capture App Store screenshots
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/apple-store-screenshots
+
+permissions:
+  contents: read
+
+jobs:
+  capture-ios-screenshots:
+    name: Capture authentic iOS Simulator screenshots
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - name: Check out PlayUp
+        uses: actions/checkout@v4
+
+      - name: Install stable Flutter from the official repository
+        shell: bash
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Resolve Flutter and iOS dependencies
+        run: |
+          flutter --version
+          flutter pub get
+          (cd ios && pod install)
+
+      - name: Capture iPhone with Dynamic Island screenshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEVICE_ID="$(python3 - <<'PY'
+          import json, subprocess
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True))
+          devices = [device for group in data["devices"].values() for device in group]
+          for preferred in ("iPhone 17 Pro", "iPhone 16 Pro"):
+              match = next((device for device in devices if device["name"] == preferred), None)
+              if match:
+                  print(match["udid"])
+                  break
+          else:
+              raise SystemExit("No supported iPhone with Dynamic Island is available on this runner.")
+          PY
+          )"
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcrun simctl status_bar "$DEVICE_ID" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
+          flutter drive --no-pub -d "$DEVICE_ID" \
+            --driver=test_driver/integration_test.dart \
+            --target=integration_test/store_screenshot_test.dart \
+            --dart-define=PLAYUP_STORE_SCREENSHOT_TEST=true \
+            --dart-define=STORE_SCREENSHOT_DEVICE=iphone
+          xcrun simctl shutdown "$DEVICE_ID"
+
+      - name: Capture 13-inch iPad screenshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEVICE_ID="$(python3 - <<'PY'
+          import json, subprocess
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True))
+          devices = [device for group in data["devices"].values() for device in group]
+          names = ("iPad Pro 13-inch (M5)", "iPad Pro 13-inch (M4)")
+          for preferred in names:
+              match = next((device for device in devices if device["name"] == preferred), None)
+              if match:
+                  print(match["udid"])
+                  break
+          else:
+              raise SystemExit("No 13-inch iPad Pro simulator is available on this runner.")
+          PY
+          )"
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcrun simctl status_bar "$DEVICE_ID" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
+          flutter drive --no-pub -d "$DEVICE_ID" \
+            --driver=test_driver/integration_test.dart \
+            --target=integration_test/store_screenshot_test.dart \
+            --dart-define=PLAYUP_STORE_SCREENSHOT_TEST=true \
+            --dart-define=STORE_SCREENSHOT_DEVICE=ipad
+          xcrun simctl shutdown "$DEVICE_ID"
+
+      - name: Verify screenshot files
+        run: |
+          test -s artifacts/app-store/playup-iphone-venues.png
+          test -s artifacts/app-store/playup-ipad-venues.png
+          sips -g pixelWidth -g pixelHeight artifacts/app-store/playup-iphone-venues.png artifacts/app-store/playup-ipad-venues.png
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: playup-app-store-screenshots
+          path: artifacts/app-store/*.png
+          if-no-files-found: error
