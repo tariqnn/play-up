@@ -242,6 +242,18 @@ class AcademyService {
     return ref.id;
   }
 
+  Future<void> deactivateCourt(String courtId) async {
+    final scope = await ownerScope();
+    if (scope.isCourtOwner && courtId != scope.assignedCourtId) {
+      throw StateError('Court owners can only manage their assigned court.');
+    }
+    await _db.collection('courts').doc(courtId).update({
+      'active': false,
+      'bookable': false,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<void> transitionBooking(String bookingId, String status) async {
     try {
       await _functions.httpsCallable('transitionBooking').call({

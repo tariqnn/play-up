@@ -68,6 +68,9 @@ class EventItem {
     required this.title,
     required this.date,
     required this.prize,
+    this.description = '',
+    this.location = '',
+    this.imageUrl = '',
   });
 
   final String id;
@@ -75,6 +78,25 @@ class EventItem {
   final String title;
   final String date;
   final String prize;
+  final String description;
+  final String location;
+  final String imageUrl;
+}
+
+class AcademyPackage {
+  const AcademyPackage({
+    required this.title,
+    this.description = '',
+    this.price = '',
+    this.duration = '',
+    this.imageUrl = '',
+  });
+
+  final String title;
+  final String description;
+  final String price;
+  final String duration;
+  final String imageUrl;
 }
 
 // ---------------------------------------------------------------------------
@@ -306,8 +328,21 @@ Academy _academyFrom(String id, Map<String, dynamic> d) => Academy(
   email: (d['email'] ?? '').toString(),
   description: (d['description'] ?? '').toString(),
   trainingPackages: List<String>.from(
-    d['trainingPackages'] as List? ?? const [],
+    (d['trainingPackages'] as List? ?? const []).whereType<String>(),
   ),
+  packages: (d['packages'] as List? ?? const [])
+      .whereType<Map>()
+      .map(
+        (row) => AcademyPackage(
+          title: (row['title'] ?? '').toString(),
+          description: (row['description'] ?? '').toString(),
+          price: (row['price'] ?? '').toString(),
+          duration: (row['duration'] ?? '').toString(),
+          imageUrl: (row['imageUrl'] ?? '').toString(),
+        ),
+      )
+      .where((package) => package.title.trim().isNotEmpty)
+      .toList(),
 );
 
 Offer _offerFrom(String id, Map<String, dynamic> d) => Offer(
@@ -326,6 +361,9 @@ EventItem _eventFrom(Map<String, dynamic> d, {String id = ''}) => EventItem(
   title: (d['title'] ?? 'Event').toString(),
   date: (d['date'] ?? '').toString(),
   prize: (d['prize'] ?? '').toString(),
+  description: (d['description'] ?? '').toString(),
+  location: (d['location'] ?? d['address'] ?? '').toString(),
+  imageUrl: (d['imageUrl'] ?? d['image'] ?? '').toString(),
 );
 
 // ---------------------------------------------------------------------------
@@ -384,8 +422,10 @@ class CatalogService {
     AppLocation? location, {
     String sport = 'All',
     String query = '',
-    double radiusKm = 100,
+    double radiusKm = 40,
   }) {
+    if (location == null) return <Court>[];
+    final safeRadiusKm = radiusKm.clamp(1, 40).toDouble();
     final needle = query.trim().toLowerCase();
     final result = source.where((court) {
       final sportMatches =
@@ -400,7 +440,8 @@ class CatalogService {
       final distance = court.distanceKmFrom(location);
       return sportMatches &&
           queryMatches &&
-          (distance == null || distance <= radiusKm);
+          distance != null &&
+          distance <= safeRadiusKm;
     }).toList();
     // Keep the three real Infinity court photos at the top of the initial
     // Explore list, independent of the user's location sort. The multipurpose

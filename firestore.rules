@@ -189,7 +189,7 @@ service cloud.firestore {
           && validAcademy()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'name', 'address', 'latitude', 'longitude', 'phone', 'email',
-          'imageUrl', 'description', 'sports', 'trainingPackages', 'updatedAt'
+          'imageUrl', 'description', 'sports', 'trainingPackages', 'packages', 'updatedAt'
         ]));
       allow delete: if superAdmin();
     }

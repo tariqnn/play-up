@@ -53,10 +53,48 @@ class LiveCourtManagementScreen extends StatelessWidget {
                 subtitle: Text(
                   '${data['sport'] ?? 'Sport'} • ${data['currency'] ?? 'JOD'} ${((data['basePriceMinor'] as num? ?? 0) / 100).toStringAsFixed(2)} / hr',
                 ),
-                trailing: IconButton(
-                  tooltip: 'Edit court',
-                  icon: const Icon(Icons.edit_outlined),
-                  onPressed: () => _edit(context, id: doc.id, data: data),
+                trailing: PopupMenuButton<String>(
+                  onSelected: (action) async {
+                    if (action == 'edit') {
+                      _edit(context, id: doc.id, data: data);
+                      return;
+                    }
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (dialog) => AlertDialog(
+                        title: const Text('Remove this court?'),
+                        content: const Text(
+                          'It will disappear from discovery and new bookings. Existing booking history remains available.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(dialog, false),
+                            child: const Text('Keep court'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(dialog, true),
+                            child: const Text('Remove'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed == true) {
+                      try {
+                        await AcademyService.instance.deactivateCourt(doc.id);
+                      } catch (error) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(error.toString())),
+                          );
+                        }
+                      }
+                    }
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'edit', child: Text('Edit court')),
+                    PopupMenuItem(value: 'remove', child: Text('Remove court')),
+                  ],
+                  icon: const Icon(Icons.more_vert),
                 ),
               ),
             );
@@ -142,7 +180,9 @@ class LiveCourtManagementScreen extends StatelessWidget {
                 TextField(
                   controller: price,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Hourly price (Off-peak / Base)'),
+                  decoration: const InputDecoration(
+                    labelText: 'Hourly price (Off-peak / Base)',
+                  ),
                 ),
                 TextField(
                   controller: peakPrice,
@@ -297,8 +337,9 @@ class LiveCourtManagementScreen extends StatelessWidget {
                 latitude: lat,
                 longitude: lng,
                 imageUrl: savedImageUrl,
-                peakPriceMinor:
-                    peakAmount != null ? (peakAmount * 100).round() : null,
+                peakPriceMinor: peakAmount != null
+                    ? (peakAmount * 100).round()
+                    : null,
                 peakHourStart: peakStartHour,
                 peakHourEnd: peakEndHour,
               );
@@ -782,16 +823,134 @@ class AcademyProfileManagementScreen extends StatelessWidget {
               decoration: const InputDecoration(labelText: 'Description'),
               onChanged: (v) => data['description'] = v,
             ),
+            const SizedBox(height: 12),
+            TextFormField(
+              initialValue: data['imageUrl']?.toString(),
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(labelText: 'Cover photo URL'),
+              onChanged: (v) => data['imageUrl'] = v.trim(),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              initialValue: (data['sports'] as List? ?? const []).join(', '),
+              decoration: const InputDecoration(
+                labelText: 'Sports (comma separated)',
+              ),
+              onChanged: (v) => data['sports'] = v
+                  .split(',')
+                  .map((s) => s.trim())
+                  .where((s) => s.isNotEmpty)
+                  .toList(),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              initialValue:
+                  ((data['packages'] as List? ?? const []).whereType<Map>())
+                      .map(
+                        (p) => [
+                          p['title'],
+                          p['description'],
+                          p['price'],
+                          p['duration'],
+                          p['imageUrl'],
+                        ].map((v) => (v ?? '').toString()).join(' | '),
+                      )
+                      .join('\n'),
+              minLines: 4,
+              maxLines: 8,
+              decoration: const InputDecoration(
+                labelText: 'Training packages',
+                helperText:
+                    'One per line: title | description | price | duration | photo URL',
+              ),
+              onChanged: (v) => data['_packageLines'] = v,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              initialValue: '',
+              minLines: 4,
+              maxLines: 8,
+              decoration: const InputDecoration(
+                labelText: 'Add or replace academy events',
+                helperText:
+                    'One per line: title | YYYY-MM-DD | location | description | photo URL. Saving replaces this academy’s event list.',
+              ),
+              onChanged: (v) => data['_eventLines'] = v,
+            ),
             const SizedBox(height: 20),
             FilledButton(
               onPressed: () async {
                 try {
+                  final packageSource = (data['_packageLines'] ?? '')
+                      .toString();
+                  final packages = packageSource
+                      .split('\n')
+                      .map((line) => line.trim())
+                      .where((line) => line.isNotEmpty)
+                      .map((line) {
+                        final parts = line
+                            .split('|')
+                            .map((part) => part.trim())
+                            .toList();
+                        return <String, dynamic>{
+                          'title': parts[0],
+                          'description': parts.length > 1 ? parts[1] : '',
+                          'price': parts.length > 2 ? parts[2] : '',
+                          'duration': parts.length > 3 ? parts[3] : '',
+                          'imageUrl': parts.length > 4 ? parts[4] : '',
+                        };
+                      })
+                      .where((p) => (p['title'] as String).isNotEmpty)
+                      .toList();
                   await AcademyService.instance.saveAcademy({
                     'name': data['name'] ?? '',
                     'phone': data['phone'] ?? '',
                     'address': data['address'] ?? '',
                     'description': data['description'] ?? '',
+                    'imageUrl': data['imageUrl'] ?? '',
+                    'sports': data['sports'] ?? const <String>[],
+                    'packages': packages,
                   });
+                  if (data.containsKey('_eventLines')) {
+                    final existing = await FirebaseFirestore.instance
+                        .collection('events')
+                        .where('academyId', isEqualTo: id)
+                        .get();
+                    final batch = FirebaseFirestore.instance.batch();
+                    for (final doc in existing.docs) {
+                      batch.delete(doc.reference);
+                    }
+                    for (final line
+                        in (data['_eventLines'] as String)
+                            .split('\n')
+                            .map((line) => line.trim())
+                            .where((line) => line.isNotEmpty)) {
+                      final parts = line
+                          .split('|')
+                          .map((part) => part.trim())
+                          .toList();
+                      if (parts.length < 2 ||
+                          DateTime.tryParse(parts[1]) == null) {
+                        throw StateError(
+                          'Each event needs a title and a valid YYYY-MM-DD date.',
+                        );
+                      }
+                      final ref = FirebaseFirestore.instance
+                          .collection('events')
+                          .doc();
+                      batch.set(ref, {
+                        'academyId': id,
+                        'title': parts[0],
+                        'date': parts[1],
+                        'location': parts.length > 2 ? parts[2] : '',
+                        'description': parts.length > 3 ? parts[3] : '',
+                        'imageUrl': parts.length > 4 ? parts[4] : '',
+                        'status': 'published',
+                        'createdAt': FieldValue.serverTimestamp(),
+                      });
+                    }
+                    await batch.commit();
+                  }
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Academy profile saved.')),

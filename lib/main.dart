@@ -3579,6 +3579,11 @@ class HomeScreen extends StatelessWidget {
                           : DateTime.now().hour < 18
                           ? 'Good afternoon'
                           : 'Good evening'},\n$firstName',
+                  titleStyle: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontSize: 21,
+                    height: 1.08,
+                    fontWeight: FontWeight.w800,
+                  ),
                   subtitle: location?.label ?? 'Choose your location',
                   onLocationTap: () async {
                     await Navigator.of(context).push<void>(
@@ -3605,6 +3610,14 @@ class HomeScreen extends StatelessWidget {
                               ? 'A'
                               : firstName.characters.first.toUpperCase(),
                           size: 42,
+                          photoUrl:
+                              (data['photoUrl'] ??
+                                      FirebaseAuth
+                                          .instance
+                                          .currentUser
+                                          ?.photoURL ??
+                                      '')
+                                  .toString(),
                         ),
                       ),
                     ],
@@ -3615,6 +3628,46 @@ class HomeScreen extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           const HomeSportCarousel(),
+          const SizedBox(height: 22),
+          SectionHeader(
+            title: 'Events',
+            onSeeAll: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const TournamentsScreen()),
+            ),
+          ),
+          const SizedBox(height: 12),
+          StreamBuilder<List<EventItem>>(
+            stream: CatalogService.instance.events(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return const CardBox(
+                  child: Text(
+                    'Events could not load. Pull to refresh and try again.',
+                  ),
+                );
+              }
+              final events = snapshot.data ?? const <EventItem>[];
+              if (events.isEmpty) {
+                return _HomeEventsEmpty(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const TournamentsScreen(),
+                    ),
+                  ),
+                );
+              }
+              return SizedBox(
+                height: 206,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: events.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) =>
+                      _HomeEventCard(event: events[index]),
+                ),
+              );
+            },
+          ),
           const SizedBox(height: 22),
           SectionHeader(
             title: 'Courts near you',
@@ -3629,7 +3682,9 @@ class HomeScreen extends StatelessWidget {
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return const Center(
-                    child: Text('Courts could not load. Open Explore to retry.'),
+                    child: Text(
+                      'Courts could not load. Open Explore to retry.',
+                    ),
                   );
                 }
                 return ValueListenableBuilder<AppLocation?>(
@@ -3639,22 +3694,35 @@ class HomeScreen extends StatelessWidget {
                     final nearby = CatalogService.instance.nearbyCourts(
                       allCourts,
                       location,
+                      radiusKm: 40,
                     );
-                    // Keep loaded venues visible when the device location is
-                    // outside Jordan; production never substitutes fixtures.
-                    final list = nearby.isEmpty ? allCourts : nearby;
-                    if (list.isEmpty) {
-                      return const Center(
-                        child: Text('No courts are available yet.'),
+                    if (location == null) {
+                      return _NearbyCourtsEmpty(
+                        title: 'Set your location to find nearby courts',
+                        onChoose: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const LocationPickerScreen(),
+                          ),
+                        ),
+                      );
+                    }
+                    if (nearby.isEmpty) {
+                      return _NearbyCourtsEmpty(
+                        title: 'No courts within 40 km of your location',
+                        onChoose: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const LocationPickerScreen(),
+                          ),
+                        ),
                       );
                     }
                     return ListView.separated(
                       scrollDirection: Axis.horizontal,
                       itemBuilder: (_, index) =>
-                          CourtCarouselCard(court: list[index]),
+                          CourtCarouselCard(court: nearby[index]),
                       separatorBuilder: (context, index) =>
                           const SizedBox(width: 12),
-                      itemCount: list.length,
+                      itemCount: nearby.length,
                     );
                   },
                 );
@@ -3663,7 +3731,7 @@ class HomeScreen extends StatelessWidget {
           ),
           const SizedBox(height: 22),
           SectionHeader(
-            title: 'Academies near you',
+            title: 'Academies',
             onSeeAll: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const AcademiesListScreen()),
             ),
@@ -3672,30 +3740,24 @@ class HomeScreen extends StatelessWidget {
           StreamBuilder<List<Academy>>(
             stream: CatalogService.instance.academies(),
             builder: (context, snapshot) {
-              return ValueListenableBuilder<AppLocation?>(
-                valueListenable: LocationService.instance.current,
-                builder: (context, location, _) {
-                  final list = CatalogService.instance.nearbyAcademies(
-                    snapshot.data ?? const <Academy>[],
-                    location,
-                  );
-                  if (list.isEmpty) {
-                    return const CardBox(
-                      child: Text(
-                        'No nearby academies are available for this location.',
-                      ),
-                    );
-                  }
-                  return Column(
-                    children: [
-                      for (final academy in list.take(2))
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 14),
-                          child: AcademyHomeCard(academy: academy),
-                        ),
-                    ],
-                  );
-                },
+              if (snapshot.hasError) {
+                return const CardBox(child: Text('Academies could not load.'));
+              }
+              final list = [...(snapshot.data ?? const <Academy>[])];
+              list.sort((a, b) => a.name.compareTo(b.name));
+              if (list.isEmpty) {
+                return const CardBox(
+                  child: Text('No academies are listed yet.'),
+                );
+              }
+              return Column(
+                children: [
+                  for (final academy in list.take(3))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: AcademyHomeCard(academy: academy),
+                    ),
+                ],
               );
             },
           ),
@@ -3858,6 +3920,272 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
+class _HomeEventsEmpty extends StatelessWidget {
+  const _HomeEventsEmpty({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: const Color(0xFF10251C),
+    borderRadius: BorderRadius.circular(22),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(22),
+      child: Container(
+        height: 174,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: AppColors.green.withValues(alpha: .5)),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF123C2A), Color(0xFF101A22)],
+          ),
+        ),
+        child: Row(
+          children: [
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'PLAY TOGETHER',
+                    style: TextStyle(
+                      color: AppColors.green,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.1,
+                      fontSize: 11,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Your next sports event starts here',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 20,
+                      height: 1.15,
+                    ),
+                  ),
+                  SizedBox(height: 7),
+                  Text(
+                    'Tournaments and community events will appear here.',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      height: 1.3,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(
+              CupertinoIcons.ticket_fill,
+              color: AppColors.green,
+              size: 52,
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _HomeEventCard extends StatelessWidget {
+  const _HomeEventCard({required this.event});
+  final EventItem event;
+
+  void _showDetails(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                event.title,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+              ),
+              if (event.date.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(event.date),
+              ],
+              if (event.location.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(event.location),
+              ],
+              if (event.description.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(event.description),
+              ],
+              if (event.prize.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  event.prize,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.green,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 292,
+    child: Material(
+      color: const Color(0xFF10251C),
+      borderRadius: BorderRadius.circular(22),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _showDetails(context),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (event.imageUrl.isNotEmpty)
+              CachedNetworkImage(
+                imageUrl: event.imageUrl,
+                fit: BoxFit.cover,
+                alignment: const Alignment(0, -0.12),
+              )
+            else
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF174B34), Color(0xFF151C2D)],
+                  ),
+                ),
+              ),
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.black12, Color(0xEE07110D)],
+                  stops: [.1, .95],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.green,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text(
+                      'UPCOMING EVENT',
+                      style: TextStyle(
+                        color: Color(0xFF06140C),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 10,
+                        letterSpacing: .6,
+                      ),
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        event.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          height: 1.12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        [
+                          event.date,
+                          event.location,
+                        ].where((part) => part.trim().isNotEmpty).join(' · '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
+                      if (event.prize.isNotEmpty) ...[
+                        const SizedBox(height: 5),
+                        Text(
+                          event.prize,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.green,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _NearbyCourtsEmpty extends StatelessWidget {
+  const _NearbyCourtsEmpty({required this.title, required this.onChoose});
+  final String title;
+  final VoidCallback onChoose;
+
+  @override
+  Widget build(BuildContext context) => CardBox(
+    child: Row(
+      children: [
+        const Icon(
+          CupertinoIcons.location_circle_fill,
+          color: AppColors.green,
+          size: 30,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+        TextButton(onPressed: onChoose, child: const Text('Set location')),
+      ],
+    ),
+  );
+}
+
 class _HomeSportItem {
   const _HomeSportItem({
     required this.sport,
@@ -3905,6 +4233,18 @@ class _HomeSportCarouselState extends State<HomeSportCarousel> {
       imageUrl: 'asset:assets/images/sports/tennis_court_ball.png',
       badge: 'Singles • Doubles',
     ),
+    _HomeSportItem(
+      sport: 'Cycling',
+      icon: Icons.directions_bike_rounded,
+      imageUrl: '',
+      badge: 'Ride Together',
+    ),
+    _HomeSportItem(
+      sport: 'Running',
+      icon: Icons.directions_run_rounded,
+      imageUrl: '',
+      badge: 'Run Together',
+    ),
   ];
 
   late final PageController _controller;
@@ -3915,16 +4255,15 @@ class _HomeSportCarouselState extends State<HomeSportCarousel> {
   @override
   void initState() {
     super.initState();
-    _controller = PageController(
-      viewportFraction: .76,
-      initialPage: 0,
-    );
+    _controller = PageController(viewportFraction: .76, initialPage: 0);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final motionAllowed = TickerMode.valuesOf(context).enabled;
+    final motionAllowed =
+        TickerMode.valuesOf(context).enabled &&
+        !MediaQuery.of(context).disableAnimations;
     if (_motionAllowed == motionAllowed && _timer != null) return;
     _motionAllowed = motionAllowed;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -3935,14 +4274,10 @@ class _HomeSportCarouselState extends State<HomeSportCarousel> {
   void _restartTimer() {
     _timer?.cancel();
     if (!_motionAllowed) return;
-    _timer = Timer.periodic(const Duration(seconds: 4), (_) {
+    _timer = Timer.periodic(const Duration(milliseconds: 16), (_) {
       if (!mounted || !_controller.hasClients || _userDragging) return;
-      unawaited(
-        _controller.nextPage(
-          duration: const Duration(milliseconds: 450),
-          curve: Curves.easeInOut,
-        ),
-      );
+      final position = _controller.position;
+      _controller.jumpTo(position.pixels + 0.45);
     });
   }
 
@@ -3985,7 +4320,7 @@ class _HomeSportCarouselState extends State<HomeSportCarousel> {
               child: PageView.builder(
                 controller: _controller,
                 padEnds: false,
-                pageSnapping: true,
+                pageSnapping: false,
                 allowImplicitScrolling: true,
                 itemBuilder: (context, index) {
                   final item = _items[index % _items.length];
@@ -4040,7 +4375,14 @@ class _HomeSportHubChip extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (imageUrl.startsWith('asset:'))
+              if (imageUrl.isEmpty)
+                ColoredBox(
+                  color: const Color(0xFF14251F),
+                  child: Center(
+                    child: Icon(icon, color: Colors.white70, size: 46),
+                  ),
+                )
+              else if (imageUrl.startsWith('asset:'))
                 Image.asset(
                   imageUrl.substring(6),
                   fit: BoxFit.cover,
@@ -4377,14 +4719,7 @@ class _BookScreenState extends State<BookScreen> {
                     sport: _sport,
                     query: _search.text,
                   );
-                  final list = nearby.isEmpty
-                      ? CatalogService.instance.nearbyCourts(
-                          allCourts,
-                          null,
-                          sport: _sport,
-                          query: _search.text,
-                        )
-                      : nearby;
+                  final list = nearby;
                   if (list.isEmpty) {
                     if (snapshot.hasError) {
                       return CardBox(
@@ -7637,11 +7972,13 @@ class HeaderRow extends StatelessWidget {
     required this.subtitle,
     required this.trailing,
     this.onLocationTap,
+    this.titleStyle,
   });
   final String title;
   final String subtitle;
   final Widget trailing;
   final VoidCallback? onLocationTap;
+  final TextStyle? titleStyle;
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
@@ -7652,7 +7989,7 @@ class HeaderRow extends StatelessWidget {
           Expanded(
             child: Text(
               title,
-              style: Theme.of(context).textTheme.headlineSmall,
+              style: titleStyle ?? Theme.of(context).textTheme.headlineSmall,
             ),
           ),
           const SizedBox(width: 12),
@@ -7998,6 +8335,7 @@ class SportImageCard extends StatelessWidget {
               Image.asset(
                 imageUrl.substring(6),
                 fit: BoxFit.cover,
+                alignment: const Alignment(0, -0.12),
                 cacheWidth: 1600,
                 errorBuilder: (context, error, stackTrace) =>
                     CustomPaint(painter: CourtLinesPainter()),
@@ -8006,6 +8344,7 @@ class SportImageCard extends StatelessWidget {
               CachedNetworkImage(
                 imageUrl: imageUrl,
                 fit: BoxFit.cover,
+                alignment: const Alignment(0, -0.12),
                 errorWidget: (context, url, error) =>
                     CustomPaint(painter: CourtLinesPainter()),
               )
@@ -9701,10 +10040,16 @@ class ProgressBar extends StatelessWidget {
 }
 
 class Avatar extends StatelessWidget {
-  const Avatar({super.key, required this.name, required this.size});
+  const Avatar({
+    super.key,
+    required this.name,
+    required this.size,
+    this.photoUrl = '',
+  });
 
   final String name;
   final double size;
+  final String photoUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -9720,14 +10065,33 @@ class Avatar extends StatelessWidget {
         border: Border.all(color: Colors.white, width: 2),
       ),
       alignment: Alignment.center,
-      child: Text(
-        name,
-        style: TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w900,
-          fontSize: size * .34,
-        ),
-      ),
+      child: photoUrl.isEmpty
+          ? Text(
+              name,
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: size * .34,
+              ),
+            )
+          : ClipOval(
+              child: CachedNetworkImage(
+                imageUrl: photoUrl,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                errorWidget: (_, _, _) => Center(
+                  child: Text(
+                    name,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: size * .34,
+                    ),
+                  ),
+                ),
+              ),
+            ),
     );
   }
 }

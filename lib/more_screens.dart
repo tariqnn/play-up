@@ -3,10 +3,12 @@ import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'catalog.dart';
@@ -32,6 +34,8 @@ const kSportOptions = <SportOption>[
   SportOption('Volleyball', Icons.sports_volleyball),
   SportOption('Football', Icons.sports_soccer),
   SportOption('Tennis', CupertinoIcons.circle_grid_hex),
+  SportOption('Cycling', Icons.directions_bike_rounded),
+  SportOption('Running', Icons.directions_run_rounded),
   SportOption('Other', CupertinoIcons.sportscourt),
 ];
 
@@ -1495,6 +1499,7 @@ class Academy {
     this.email = '',
     this.description = '',
     this.trainingPackages = const [],
+    this.packages = const [],
   });
 
   final String id;
@@ -1513,6 +1518,7 @@ class Academy {
   final String email;
   final String description;
   final List<String> trainingPackages;
+  final List<AcademyPackage> packages;
 
   double? distanceKmFrom(AppLocation? location) {
     if (location == null || latitude == null || longitude == null) return null;
@@ -1578,16 +1584,9 @@ class _AcademiesListScreenState extends State<AcademiesListScreen> {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                return ValueListenableBuilder<AppLocation?>(
-                  valueListenable: LocationService.instance.current,
-                  builder: (context, location, _) {
-                    final query = _search.text.trim().toLowerCase();
-                    final list = CatalogService.instance
-                        .nearbyAcademies(
-                          snapshot.data ?? const <Academy>[],
-                          location,
-                          radiusKm: widget.initialSport == null ? 100 : 500,
-                        )
+                final query = _search.text.trim().toLowerCase();
+                final list =
+                    (snapshot.data ?? const <Academy>[])
                         .where(
                           (academy) =>
                               query.isEmpty ||
@@ -1595,24 +1594,21 @@ class _AcademiesListScreenState extends State<AcademiesListScreen> {
                               academy.sports.toLowerCase().contains(query) ||
                               academy.address.toLowerCase().contains(query),
                         )
-                        .toList();
-                    if (list.isEmpty) {
-                      return const CardBox(
-                        child: Text(
-                          'No academies match this search and location.',
-                        ),
-                      );
-                    }
-                    return Column(
-                      children: [
-                        for (final academy in list)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 14),
-                            child: _AcademyCard(academy: academy),
-                          ),
-                      ],
-                    );
-                  },
+                        .toList()
+                      ..sort((a, b) => a.name.compareTo(b.name));
+                if (list.isEmpty) {
+                  return const CardBox(
+                    child: Text('No academies match this search.'),
+                  );
+                }
+                return Column(
+                  children: [
+                    for (final academy in list)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: _AcademyCard(academy: academy),
+                      ),
+                  ],
                 );
               },
             ),
@@ -1807,6 +1803,7 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                           CachedNetworkImage(
                             imageUrl: academy.imageUrl,
                             fit: BoxFit.cover,
+                            alignment: const Alignment(0, -0.12),
                             errorWidget: (context, url, error) => Center(
                               child: Icon(
                                 academy.icon,
@@ -1961,34 +1958,47 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                   ),
               ],
             ),
-            if (academy.trainingPackages.isNotEmpty) ...[
+            if (academy.packages.isNotEmpty ||
+                academy.trainingPackages.isNotEmpty) ...[
               const SizedBox(height: 22),
               const Text(
                 'Training packages',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
               ),
               const SizedBox(height: 12),
-              for (final package in academy.trainingPackages)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: CardBox(
-                    child: Row(
-                      children: [
-                        const Icon(
-                          CupertinoIcons.star_circle_fill,
-                          color: AppColors.purple,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            package,
-                            style: const TextStyle(fontWeight: FontWeight.w800),
+              if (academy.packages.isNotEmpty)
+                for (final package in academy.packages)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _AcademyPackageCard(
+                      package: package,
+                      fallbackImage: academy.imageUrl,
+                    ),
+                  )
+              else
+                for (final package in academy.trainingPackages)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: CardBox(
+                      child: Row(
+                        children: [
+                          const Icon(
+                            CupertinoIcons.star_circle_fill,
+                            color: AppColors.purple,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              package,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
             ],
             const SizedBox(height: 20),
             const SectionHeader(title: 'Courts'),
@@ -2037,11 +2047,7 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                     for (final event in list)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
-                        child: _EventCard(
-                          title: event.title,
-                          date: event.date,
-                          prize: event.prize,
-                        ),
+                        child: _EventCard(event: event),
                       ),
                   ],
                 );
@@ -2074,56 +2080,180 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
 }
 
 class _EventCard extends StatelessWidget {
-  const _EventCard({
-    required this.title,
-    required this.date,
-    required this.prize,
-  });
+  const _EventCard({required this.event});
 
-  final String title;
-  final String date;
-  final String prize;
+  final EventItem event;
 
   @override
   Widget build(BuildContext context) {
     return CardBox(
-      child: Row(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: AppColors.purple.withValues(alpha: .12),
-              borderRadius: BorderRadius.circular(14),
+          if (event.imageUrl.isNotEmpty)
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(22),
+              ),
+              child: CachedNetworkImage(
+                imageUrl: event.imageUrl,
+                width: double.infinity,
+                height: 150,
+                fit: BoxFit.cover,
+                alignment: const Alignment(0, -0.12),
+              ),
             ),
-            child: const Icon(CupertinoIcons.rosette, color: AppColors.purple),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(fontWeight: FontWeight.w900),
+                const Icon(
+                  CupertinoIcons.rosette,
+                  color: AppColors.purple,
+                  size: 24,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  date,
-                  style: const TextStyle(color: AppColors.muted, fontSize: 12),
-                ),
-                Text(
-                  prize,
-                  style: const TextStyle(
-                    color: AppColors.green,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        event.title,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      if (event.date.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          event.date,
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                      if (event.location.isNotEmpty)
+                        Text(
+                          event.location,
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      if (event.description.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          event.description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                      if (event.prize.isNotEmpty)
+                        Text(
+                          event.prize,
+                          style: const TextStyle(
+                            color: AppColors.green,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                          ),
+                        ),
+                    ],
                   ),
+                ),
+                const Icon(
+                  CupertinoIcons.chevron_right,
+                  color: AppColors.muted,
                 ),
               ],
             ),
           ),
-          const Icon(CupertinoIcons.chevron_right, color: AppColors.muted),
+        ],
+      ),
+    );
+  }
+}
+
+class _AcademyPackageCard extends StatelessWidget {
+  const _AcademyPackageCard({
+    required this.package,
+    required this.fallbackImage,
+  });
+
+  final AcademyPackage package;
+  final String fallbackImage;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = package.imageUrl.isNotEmpty
+        ? package.imageUrl
+        : fallbackImage;
+    return CardBox(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (image.isNotEmpty)
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(22),
+              ),
+              child: CachedNetworkImage(
+                imageUrl: image,
+                width: double.infinity,
+                height: 142,
+                fit: BoxFit.cover,
+                alignment: const Alignment(0, -0.12),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  package.title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
+                ),
+                if (package.description.isNotEmpty) ...[
+                  const SizedBox(height: 5),
+                  Text(
+                    package.description,
+                    style: const TextStyle(color: AppColors.muted, height: 1.4),
+                  ),
+                ],
+                if (package.price.isNotEmpty ||
+                    package.duration.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      if (package.price.isNotEmpty)
+                        Chip(
+                          avatar: const Icon(
+                            CupertinoIcons.money_dollar_circle,
+                            size: 16,
+                          ),
+                          label: Text(package.price),
+                        ),
+                      if (package.duration.isNotEmpty)
+                        Chip(
+                          avatar: const Icon(CupertinoIcons.clock, size: 16),
+                          label: Text(package.duration),
+                        ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -2820,6 +2950,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _bio = TextEditingController();
   bool _loading = true;
   bool _saving = false;
+  bool _uploadingPhoto = false;
+  String _photoUrl = '';
+  Uint8List? _photoBytes;
+  String _photoFileName = 'profile.jpg';
 
   @override
   void initState() {
@@ -2838,8 +2972,30 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _name.text = (data['displayName'] ?? user.displayName ?? '').toString();
       _city.text = (data['city'] ?? '').toString();
       _bio.text = (data['bio'] ?? '').toString();
+      _photoUrl = (data['photoUrl'] ?? user.photoURL ?? '').toString();
     }
     if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _choosePhoto() async {
+    final file = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 86,
+      maxWidth: 1200,
+    );
+    if (file == null) return;
+    final bytes = await file.readAsBytes();
+    if (bytes.lengthInBytes > 5 * 1024 * 1024) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Choose a photo smaller than 5 MB.')),
+      );
+      return;
+    }
+    setState(() {
+      _photoBytes = bytes;
+      _photoFileName = file.name;
+    });
   }
 
   @override
@@ -2856,13 +3012,38 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     try {
       if (user != null) {
         await user.updateDisplayName(_name.text.trim());
+        if (_photoBytes != null) {
+          setState(() => _uploadingPhoto = true);
+          final extension = _photoFileName.split('.').last.toLowerCase();
+          final safeExtension =
+              const {'jpg', 'jpeg', 'png', 'webp', 'heic'}.contains(extension)
+              ? extension
+              : 'jpg';
+          final contentType = switch (safeExtension) {
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            'heic' => 'image/heic',
+            _ => 'image/jpeg',
+          };
+          final ref = FirebaseStorage.instance.ref(
+            'profile-images/${user.uid}/avatar.$safeExtension',
+          );
+          await ref.putData(
+            _photoBytes!,
+            SettableMetadata(contentType: contentType),
+          );
+          _photoUrl = await ref.getDownloadURL();
+          await user.updatePhotoURL(_photoUrl);
+        }
         await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
           'displayName': _name.text.trim(),
           'city': _city.text.trim(),
           'bio': _bio.text.trim(),
+          if (_photoUrl.isNotEmpty) 'photoUrl': _photoUrl,
         }, SetOptions(merge: true));
       }
       if (mounted) {
+        setState(() => _uploadingPhoto = false);
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Profile updated.')));
@@ -2871,6 +3052,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     } catch (error) {
       if (mounted) {
         setState(() => _saving = false);
+        _uploadingPhoto = false;
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(error.toString())));
@@ -2899,30 +3081,69 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               )
             else ...[
               Center(
-                child: Stack(
-                  clipBehavior: Clip.none,
+                child: Column(
                   children: [
-                    Avatar(
-                      name: _name.text.isEmpty
-                          ? 'A'
-                          : _name.text.characters.first,
-                      size: 92,
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        ClipOval(
+                          child: SizedBox(
+                            width: 96,
+                            height: 96,
+                            child: _photoBytes != null
+                                ? Image.memory(_photoBytes!, fit: BoxFit.cover)
+                                : _photoUrl.isNotEmpty
+                                ? CachedNetworkImage(
+                                    imageUrl: _photoUrl,
+                                    fit: BoxFit.cover,
+                                    errorWidget: (_, _, _) => Avatar(
+                                      name: _name.text.isEmpty
+                                          ? 'A'
+                                          : _name.text.characters.first,
+                                      size: 96,
+                                    ),
+                                  )
+                                : Avatar(
+                                    name: _name.text.isEmpty
+                                        ? 'A'
+                                        : _name.text.characters.first,
+                                    size: 96,
+                                  ),
+                          ),
+                        ),
+                        Positioned(
+                          right: -4,
+                          bottom: -4,
+                          child: Material(
+                            color: AppColors.purple,
+                            shape: const CircleBorder(),
+                            child: IconButton(
+                              tooltip: 'Choose profile photo',
+                              onPressed: _uploadingPhoto ? null : _choosePhoto,
+                              icon: _uploadingPhoto
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      CupertinoIcons.camera,
+                                      color: Colors.white,
+                                      size: 18,
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    Positioned(
-                      right: -4,
-                      bottom: -4,
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: const BoxDecoration(
-                          color: AppColors.purple,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          CupertinoIcons.camera,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                      ),
+                    const SizedBox(height: 12),
+                    TextButton.icon(
+                      onPressed: _uploadingPhoto ? null : _choosePhoto,
+                      icon: const Icon(CupertinoIcons.photo),
+                      label: const Text('Add or change photo'),
                     ),
                   ],
                 ),

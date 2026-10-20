@@ -27,6 +27,7 @@ class _SportHubCopy {
     required this.secondDestination,
     required this.thirdDestination,
     this.adventure = false,
+    this.groupsOnly = false,
   });
 
   final String heroLine;
@@ -43,6 +44,7 @@ class _SportHubCopy {
   final _HubDestination secondDestination;
   final _HubDestination thirdDestination;
   final bool adventure;
+  final bool groupsOnly;
 }
 
 /// Hub screen dedicated to a single sport (e.g. Padel, Football, Tennis, Basketball, Volleyball).
@@ -132,6 +134,31 @@ class SportHubScreen extends StatelessWidget {
           secondDestination: _HubDestination.activities,
           thirdDestination: _HubDestination.academies,
           adventure: true,
+        );
+      case 'cycling':
+      case 'running':
+        final cycling = sport.toLowerCase() == 'cycling';
+        return _SportHubCopy(
+          heroLine: cycling
+              ? 'Find local cycling groups and rides'
+              : 'Find local running groups and meetups',
+          firstTitle: 'Find a group',
+          firstSubtitle: cycling
+              ? 'Join a cycling ride'
+              : 'Join a running meetup',
+          firstIcon: cycling
+              ? Icons.directions_bike_rounded
+              : Icons.directions_run_rounded,
+          secondTitle: '',
+          secondSubtitle: '',
+          secondIcon: Icons.groups_rounded,
+          thirdTitle: '',
+          thirdSubtitle: '',
+          thirdIcon: Icons.groups_rounded,
+          firstDestination: _HubDestination.matches,
+          secondDestination: _HubDestination.matches,
+          thirdDestination: _HubDestination.matches,
+          groupsOnly: true,
         );
       case 'kayaking':
         return const _SportHubCopy(
@@ -404,128 +431,140 @@ class SportHubScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
 
-                  IntrinsicHeight(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                  if (copy.groupsOnly)
+                    _HubActionCard(
+                      icon: copy.firstIcon,
+                      title: copy.firstTitle,
+                      subtitle: copy.firstSubtitle,
+                      onTap: () => openDestination(copy.firstDestination),
+                    )
+                  else
+                    IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: _HubActionCard(
+                              icon: copy.firstIcon,
+                              title: copy.firstTitle,
+                              subtitle: copy.firstSubtitle,
+                              onTap: () =>
+                                  openDestination(copy.firstDestination),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _HubActionCard(
+                              icon: copy.secondIcon,
+                              title: copy.secondTitle,
+                              subtitle: copy.secondSubtitle,
+                              onTap: () =>
+                                  openDestination(copy.secondDestination),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _HubActionCard(
+                              icon: copy.thirdIcon,
+                              title: copy.thirdTitle,
+                              subtitle: copy.thirdSubtitle,
+                              onTap: () =>
+                                  openDestination(copy.thirdDestination),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  if (!copy.groupsOnly) const SizedBox(height: 28),
+
+                  // Available Courts Preview Section
+                  if (!copy.groupsOnly)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Expanded(
-                          child: _HubActionCard(
-                            icon: copy.firstIcon,
-                            title: copy.firstTitle,
-                            subtitle: copy.firstSubtitle,
-                            onTap: () => openDestination(copy.firstDestination),
+                        Text(
+                          copy.adventure
+                              ? 'Available $sport Experiences'
+                              : sport.toLowerCase() == 'fitness'
+                              ? 'Fitness Studios & Classes'
+                              : 'Available $sport Courts',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _HubActionCard(
-                            icon: copy.secondIcon,
-                            title: copy.secondTitle,
-                            subtitle: copy.secondSubtitle,
-                            onTap: () =>
-                                openDestination(copy.secondDestination),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _HubActionCard(
-                            icon: copy.thirdIcon,
-                            title: copy.thirdTitle,
-                            subtitle: copy.thirdSubtitle,
-                            onTap: () => openDestination(copy.thirdDestination),
-                          ),
+                        TextButton(
+                          onPressed: () {
+                            if (copy.adventure) {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const SportActivitiesScreen(),
+                                ),
+                              );
+                              return;
+                            }
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => Scaffold(
+                                  appBar: AppBar(
+                                    leading: IconButton(
+                                      icon: const Icon(CupertinoIcons.back),
+                                      onPressed: () =>
+                                          Navigator.of(context).pop(),
+                                    ),
+                                    title: Text('$sport Courts'),
+                                  ),
+                                  body: BookScreen(initialSport: sport),
+                                ),
+                              ),
+                            );
+                          },
+                          child: const Text('See All'),
                         ),
                       ],
                     ),
-                  ),
+                  if (!copy.groupsOnly) const SizedBox(height: 8),
 
-                  const SizedBox(height: 28),
+                  if (!copy.groupsOnly)
+                    StreamBuilder<List<Court>>(
+                      stream: CatalogService.instance.courts(),
+                      initialData: useFirebaseEmulators
+                          ? kTestCourts
+                          : const <Court>[],
+                      builder: (context, snapshot) {
+                        final allCourts = snapshot.data ?? const <Court>[];
+                        final matchingCourts = allCourts.where((c) {
+                          return c.sport.toLowerCase() == sport.toLowerCase();
+                        }).toList();
 
-                  // Available Courts Preview Section
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        copy.adventure
-                            ? 'Available $sport Experiences'
-                            : sport.toLowerCase() == 'fitness'
-                            ? 'Fitness Studios & Classes'
-                            : 'Available $sport Courts',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          if (copy.adventure) {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const SportActivitiesScreen(),
-                              ),
-                            );
-                            return;
-                          }
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => Scaffold(
-                                appBar: AppBar(
-                                  leading: IconButton(
-                                    icon: const Icon(CupertinoIcons.back),
-                                    onPressed: () =>
-                                        Navigator.of(context).pop(),
+                        if (matchingCourts.isEmpty) {
+                          return CardBox(
+                            child: Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Text(
+                                  copy.adventure
+                                      ? 'New $sport experiences are being added. Tap Explore above to browse current adventures.'
+                                      : 'No $sport venues found at this moment.',
+                                  style: TextStyle(
+                                    color: theme.colorScheme.onSurfaceVariant,
                                   ),
-                                  title: Text('$sport Courts'),
                                 ),
-                                body: BookScreen(initialSport: sport),
                               ),
                             ),
                           );
-                        },
-                        child: const Text('See All'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
+                        }
 
-                  StreamBuilder<List<Court>>(
-                    stream: CatalogService.instance.courts(),
-                    initialData: useFirebaseEmulators
-                        ? kTestCourts
-                        : const <Court>[],
-                    builder: (context, snapshot) {
-                      final allCourts = snapshot.data ?? const <Court>[];
-                      final matchingCourts = allCourts.where((c) {
-                        return c.sport.toLowerCase() == sport.toLowerCase();
-                      }).toList();
-
-                      if (matchingCourts.isEmpty) {
-                        return CardBox(
-                          child: Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16.0),
-                              child: Text(
-                                copy.adventure
-                                    ? 'New $sport experiences are being added. Tap Explore above to browse current adventures.'
-                                    : 'No $sport venues found at this moment.',
-                                style: TextStyle(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                          ),
+                        return Column(
+                          children: matchingCourts.take(3).map((court) {
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: CourtListCard(court: court),
+                            );
+                          }).toList(),
                         );
-                      }
-
-                      return Column(
-                        children: matchingCourts.take(3).map((court) {
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: CourtListCard(court: court),
-                          );
-                        }).toList(),
-                      );
-                    },
-                  ),
+                      },
+                    ),
 
                   if (copy.secondDestination == _HubDestination.matches) ...[
                     const SizedBox(height: 24),
