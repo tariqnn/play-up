@@ -1986,7 +1986,7 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: _AcademyPackageCard(
                       package: package,
-                      fallbackImage: academy.imageUrl,
+                      fallbackImage: _academyPackageImage(academy),
                     ),
                   )
               else
@@ -2092,7 +2092,13 @@ String _academyPackageImage(Academy academy) {
   if (sports.contains('padel') || sports.contains('tennis')) {
     return 'asset:assets/images/sports/tennis_court_ball.png';
   }
-  return academy.imageUrl;
+  if (sports.contains('cycling')) {
+    return 'asset:assets/images/sports/cycling_group.jpg';
+  }
+  if (sports.contains('running')) {
+    return 'asset:assets/images/sports/running_track.jpg';
+  }
+  return 'asset:assets/images/sports/basketball_court_ball.png';
 }
 
 class _TrainingPackageCard extends StatelessWidget {
@@ -2102,40 +2108,8 @@ class _TrainingPackageCard extends StatelessWidget {
   final String imageUrl;
 
   @override
-  Widget build(BuildContext context) => CardBox(
-    padding: EdgeInsets.zero,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SportImageCard(
-          height: 128,
-          icon: CupertinoIcons.star_circle_fill,
-          gradient: const [Color(0xFF0B1628), Color(0xFF1F7A8C)],
-          imageUrl: imageUrl,
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(CupertinoIcons.sparkles, color: AppColors.green),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    height: 1.3,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) =>
+      _PackageCardLayout(title: title, imageUrl: imageUrl, description: '');
 }
 
 class _EventCard extends StatelessWidget {
@@ -2251,68 +2225,220 @@ class _AcademyPackageCard extends StatelessWidget {
     final image = package.imageUrl.isNotEmpty
         ? package.imageUrl
         : fallbackImage;
+    return _PackageCardLayout(
+      title: package.title,
+      imageUrl: image,
+      description: package.description,
+      price: package.price,
+      duration: package.duration,
+    );
+  }
+}
+
+class _PackageCardLayout extends StatelessWidget {
+  const _PackageCardLayout({
+    required this.title,
+    required this.imageUrl,
+    required this.description,
+    this.price = '',
+    this.duration = '',
+  });
+
+  final String title;
+  final String imageUrl;
+  final String description;
+  final String price;
+  final String duration;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return CardBox(
       padding: EdgeInsets.zero,
+      radius: 20,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SportImageCard(
-            height: 142,
-            icon: CupertinoIcons.sportscourt,
-            gradient: const [Color(0xFF0B1628), Color(0xFF1F7A8C)],
-            imageUrl: image,
-          ),
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  package.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 16,
-                    height: 1.25,
+          ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            child: SizedBox(
+              height: 158,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFF0B1628), Color(0xFF1F7A8C)],
+                      ),
+                    ),
                   ),
-                ),
-                if (package.description.isNotEmpty) ...[
-                  const SizedBox(height: 5),
-                  Text(
-                    package.description,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontSize: 14,
-                      height: 1.5,
+                  if (imageUrl.startsWith('asset:'))
+                    Image.asset(
+                      imageUrl.substring(6),
+                      fit: BoxFit.cover,
+                      alignment: const Alignment(0, 0.12),
+                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                    )
+                  else if (imageUrl.isNotEmpty)
+                    CachedNetworkImage(
+                      imageUrl: imageUrl,
+                      fit: BoxFit.cover,
+                      alignment: const Alignment(0, 0.12),
+                      errorWidget: (_, _, _) => const SizedBox.shrink(),
+                    )
+                  else
+                    const Center(
+                      child: Icon(
+                        CupertinoIcons.sportscourt,
+                        size: 56,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.transparent, Color(0xD9001018)],
+                        stops: [0.34, 1],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xE60A1716),
+                        borderRadius: BorderRadius.circular(30),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: .24),
+                        ),
+                      ),
+                      child: const Text(
+                        'TRAINING PACKAGE',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: .9,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: 14,
+                    child: Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 21,
+                        height: 1.15,
+                        shadows: [Shadow(color: Colors.black54, blurRadius: 8)],
+                      ),
                     ),
                   ),
                 ],
-                if (package.price.isNotEmpty ||
-                    package.duration.isNotEmpty) ...[
-                  const SizedBox(height: 10),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 13, 16, 15),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (description.trim().isNotEmpty)
+                  Text(
+                    description,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontSize: 14,
+                      height: 1.4,
+                    ),
+                  ),
+                if (price.isNotEmpty || duration.isNotEmpty) ...[
+                  if (description.trim().isNotEmpty) const SizedBox(height: 12),
                   Wrap(
                     spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      if (package.price.isNotEmpty)
-                        Chip(
-                          avatar: const Icon(
-                            CupertinoIcons.money_dollar_circle,
-                            size: 16,
-                          ),
-                          label: Text(package.price),
+                      if (price.isNotEmpty)
+                        _PackageDetailPill(
+                          icon: CupertinoIcons.money_dollar_circle,
+                          label: price,
+                          emphasized: true,
                         ),
-                      if (package.duration.isNotEmpty)
-                        Chip(
-                          avatar: const Icon(CupertinoIcons.clock, size: 16),
-                          label: Text(package.duration),
+                      if (duration.isNotEmpty)
+                        _PackageDetailPill(
+                          icon: CupertinoIcons.clock,
+                          label: duration,
                         ),
                     ],
                   ),
                 ],
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PackageDetailPill extends StatelessWidget {
+  const _PackageDetailPill({
+    required this.icon,
+    required this.label,
+    this.emphasized = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = emphasized
+        ? const Color(0xFF07241F)
+        : Theme.of(context).colorScheme.onSurface;
+    return Container(
+      constraints: const BoxConstraints(minHeight: 32),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: emphasized
+            ? const Color(0xFF72E5C2)
+            : Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: foreground),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: foreground,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         ],
