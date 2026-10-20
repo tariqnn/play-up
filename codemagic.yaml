@@ -55,7 +55,4 @@ workflows:
     publishing:
       app_store_connect:
         auth: integration
-        # Distribute processed builds directly to the existing internal group.
         submit_to_testflight: true
-        beta_groups:
-          - TE testing

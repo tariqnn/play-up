@@ -1705,7 +1705,7 @@ class _AcademyCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    academy.name,
+                    _cleanAcademyCopy(academy.name),
                     style: const TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 16,
@@ -1713,7 +1713,7 @@ class _AcademyCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    academy.sports,
+                    _cleanAcademyCopy(academy.sports),
                     style: const TextStyle(
                       color: AppColors.muted,
                       fontSize: 13,
@@ -1729,7 +1729,7 @@ class _AcademyCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        academy.rating,
+                        _cleanAcademyCopy(academy.rating),
                         style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(width: 12),
@@ -1740,8 +1740,10 @@ class _AcademyCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 2),
                       Text(
-                        academy.distanceFrom(
-                          LocationService.instance.current.value,
+                        _cleanAcademyCopy(
+                          academy.distanceFrom(
+                            LocationService.instance.current.value,
+                          ),
                         ),
                         style: const TextStyle(color: AppColors.muted),
                       ),
@@ -1765,8 +1767,15 @@ String _cleanAcademyCopy(String value) => value
     .replaceAll('\u00e2\u20ac\u02dc', '\u2018')
     .replaceAll('\u00e2\u20ac\u0153', '\u201c')
     .replaceAll('\u00e2\u20ac\u009d', '\u201d')
+    .replaceAll('\u00e2\u2020\u2019', '\u2192')
+    .replaceAll('\u00e2\u2020\u2014', '\u2197')
+    .replaceAll('\u00c3\u201a\u00c2\u00a0', ' ')
+    .replaceAll('\u00c2\u00a0', ' ')
     .replaceAll('\u00c2\u00b7', '\u00b7')
+    .replaceAll('\u00ef\u00bf\u00bd', '')
     .replaceAll('\uFFFD', '')
+    .replaceAll(RegExp(r'[\u200B-\u200D\uFEFF]'), '')
+    .replaceAll(RegExp(r'\s+([,.!?;:])'), r'$1')
     .replaceAll(RegExp(r'\s+'), ' ')
     .trim();
 
@@ -1781,6 +1790,20 @@ class AcademyProfileScreen extends StatefulWidget {
 
 class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
   bool _following = false;
+  late final PageController _packageController;
+  int _activePackagePage = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _packageController = PageController(viewportFraction: .88);
+  }
+
+  @override
+  void dispose() {
+    _packageController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1794,7 +1817,7 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
             Stack(
               children: [
                 Container(
-                  height: 176,
+                  height: 150,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
@@ -1884,7 +1907,7 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                         children: [
                           Flexible(
                             child: Text(
-                              academy.name,
+                              _cleanAcademyCopy(academy.name),
                               style: const TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.w900,
@@ -1940,7 +1963,68 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 20),
+            if (academy.packages.isNotEmpty ||
+                academy.trainingPackages.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Training packages',
+                      style: TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  if ((academy.packages.isNotEmpty
+                          ? academy.packages.length
+                          : academy.trainingPackages.length) >
+                      1)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Text(
+                        '${(_activePackagePage + 1).toString().padLeft(2, '0')} / '
+                        '${(academy.packages.isNotEmpty ? academy.packages.length : academy.trainingPackages.length).toString().padLeft(2, '0')}',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 9),
+              SizedBox(
+                height: 218,
+                child: PageView.builder(
+                  controller: _packageController,
+                  itemCount: academy.packages.isNotEmpty
+                      ? academy.packages.length
+                      : academy.trainingPackages.length,
+                  onPageChanged: (index) =>
+                      setState(() => _activePackagePage = index),
+                  itemBuilder: (context, index) {
+                    final packageCard = academy.packages.isNotEmpty
+                        ? _AcademyPackageCard(
+                            package: academy.packages[index],
+                            fallbackImage: _academyPackageImage(academy),
+                          )
+                        : _TrainingPackageCard(
+                            title: academy.trainingPackages[index],
+                            imageUrl: _academyPackageImage(academy),
+                          );
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 10, bottom: 3),
+                      child: packageCard,
+                    );
+                  },
+                ),
+              ),
+            ],
+            const SizedBox(height: 16),
             const Text(
               'About',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
@@ -1948,7 +2032,7 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
             const SizedBox(height: 8),
             Text(
               academy.description.isEmpty
-                  ? 'Contact ${academy.name} to learn about its courts, coaching, and current programs.'
+                  ? 'Contact ${_cleanAcademyCopy(academy.name)} to learn about its courts, coaching, and current programs.'
                   : _cleanAcademyCopy(academy.description),
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
@@ -1957,7 +2041,7 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
             if (academy.address.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(
-                academy.address,
+                _cleanAcademyCopy(academy.address),
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ],
@@ -1987,62 +2071,7 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                   ),
               ],
             ),
-            if (academy.packages.isNotEmpty ||
-                academy.trainingPackages.isNotEmpty) ...[
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Training packages',
-                      style: TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    'Swipe to explore',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                height: 244,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: academy.packages.isNotEmpty
-                      ? academy.packages.length
-                      : academy.trainingPackages.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 12),
-                  itemBuilder: (context, index) {
-                    if (academy.packages.isNotEmpty) {
-                      return SizedBox(
-                        width: 286,
-                        child: _AcademyPackageCard(
-                          package: academy.packages[index],
-                          fallbackImage: _academyPackageImage(academy),
-                        ),
-                      );
-                    }
-                    return SizedBox(
-                      width: 286,
-                      child: _TrainingPackageCard(
-                        title: academy.trainingPackages[index],
-                        imageUrl: _academyPackageImage(academy),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-            const SizedBox(height: 14),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
             StreamBuilder<List<Court>>(
               stream: CatalogService.instance.courts(),
               builder: (context, snapshot) {
@@ -2347,7 +2376,7 @@ class _PackageCardLayout extends StatelessWidget {
           ClipRRect(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
             child: SizedBox(
-              height: 112,
+              height: 118,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -2408,7 +2437,7 @@ class _PackageCardLayout extends StatelessWidget {
                         ),
                       ),
                       child: const Text(
-                        'TRAINING PACKAGE',
+                        'TRAINING',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 10,
@@ -2424,12 +2453,12 @@ class _PackageCardLayout extends StatelessWidget {
                     bottom: 14,
                     child: Text(
                       title,
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w900,
-                        fontSize: 21,
+                        fontSize: 19,
                         height: 1.15,
                         shadows: [Shadow(color: Colors.black54, blurRadius: 8)],
                       ),
@@ -2440,26 +2469,26 @@ class _PackageCardLayout extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(13, 10, 13, 11),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 9),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (description.trim().isNotEmpty)
                   Text(
                     description,
-                    maxLines: 2,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: theme.colorScheme.onSurfaceVariant,
-                      fontSize: 13,
-                      height: 1.3,
+                      fontSize: 12,
+                      height: 1.2,
                     ),
                   ),
                 if (price.isNotEmpty || duration.isNotEmpty) ...[
-                  if (description.trim().isNotEmpty) const SizedBox(height: 8),
+                  if (description.trim().isNotEmpty) const SizedBox(height: 6),
                   Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                    spacing: 6,
+                    runSpacing: 6,
                     children: [
                       if (price.isNotEmpty)
                         _PackageDetailPill(
@@ -2500,22 +2529,22 @@ class _PackageDetailPill extends StatelessWidget {
     final foreground = emphasized
         ? const Color(0xFF07241F)
         : Theme.of(context).colorScheme.onSurface;
-    return Container(
-      constraints: const BoxConstraints(minHeight: 32),
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-      decoration: BoxDecoration(
-        color: emphasized
-            ? const Color(0xFF72E5C2)
-            : Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(11),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: foreground),
-          const SizedBox(width: 5),
-          Flexible(
-            child: Text(
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 32, maxWidth: 148),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+        decoration: BoxDecoration(
+          color: emphasized
+              ? const Color(0xFF72E5C2)
+              : Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(11),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: foreground),
+            const SizedBox(width: 5),
+            Text(
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -2525,8 +2554,8 @@ class _PackageDetailPill extends StatelessWidget {
                 fontWeight: FontWeight.w800,
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
