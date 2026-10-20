@@ -515,6 +515,18 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
     'Available now',
   ];
 
+  Future<void> _useCurrentLocation() async {
+    try {
+      await LocationService.instance.useCurrentLocation();
+      if (mounted) setState(() {});
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
   @override
   void dispose() {
     _search.dispose();
@@ -546,6 +558,48 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
               ],
             ),
             const SizedBox(height: 16),
+            ValueListenableBuilder<AppLocation?>(
+              valueListenable: LocationService.instance.current,
+              builder: (context, location, _) => CardBox(
+                child: Row(
+                  children: [
+                    const Icon(
+                      CupertinoIcons.location_solid,
+                      color: AppColors.green,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            location?.label ?? 'Location not set',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          Text(
+                            'Distances are direct; directions open the road route.',
+                            style: TextStyle(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      onPressed: _useCurrentLocation,
+                      child: const Text('Update'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
             SizedBox(
               height: 48,
               child: ListView.separated(
@@ -567,6 +621,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                   snapshot.data ?? const <Court>[],
                   LocationService.instance.current.value,
                   query: _search.text,
+                  radiusKm: null,
                 );
                 if (_sort == 'Cheapest') {
                   results.sort(

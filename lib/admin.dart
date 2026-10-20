@@ -193,6 +193,7 @@ class AdminCollectionScreen extends StatelessWidget {
     this.hasGradient = false,
     this.hasIcon = false,
     this.hasFeatured = false,
+    this.showTestCourtAction = false,
   });
 
   final String collection;
@@ -203,22 +204,60 @@ class AdminCollectionScreen extends StatelessWidget {
   final bool hasGradient;
   final bool hasIcon;
   final bool hasFeatured;
+  final bool showTestCourtAction;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: AppColors.purple,
-        onPressed: () => _openEditor(context),
-        icon: const Icon(CupertinoIcons.add, color: Colors.white),
-        label: Text(
-          'Add',
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-      ),
+      floatingActionButton: showTestCourtAction
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                FloatingActionButton.extended(
+                  heroTag: 'create-playup-test-court',
+                  backgroundColor: AppColors.dark,
+                  onPressed: () => _createTestCourt(context),
+                  icon: const Icon(
+                    CupertinoIcons.sportscourt,
+                    color: Colors.white,
+                  ),
+                  label: const Text(
+                    'Create test court',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                FloatingActionButton.extended(
+                  heroTag: 'add-court',
+                  backgroundColor: AppColors.purple,
+                  onPressed: () => _openEditor(context),
+                  icon: const Icon(CupertinoIcons.add, color: Colors.white),
+                  label: const Text(
+                    'Add court',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : FloatingActionButton.extended(
+              backgroundColor: AppColors.purple,
+              onPressed: () => _openEditor(context),
+              icon: const Icon(CupertinoIcons.add, color: Colors.white),
+              label: const Text(
+                'Add',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
       body: AppScrollPage(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -335,6 +374,103 @@ class AdminCollectionScreen extends StatelessWidget {
           ).showSnackBar(SnackBar(content: Text('Delete failed: $error')));
         }
       }
+    }
+  }
+
+  Future<void> _createTestCourt(BuildContext context) async {
+    final create = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('Create test court?'),
+        content: const Text(
+          'Adds a clearly marked test-only academy and court so booking and match flows can reach the live backend. Neither is a real venue. Remove both from the Academies and Courts admin lists when testing is finished.',
+        ),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('Cancel'),
+            onPressed: () => Navigator.of(context).pop(false),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            child: const Text('Create test court'),
+            onPressed: () => Navigator.of(context).pop(true),
+          ),
+        ],
+      ),
+    );
+    if (create != true || !context.mounted) return;
+    try {
+      final db = FirebaseFirestore.instance;
+      final batch = db.batch();
+      final now = FieldValue.serverTimestamp();
+      batch.set(
+        db.collection('academies').doc('playup-test-academy'),
+        {
+          'name': 'PlayUp Test Academy - TEST ONLY',
+          'sports': 'Basketball',
+          'rating': 'Test venue',
+          'distance': 'Test location',
+          'featured': false,
+          'gradient': 'teal',
+          'icon': 'court',
+          'address': 'Test location - Amman (not a real venue)',
+          'latitude': 31.9539,
+          'longitude': 35.9106,
+          'imageUrl': '',
+          'description': 'Test-only venue for PlayUp booking flow checks.',
+          'status': 'active',
+          'isTestData': true,
+          'trainingPackages': <String>[],
+          'packages': <Map<String, dynamic>>[],
+          'createdAt': now,
+          'updatedAt': now,
+        },
+        SetOptions(merge: true),
+      );
+      batch.set(db.collection('courts').doc('playup-test-court'), {
+        'academyId': 'playup-test-academy',
+        'name': 'PlayUp Test Court — TEST ONLY',
+        'subtitle': 'TEST ONLY • Basketball • Not a real venue',
+        'sport': 'Basketball',
+        'rating': 'Test venue',
+        'distance': 'Test location',
+        'price': 'JOD 1.00 / hr (test)',
+        'basePriceMinor': 100,
+        'currency': 'JOD',
+        'address': 'Test location - Amman (not a real venue)',
+        'latitude': 31.9539,
+        'longitude': 35.9106,
+        'imageUrl': '',
+        'description':
+            'Demo listing for PlayUp booking and match testing only.',
+        'active': true,
+        'bookable': true,
+        'openingHour': 6,
+        'closingHour': 23,
+        'timezone': 'Asia/Amman',
+        'blockedPeriods': <Map<String, dynamic>>[],
+        'maintenancePeriods': <Map<String, dynamic>>[],
+        'isTestCourt': true,
+        'isTestData': true,
+        'gradient': 'teal',
+        'icon': 'court',
+        'createdAt': now,
+        'updatedAt': now,
+      }, SetOptions(merge: true));
+      await batch.commit();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Test academy and court are live. Delete them from the Academies and Courts admin lists when finished.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not create test court: $error')),
+      );
     }
   }
 
@@ -609,6 +745,7 @@ class AdminCourtsScreen extends StatelessWidget {
       subtitleKey: 'subtitle',
       hasGradient: true,
       hasIcon: true,
+      showTestCourtAction: true,
       fields: [
         AdminField('name', 'Court name'),
         AdminField('subtitle', 'Sport / type'),

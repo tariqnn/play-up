@@ -1799,11 +1799,25 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        if (academy.imageUrl.isNotEmpty)
+                        if (academy.imageUrl.startsWith('asset:'))
+                          Image.asset(
+                            academy.imageUrl.substring(6),
+                            fit: BoxFit.cover,
+                            alignment: const Alignment(0, 0.12),
+                            errorBuilder: (context, error, stackTrace) =>
+                                Center(
+                                  child: Icon(
+                                    academy.icon,
+                                    color: Colors.white54,
+                                    size: 72,
+                                  ),
+                                ),
+                          )
+                        else if (academy.imageUrl.isNotEmpty)
                           CachedNetworkImage(
                             imageUrl: academy.imageUrl,
                             fit: BoxFit.cover,
-                            alignment: const Alignment(0, -0.12),
+                            alignment: const Alignment(0, 0.12),
                             errorWidget: (context, url, error) => Center(
                               child: Icon(
                                 academy.icon,
@@ -1979,24 +1993,9 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                 for (final package in academy.trainingPackages)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 10),
-                    child: CardBox(
-                      child: Row(
-                        children: [
-                          const Icon(
-                            CupertinoIcons.star_circle_fill,
-                            color: AppColors.purple,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              package,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                    child: _TrainingPackageCard(
+                      title: package,
+                      imageUrl: _academyPackageImage(academy),
                     ),
                   ),
             ],
@@ -2077,6 +2076,66 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
       );
     }
   }
+}
+
+String _academyPackageImage(Academy academy) {
+  final sports = academy.sports.toLowerCase();
+  if (sports.contains('basketball') || sports.contains('3x3')) {
+    return 'asset:assets/images/sports/basketball_court_ball.png';
+  }
+  if (sports.contains('football') || sports.contains('soccer')) {
+    return 'asset:assets/images/sports/football_court_ball.png';
+  }
+  if (sports.contains('volleyball')) {
+    return 'asset:assets/images/sports/volleyball_court_ball.png';
+  }
+  if (sports.contains('padel') || sports.contains('tennis')) {
+    return 'asset:assets/images/sports/tennis_court_ball.png';
+  }
+  return academy.imageUrl;
+}
+
+class _TrainingPackageCard extends StatelessWidget {
+  const _TrainingPackageCard({required this.title, required this.imageUrl});
+
+  final String title;
+  final String imageUrl;
+
+  @override
+  Widget build(BuildContext context) => CardBox(
+    padding: EdgeInsets.zero,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SportImageCard(
+          height: 128,
+          icon: CupertinoIcons.star_circle_fill,
+          gradient: const [Color(0xFF0B1628), Color(0xFF1F7A8C)],
+          imageUrl: imageUrl,
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(CupertinoIcons.sparkles, color: AppColors.green),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    height: 1.3,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _EventCard extends StatelessWidget {
@@ -2197,19 +2256,12 @@ class _AcademyPackageCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (image.isNotEmpty)
-            ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(22),
-              ),
-              child: CachedNetworkImage(
-                imageUrl: image,
-                width: double.infinity,
-                height: 142,
-                fit: BoxFit.cover,
-                alignment: const Alignment(0, -0.12),
-              ),
-            ),
+          SportImageCard(
+            height: 142,
+            icon: CupertinoIcons.sportscourt,
+            gradient: const [Color(0xFF0B1628), Color(0xFF1F7A8C)],
+            imageUrl: image,
+          ),
           Padding(
             padding: const EdgeInsets.all(14),
             child: Column(
@@ -2217,16 +2269,25 @@ class _AcademyPackageCard extends StatelessWidget {
               children: [
                 Text(
                   package.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontWeight: FontWeight.w900,
                     fontSize: 16,
+                    height: 1.25,
                   ),
                 ),
                 if (package.description.isNotEmpty) ...[
                   const SizedBox(height: 5),
                   Text(
                     package.description,
-                    style: const TextStyle(color: AppColors.muted, height: 1.4),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 14,
+                      height: 1.5,
+                    ),
                   ),
                 ],
                 if (package.price.isNotEmpty ||

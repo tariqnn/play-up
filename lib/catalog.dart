@@ -422,10 +422,9 @@ class CatalogService {
     AppLocation? location, {
     String sport = 'All',
     String query = '',
-    double radiusKm = 40,
+    double? radiusKm = 40,
   }) {
-    if (location == null) return <Court>[];
-    final safeRadiusKm = radiusKm.clamp(1, 40).toDouble();
+    final safeRadiusKm = radiusKm?.clamp(1, 40).toDouble();
     final needle = query.trim().toLowerCase();
     final result = source.where((court) {
       final sportMatches =
@@ -440,8 +439,8 @@ class CatalogService {
       final distance = court.distanceKmFrom(location);
       return sportMatches &&
           queryMatches &&
-          distance != null &&
-          distance <= safeRadiusKm;
+          (safeRadiusKm == null ||
+              (distance != null && distance <= safeRadiusKm));
     }).toList();
     // Keep the three real Infinity court photos at the top of the initial
     // Explore list, independent of the user's location sort. The multipurpose

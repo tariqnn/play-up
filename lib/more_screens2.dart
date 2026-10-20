@@ -147,7 +147,7 @@ class OpenMatch {
     final value = km < 1
         ? '${(km * 1000).round()} m'
         : '${km.toStringAsFixed(1)} km';
-    return '$value straight-line';
+    return '~$value direct';
   }
 
   final String title;

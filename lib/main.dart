@@ -1996,7 +1996,7 @@ class Court {
     final value = km < 1
         ? '${(km * 1000).round()} m'
         : '${km.toStringAsFixed(1)} km';
-    return '$value straight-line';
+    return '~$value direct';
   }
 
   bool isOpenAt(DateTime localTime) =>
@@ -8350,7 +8350,7 @@ class SportImageCard extends StatelessWidget {
               Image.asset(
                 imageUrl.substring(6),
                 fit: BoxFit.cover,
-                alignment: const Alignment(0, -0.12),
+                alignment: const Alignment(0, 0.12),
                 cacheWidth: 1600,
                 errorBuilder: (context, error, stackTrace) =>
                     CustomPaint(painter: CourtLinesPainter()),
@@ -8359,7 +8359,7 @@ class SportImageCard extends StatelessWidget {
               CachedNetworkImage(
                 imageUrl: imageUrl,
                 fit: BoxFit.cover,
-                alignment: const Alignment(0, -0.12),
+                alignment: const Alignment(0, 0.12),
                 errorWidget: (context, url, error) =>
                     CustomPaint(painter: CourtLinesPainter()),
               )
