@@ -1757,6 +1757,19 @@ class _AcademyCard extends StatelessWidget {
   }
 }
 
+String _cleanAcademyCopy(String value) => value
+    .replaceAll('\u00e2\u20ac\u00a2', '\u2022')
+    .replaceAll('\u00e2\u20ac\u201c', '\u2013')
+    .replaceAll('\u00e2\u20ac\u201d', '\u2014')
+    .replaceAll('\u00e2\u20ac\u2122', '\u2019')
+    .replaceAll('\u00e2\u20ac\u02dc', '\u2018')
+    .replaceAll('\u00e2\u20ac\u0153', '\u201c')
+    .replaceAll('\u00e2\u20ac\u009d', '\u201d')
+    .replaceAll('\u00c2\u00b7', '\u00b7')
+    .replaceAll('\uFFFD', '')
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim();
+
 class AcademyProfileScreen extends StatefulWidget {
   const AcademyProfileScreen({super.key, required this.academy});
 
@@ -1781,7 +1794,7 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
             Stack(
               children: [
                 Container(
-                  height: 220,
+                  height: 176,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
@@ -1896,7 +1909,7 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            '${academy.rating}  •  ${academy.distanceFrom(LocationService.instance.current.value)}',
+                            '${_cleanAcademyCopy(academy.rating)}  \u2022  ${_cleanAcademyCopy(academy.distanceFrom(LocationService.instance.current.value))}',
                             style: const TextStyle(color: AppColors.muted),
                           ),
                         ],
@@ -1936,8 +1949,10 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
             Text(
               academy.description.isEmpty
                   ? 'Contact ${academy.name} to learn about its courts, coaching, and current programs.'
-                  : academy.description,
-              style: const TextStyle(color: AppColors.muted, height: 1.5),
+                  : _cleanAcademyCopy(academy.description),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: AppColors.muted, height: 1.4),
             ),
             if (academy.address.isNotEmpty) ...[
               const SizedBox(height: 8),
@@ -1974,81 +1989,148 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
             ),
             if (academy.packages.isNotEmpty ||
                 academy.trainingPackages.isNotEmpty) ...[
-              const SizedBox(height: 22),
-              const Text(
-                'Training packages',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: 12),
-              if (academy.packages.isNotEmpty)
-                for (final package in academy.packages)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _AcademyPackageCard(
-                      package: package,
-                      fallbackImage: _academyPackageImage(academy),
-                    ),
-                  )
-              else
-                for (final package in academy.trainingPackages)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _TrainingPackageCard(
-                      title: package,
-                      imageUrl: _academyPackageImage(academy),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Training packages',
+                      style: TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
+                  Text(
+                    'Swipe to explore',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 244,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: academy.packages.isNotEmpty
+                      ? academy.packages.length
+                      : academy.trainingPackages.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) {
+                    if (academy.packages.isNotEmpty) {
+                      return SizedBox(
+                        width: 286,
+                        child: _AcademyPackageCard(
+                          package: academy.packages[index],
+                          fallbackImage: _academyPackageImage(academy),
+                        ),
+                      );
+                    }
+                    return SizedBox(
+                      width: 286,
+                      child: _TrainingPackageCard(
+                        title: academy.trainingPackages[index],
+                        imageUrl: _academyPackageImage(academy),
+                      ),
+                    );
+                  },
+                ),
+              ),
             ],
+            const SizedBox(height: 14),
             const SizedBox(height: 20),
-            const SectionHeader(title: 'Courts'),
-            const SizedBox(height: 12),
             StreamBuilder<List<Court>>(
               stream: CatalogService.instance.courts(),
               builder: (context, snapshot) {
                 final list = (snapshot.data ?? const <Court>[])
                     .where((court) => court.academyId == academy.id)
                     .toList();
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (list.isEmpty) {
-                  return const CardBox(
-                    child: Text('No bookable courts are listed right now.'),
-                  );
-                }
-                return Column(
-                  children: [
-                    for (final court in list)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: CourtListCard(court: court),
+                return CardBox(
+                  padding: EdgeInsets.zero,
+                  child: ExpansionTile(
+                    tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+                    childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                    title: const Text(
+                      'Courts',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
                       ),
-                  ],
+                    ),
+                    subtitle: Text(
+                      snapshot.connectionState == ConnectionState.waiting
+                          ? 'Loading courts'
+                          : '${list.length} ${list.length == 1 ? 'court' : 'courts'}',
+                    ),
+                    children: [
+                      if (snapshot.connectionState == ConnectionState.waiting)
+                        const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Center(child: CircularProgressIndicator()),
+                        )
+                      else if (list.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: Text('No courts are listed right now.'),
+                        )
+                      else
+                        for (final court in list)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: CourtListCard(court: court),
+                          ),
+                    ],
+                  ),
                 );
               },
             ),
-            const SizedBox(height: 10),
-            const SectionHeader(title: 'Upcoming Events'),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             StreamBuilder<List<EventItem>>(
               stream: CatalogService.instance.events(),
               builder: (context, snapshot) {
                 final list = (snapshot.data ?? const <EventItem>[])
                     .where((event) => event.academyId == academy.id)
                     .toList();
-                if (list.isEmpty) {
-                  return const CardBox(
-                    child: Text('No upcoming academy events are listed.'),
-                  );
-                }
-                return Column(
-                  children: [
-                    for (final event in list)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _EventCard(event: event),
+                return CardBox(
+                  padding: EdgeInsets.zero,
+                  child: ExpansionTile(
+                    tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+                    childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                    title: const Text(
+                      'Upcoming events',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
                       ),
-                  ],
+                    ),
+                    subtitle: Text(
+                      snapshot.connectionState == ConnectionState.waiting
+                          ? 'Loading events'
+                          : '${list.length} ${list.length == 1 ? 'event' : 'events'}',
+                    ),
+                    children: [
+                      if (snapshot.connectionState == ConnectionState.waiting)
+                        const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Center(child: CircularProgressIndicator()),
+                        )
+                      else if (list.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: Text('No upcoming events are listed.'),
+                        )
+                      else
+                        for (final event in list)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: _EventCard(event: event),
+                          ),
+                    ],
+                  ),
                 );
               },
             ),
@@ -2108,8 +2190,11 @@ class _TrainingPackageCard extends StatelessWidget {
   final String imageUrl;
 
   @override
-  Widget build(BuildContext context) =>
-      _PackageCardLayout(title: title, imageUrl: imageUrl, description: '');
+  Widget build(BuildContext context) => _PackageCardLayout(
+    title: _cleanAcademyCopy(title),
+    imageUrl: imageUrl,
+    description: '',
+  );
 }
 
 class _EventCard extends StatelessWidget {
@@ -2226,11 +2311,11 @@ class _AcademyPackageCard extends StatelessWidget {
         ? package.imageUrl
         : fallbackImage;
     return _PackageCardLayout(
-      title: package.title,
+      title: _cleanAcademyCopy(package.title),
       imageUrl: image,
-      description: package.description,
-      price: package.price,
-      duration: package.duration,
+      description: _cleanAcademyCopy(package.description),
+      price: _cleanAcademyCopy(package.price),
+      duration: _cleanAcademyCopy(package.duration),
     );
   }
 }
@@ -2262,7 +2347,7 @@ class _PackageCardLayout extends StatelessWidget {
           ClipRRect(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
             child: SizedBox(
-              height: 158,
+              height: 112,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -2355,23 +2440,23 @@ class _PackageCardLayout extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 13, 16, 15),
+            padding: const EdgeInsets.fromLTRB(13, 10, 13, 11),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (description.trim().isNotEmpty)
                   Text(
                     description,
-                    maxLines: 3,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: theme.colorScheme.onSurfaceVariant,
-                      fontSize: 14,
-                      height: 1.4,
+                      fontSize: 13,
+                      height: 1.3,
                     ),
                   ),
                 if (price.isNotEmpty || duration.isNotEmpty) ...[
-                  if (description.trim().isNotEmpty) const SizedBox(height: 12),
+                  if (description.trim().isNotEmpty) const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
@@ -2478,7 +2563,7 @@ class OfferDetailsScreen extends StatelessWidget {
             Stack(
               children: [
                 Container(
-                  height: 220,
+                  height: 176,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(colors: colors),
                     borderRadius: const BorderRadius.vertical(
