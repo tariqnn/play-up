@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'catalog.dart';
 import 'main.dart';
 import 'custom_dashboard.dart';
+import 'location_service.dart';
 
 // ---------------------------------------------------------------------------
 // Admin hub
@@ -403,6 +404,10 @@ class AdminCollectionScreen extends StatelessWidget {
       final db = FirebaseFirestore.instance;
       final batch = db.batch();
       final now = FieldValue.serverTimestamp();
+      final location = LocationService.instance.current.value;
+      final testLatitude = location?.latitude ?? 31.9539;
+      final testLongitude = location?.longitude ?? 35.9106;
+      final testLocationLabel = location?.label ?? 'Amman';
       batch.set(
         db.collection('academies').doc('playup-test-academy'),
         {
@@ -413,9 +418,9 @@ class AdminCollectionScreen extends StatelessWidget {
           'featured': false,
           'gradient': 'teal',
           'icon': 'court',
-          'address': 'Test location - Amman (not a real venue)',
-          'latitude': 31.9539,
-          'longitude': 35.9106,
+          'address': 'Test location - $testLocationLabel (not a real venue)',
+          'latitude': testLatitude,
+          'longitude': testLongitude,
           'imageUrl': '',
           'description': 'Test-only venue for PlayUp booking flow checks.',
           'status': 'active',
@@ -437,9 +442,9 @@ class AdminCollectionScreen extends StatelessWidget {
         'price': 'JOD 1.00 / hr (test)',
         'basePriceMinor': 100,
         'currency': 'JOD',
-        'address': 'Test location - Amman (not a real venue)',
-        'latitude': 31.9539,
-        'longitude': 35.9106,
+        'address': 'Test location - $testLocationLabel (not a real venue)',
+        'latitude': testLatitude,
+        'longitude': testLongitude,
         'imageUrl': '',
         'description':
             'Demo listing for PlayUp booking and match testing only.',
