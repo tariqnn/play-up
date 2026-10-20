@@ -38,7 +38,7 @@ Stream<List<OpenMatch>> openMatchesStream() {
             )
             .where(
               (match) =>
-                  match.bookingId.isNotEmpty &&
+                  (match.bookingId.isNotEmpty || match.groupId.isNotEmpty) &&
                   match.startUtc != null &&
                   match.startUtc!.isAfter(DateTime.now()),
             )
@@ -75,6 +75,7 @@ class OpenMatch {
     this.score,
     this.hostReliability,
     this.status = 'open',
+    this.groupId = '',
   });
 
   final String scoreStatus;
@@ -82,6 +83,7 @@ class OpenMatch {
   final Map<String, dynamic>? score;
   final int? hostReliability;
   final String status;
+  final String groupId;
 
   factory OpenMatch.fromMap(Map<String, dynamic> d, {String? id}) {
     final players = (d['players'] as List?)?.length ?? 1;
@@ -119,6 +121,7 @@ class OpenMatch {
           : null,
       hostReliability: (d['hostReliability'] as num?)?.toInt(),
       status: (d['status'] ?? 'open').toString(),
+      groupId: (d['communityGroupId'] ?? '').toString(),
     );
   }
 
@@ -141,9 +144,10 @@ class OpenMatch {
   String distanceFrom(AppLocation? location) {
     final km = distanceKmFrom(location);
     if (km == null) return '';
-    return km < 1
-        ? '${(km * 1000).round()} m away'
-        : '${km.toStringAsFixed(1)} km away';
+    final value = km < 1
+        ? '${(km * 1000).round()} m'
+        : '${km.toStringAsFixed(1)} km';
+    return '$value straight-line';
   }
 
   final String title;
@@ -164,6 +168,273 @@ class OpenMatch {
   final String bookingId;
   final DateTime? startUtc;
   final List<String> playerNames;
+}
+
+class _CommunityGroup {
+  const _CommunityGroup(
+    this.id,
+    this.name,
+    this.sport,
+    this.description,
+    this.image,
+    this.icon,
+  );
+  final String id;
+  final String name;
+  final String sport;
+  final String description;
+  final String image;
+  final IconData icon;
+}
+
+const _communityGroups = <_CommunityGroup>[
+  _CommunityGroup(
+    'into-the-basket',
+    'Into The Basket',
+    'Basketball',
+    'Amman basketball community and organized pickup games.',
+    'assets/images/sports/basketball_court_ball.png',
+    Icons.sports_basketball_rounded,
+  ),
+  _CommunityGroup(
+    'cycling',
+    'Cycling Groups',
+    'Cycling',
+    'Find local rides and meet other cyclists.',
+    'assets/images/sports/cycling_group.jpg',
+    Icons.directions_bike_rounded,
+  ),
+  _CommunityGroup(
+    'running',
+    'Running Groups',
+    'Running',
+    'Find local runs and running meetups.',
+    'assets/images/sports/running_track.jpg',
+    Icons.directions_run_rounded,
+  ),
+];
+
+class CommunityGroupsSection extends StatelessWidget {
+  const CommunityGroupsSection({super.key, this.initialSport});
+
+  final String? initialSport;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const SectionHeader(title: 'Community groups'),
+      const SizedBox(height: 12),
+      for (final group in _communityGroups.where(
+        (group) =>
+            initialSport == null ||
+            group.sport.toLowerCase() == initialSport!.toLowerCase(),
+      ))
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => _CommunityGroupScreen(group: group),
+              ),
+            ),
+            child: CardBox(
+              padding: EdgeInsets.zero,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: SizedBox(
+                  height: 124,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.asset(group.image, fit: BoxFit.cover),
+                      const DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.transparent, Colors.black87],
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: 14,
+                        right: 14,
+                        bottom: 12,
+                        child: Row(
+                          children: [
+                            Icon(group.icon, color: Colors.white, size: 22),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    group.name,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${group.sport} · ${group.description}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(
+                              CupertinoIcons.chevron_right,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
+}
+
+class CommunityGroupsScreen extends StatelessWidget {
+  const CommunityGroupsScreen({super.key, this.initialSport});
+  final String? initialSport;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: AppScrollPage(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          PageTopBar(
+            title: initialSport == null
+                ? 'Community groups'
+                : '$initialSport groups',
+            onBack: () => Navigator.of(context).pop(),
+          ),
+          const SizedBox(height: 14),
+          CommunityGroupsSection(initialSport: initialSport),
+        ],
+      ),
+    ),
+  );
+}
+
+class _CommunityGroupScreen extends StatelessWidget {
+  const _CommunityGroupScreen({required this.group});
+  final _CommunityGroup group;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final monday = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).subtract(Duration(days: now.weekday - DateTime.monday));
+    final nextMonday = monday.add(const Duration(days: 7));
+    return Scaffold(
+      body: AppScrollPage(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            PageTopBar(title: group.name, onBack: () => Navigator.pop(context)),
+            const SizedBox(height: 14),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: SizedBox(
+                height: 185,
+                width: double.infinity,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Image.asset(group.image, fit: BoxFit.cover),
+                    const DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Colors.transparent, Colors.black87],
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 16,
+                      bottom: 15,
+                      child: Text(
+                        '${group.sport} · Community',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const SectionHeader(title: 'Matches this week'),
+            const SizedBox(height: 10),
+            StreamBuilder<List<OpenMatch>>(
+              stream: openMatchesStream(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return const CardBox(
+                    child: Text(
+                      'This group schedule could not load. Try again shortly.',
+                    ),
+                  );
+                }
+                final matches = (snapshot.data ?? const <OpenMatch>[]).where((
+                  match,
+                ) {
+                  final start = match.startUtc?.toLocal();
+                  return match.groupId == group.id &&
+                      start != null &&
+                      !start.isBefore(monday) &&
+                      start.isBefore(nextMonday);
+                }).toList()..sort((a, b) => a.startUtc!.compareTo(b.startUtc!));
+                if (matches.isEmpty) {
+                  return CardBox(
+                    child: Text(
+                      'No ${group.sport.toLowerCase()} matches are scheduled for this group this week yet.',
+                    ),
+                  );
+                }
+                return Column(
+                  children: [
+                    for (final match in matches)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: OpenMatchCard(match: match),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class OpenMatchesScreen extends StatefulWidget {
@@ -1391,6 +1662,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   int _players = 6;
   DateTime _start = DateTime.now().add(const Duration(days: 1));
   bool _externalVenue = false;
+  String _communityGroupId = '';
   bool _publishing = false;
   late Future<Set<String>> _availableIds;
   late Future<bool> _canUseExternalVenues;
@@ -1437,6 +1709,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         startUtc: _start,
         externalVenue: _externalVenue,
         venueNote: _venueNote.text.trim(),
+        communityGroupId: _communityGroupId,
       );
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -1629,6 +1902,29 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                   controller: _venueNote,
                   label: 'Court or venue note',
                   icon: CupertinoIcons.location,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: _communityGroupId.isEmpty
+                      ? null
+                      : _communityGroupId,
+                  decoration: const InputDecoration(
+                    labelText: 'Community group (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem<String>(
+                      value: '',
+                      child: Text('No group'),
+                    ),
+                    for (final group in _communityGroups)
+                      DropdownMenuItem<String>(
+                        value: group.id,
+                        child: Text(group.name),
+                      ),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => _communityGroupId = value ?? ''),
                 ),
                 const SizedBox(height: 12),
                 const CardBox(

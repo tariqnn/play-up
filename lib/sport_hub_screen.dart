@@ -67,6 +67,10 @@ class SportHubScreen extends StatelessWidget {
         return 'asset:assets/images/sports/basketball_court_ball.png';
       case 'volleyball':
         return 'asset:assets/images/sports/volleyball_court_ball.png';
+      case 'cycling':
+        return 'asset:assets/images/sports/cycling_group.jpg';
+      case 'running':
+        return 'asset:assets/images/sports/running_track.jpg';
       case 'badminton':
         return 'asset:assets/images/sports/tennis_court_ball.png';
       case 'sea sports':
@@ -287,6 +291,14 @@ class SportHubScreen extends StatelessWidget {
           );
           return;
         case _HubDestination.matches:
+          if (copy.groupsOnly) {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => CommunityGroupsScreen(initialSport: sport),
+              ),
+            );
+            return;
+          }
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => OpenMatchesScreen(initialSport: sport),

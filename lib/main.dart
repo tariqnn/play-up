@@ -1268,6 +1268,7 @@ class AppRepository {
     required DateTime startUtc,
     bool externalVenue = false,
     String venueNote = '',
+    String communityGroupId = '',
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || user.isAnonymous) {
@@ -1293,6 +1294,8 @@ class AppRepository {
               'skill': skill,
               'startUtc': startUtc.toUtc().toIso8601String(),
               'venueNote': venueNote.trim(),
+              if (communityGroupId.isNotEmpty)
+                'communityGroupId': communityGroupId,
             });
         return (response.data as Map)['matchId'].toString();
       } on FirebaseFunctionsException catch (error) {
@@ -1990,7 +1993,10 @@ class Court {
   String distanceFrom(AppLocation? location) {
     final km = distanceKmFrom(location);
     if (km == null) return 'Location needed';
-    return km < 1 ? '${(km * 1000).round()} m' : '${km.toStringAsFixed(1)} km';
+    final value = km < 1
+        ? '${(km * 1000).round()} m'
+        : '${km.toStringAsFixed(1)} km';
+    return '$value straight-line';
   }
 
   bool isOpenAt(DateTime localTime) =>
@@ -4236,13 +4242,13 @@ class _HomeSportCarouselState extends State<HomeSportCarousel> {
     _HomeSportItem(
       sport: 'Cycling',
       icon: Icons.directions_bike_rounded,
-      imageUrl: '',
+      imageUrl: 'asset:assets/images/sports/cycling_group.jpg',
       badge: 'Ride Together',
     ),
     _HomeSportItem(
       sport: 'Running',
       icon: Icons.directions_run_rounded,
-      imageUrl: '',
+      imageUrl: 'asset:assets/images/sports/running_track.jpg',
       badge: 'Run Together',
     ),
   ];
@@ -4480,7 +4486,9 @@ class _HomeSportHubChip extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          'Courts & activities',
+                          sport == 'Cycling' || sport == 'Running'
+                              ? 'Community groups'
+                              : 'Courts & activities',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -4849,7 +4857,9 @@ class _PlayScreenState extends State<PlayScreen> {
             icon: CupertinoIcons.plus,
             onPressed: () => _createMatch(context),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 22),
+          const CommunityGroupsSection(),
+          const SizedBox(height: 12),
           SecondaryButton(
             label: 'Browse Tournaments',
             onPressed: () => Navigator.of(context).push(

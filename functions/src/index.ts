@@ -1210,6 +1210,20 @@ export const createExternalMatch = onCall(callableOptions, async (request) => {
     throw new HttpsError("invalid-argument", "Match start time must use 30-minute boundaries.");
   }
   const type = request.data?.type === "Competitive" ? "Competitive" : "Casual";
+  const communityGroupId = String(request.data?.communityGroupId ?? "");
+  const allowedCommunityGroups = new Set(["into-the-basket", "cycling", "running"]);
+  if (communityGroupId && !allowedCommunityGroups.has(communityGroupId)) {
+    throw new HttpsError("invalid-argument", "Choose a valid PlayUp community group.");
+  }
+  if (communityGroupId === "into-the-basket" && sport.toLowerCase() !== "basketball") {
+    throw new HttpsError("invalid-argument", "Into The Basket is a basketball group.");
+  }
+  if (communityGroupId === "cycling" && sport.toLowerCase() !== "cycling") {
+    throw new HttpsError("invalid-argument", "Cycling group matches must use Cycling.");
+  }
+  if (communityGroupId === "running" && sport.toLowerCase() !== "running") {
+    throw new HttpsError("invalid-argument", "Running group matches must use Running.");
+  }
   const matchRef = db.collection("matches").doc();
   await db.runTransaction(async (tx) => {
     tx.create(matchRef, {
@@ -1217,6 +1231,7 @@ export const createExternalMatch = onCall(callableOptions, async (request) => {
       hostName: user.displayName ?? "Player",
       title,
       sport,
+      ...(communityGroupId ? { communityGroupId } : {}),
       academyId: "",
       courtId: "",
       courtName: venueNote,
