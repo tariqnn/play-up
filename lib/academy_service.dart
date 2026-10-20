@@ -190,6 +190,36 @@ class AcademyService {
     return ref.getDownloadURL();
   }
 
+  Future<String> uploadAcademyImage({
+    required Uint8List bytes,
+    required String fileName,
+  }) async {
+    if (bytes.lengthInBytes > 5 * 1024 * 1024) {
+      throw StateError('Academy photos must be smaller than 5 MB.');
+    }
+    final scope = await ownerScope();
+    if (!scope.canManageAcademy) {
+      throw StateError('Only academy owners can edit academy photos.');
+    }
+    final extension = fileName.split('.').last.toLowerCase();
+    final safeExtension =
+        const {'jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'}.contains(extension)
+        ? extension
+        : 'jpg';
+    final contentType = switch (safeExtension) {
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      'heic' => 'image/heic',
+      'heif' => 'image/heif',
+      _ => 'image/jpeg',
+    };
+    final ref = FirebaseStorage.instance.ref(
+      'academy-images/${scope.academyId}/cover.$safeExtension',
+    );
+    await ref.putData(bytes, SettableMetadata(contentType: contentType));
+    return ref.getDownloadURL();
+  }
+
   Future<String> saveCourt({
     String? courtId,
     required String name,

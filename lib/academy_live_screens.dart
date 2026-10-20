@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -824,11 +825,11 @@ class AcademyProfileManagementScreen extends StatelessWidget {
               onChanged: (v) => data['description'] = v,
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              initialValue: data['imageUrl']?.toString(),
-              keyboardType: TextInputType.url,
-              decoration: const InputDecoration(labelText: 'Cover photo URL'),
-              onChanged: (v) => data['imageUrl'] = v.trim(),
+            _AcademyCoverEditor(
+              initialUrl: data['imageUrl']?.toString() ?? '',
+              onUpload: (bytes, name) => AcademyService.instance
+                  .uploadAcademyImage(bytes: bytes, fileName: name),
+              onUrlChanged: (url) => data['imageUrl'] = url,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -1162,5 +1163,116 @@ class _Metric extends StatelessWidget {
         ],
       ),
     ),
+  );
+}
+
+class _AcademyCoverEditor extends StatefulWidget {
+  const _AcademyCoverEditor({
+    required this.initialUrl,
+    required this.onUpload,
+    required this.onUrlChanged,
+  });
+  final String initialUrl;
+  final Future<String> Function(Uint8List bytes, String fileName) onUpload;
+  final ValueChanged<String> onUrlChanged;
+
+  @override
+  State<_AcademyCoverEditor> createState() => _AcademyCoverEditorState();
+}
+
+class _AcademyCoverEditorState extends State<_AcademyCoverEditor> {
+  late String _url = widget.initialUrl;
+  bool _uploading = false;
+
+  Future<void> _choose() async {
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 86,
+      maxWidth: 1600,
+    );
+    if (picked == null) return;
+    final bytes = await picked.readAsBytes();
+    if (bytes.lengthInBytes > 5 * 1024 * 1024) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Choose a photo smaller than 5 MB.')),
+        );
+      }
+      return;
+    }
+    setState(() => _uploading = true);
+    try {
+      final url = await widget.onUpload(bytes, picked.name);
+      if (!mounted) return;
+      setState(() {
+        _url = url;
+        _uploading = false;
+      });
+      widget.onUrlChanged(url);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _uploading = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'Academy cover photo',
+        style: TextStyle(fontWeight: FontWeight.w700),
+      ),
+      const SizedBox(height: 8),
+      ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: SizedBox(
+          width: double.infinity,
+          height: 170,
+          child: _url.isEmpty
+              ? const ColoredBox(
+                  color: Color(0xFF17251D),
+                  child: Center(
+                    child: Icon(
+                      Icons.photo_outlined,
+                      size: 40,
+                      color: Colors.white70,
+                    ),
+                  ),
+                )
+              : CachedNetworkImage(
+                  imageUrl: _url,
+                  fit: BoxFit.cover,
+                  alignment: const Alignment(0, -0.12),
+                  errorWidget: (_, _, _) => const ColoredBox(
+                    color: Color(0xFF17251D),
+                    child: Center(
+                      child: Icon(
+                        Icons.broken_image_outlined,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ),
+                ),
+        ),
+      ),
+      Align(
+        alignment: Alignment.centerRight,
+        child: TextButton.icon(
+          onPressed: _uploading ? null : _choose,
+          icon: _uploading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.photo_library_outlined),
+          label: Text(_uploading ? 'Uploading…' : 'Choose photo'),
+        ),
+      ),
+    ],
   );
 }

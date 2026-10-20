@@ -39,5 +39,18 @@ service firebase.storage {
         && request.resource.size < 5 * 1024 * 1024
         && request.resource.contentType.matches('image/(jpeg|png|webp|heic|heif)');
     }
+    match /academy-images/{academyId}/{fileName} {
+      allow read: if true;
+      allow write: if signedIn() && profile().suspended != true && (
+        profile().role == 'superAdmin' ||
+        'academies.manage' in profile().permissions ||
+        (profile().academyId == academyId && (
+          profile().role == 'academyOwner' ||
+          (profile().role == 'academyStaff' && 'academy.profile.manage' in profile().permissions)
+        ))
+      )
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp|heic|heif)');
+    }
   }
 }

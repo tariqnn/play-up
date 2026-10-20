@@ -4741,13 +4741,18 @@ class _BookScreenState extends State<BookScreen> {
                     }
                     return EmptyState(
                       icon: CupertinoIcons.sportscourt,
-                      title: 'No venues found',
-                      message:
-                          'Try another sport, search, or update your location.',
-                      action: 'Open map',
+                      title: location == null
+                          ? 'Choose your location'
+                          : 'No courts within 40 km',
+                      message: location == null
+                          ? 'Set your location to find real nearby courts.'
+                          : 'Try another sport or adjust your search.',
+                      action: location == null ? 'Set location' : 'Open map',
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (_) => const MapViewScreen(),
+                          builder: (_) => location == null
+                              ? const LocationPickerScreen()
+                              : const MapViewScreen(),
                         ),
                       ),
                     );
