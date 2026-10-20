@@ -55,6 +55,7 @@ workflows:
     publishing:
       app_store_connect:
         auth: integration
-        # Upload to App Store Connect without opening external beta review.
-        # Internal testers can install the processed build after it is added
-        # to the internal TestFlight group in App Store Connect.
+        # Distribute processed builds directly to the existing internal group.
+        submit_to_testflight: true
+        beta_groups:
+          - TE testing
