@@ -1626,138 +1626,183 @@ class _AcademyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => AcademyProfileScreen(academy: academy),
+    final theme = Theme.of(context);
+    Widget image = academy.imageUrl.startsWith('asset:')
+        ? Image.asset(
+            academy.imageUrl.substring(6),
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: 168,
+            errorBuilder: (_, _, _) => _academyImageFallback(academy),
+          )
+        : academy.imageUrl.isNotEmpty
+        ? CachedNetworkImage(
+            imageUrl: academy.imageUrl,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: 168,
+            errorWidget: (_, _, _) => _academyImageFallback(academy),
+          )
+        : _academyImageFallback(academy);
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(22),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => AcademyProfileScreen(academy: academy),
+          ),
         ),
-      ),
-      child: CardBox(
-        padding: EdgeInsets.zero,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
-              children: [
-                Container(
-                  height: 120,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: academy.gradient),
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(22),
-                    ),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(22),
-                    ),
-                    child: academy.imageUrl.isEmpty
-                        ? Center(
-                            child: Icon(
-                              academy.icon,
-                              color: Colors.white.withValues(alpha: .5),
-                              size: 54,
+        child: CardBox(
+          padding: EdgeInsets.zero,
+          radius: 22,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(22),
+                ),
+                child: SizedBox(
+                  height: 168,
+                  width: double.infinity,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      image,
+                      const DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.transparent, Color(0xD9071A15)],
+                            stops: [0.3, 1],
+                          ),
+                        ),
+                      ),
+                      if (academy.featured)
+                        Positioned(
+                          top: 12,
+                          left: 12,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
                             ),
-                          )
-                        : CachedNetworkImage(
-                            imageUrl: academy.imageUrl,
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                            height: 120,
-                            errorWidget: (context, url, error) => Center(
-                              child: Icon(
-                                academy.icon,
-                                color: Colors.white.withValues(alpha: .5),
-                                size: 54,
+                            decoration: BoxDecoration(
+                              color: AppColors.gold,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: const Text(
+                              'FEATURED',
+                              style: TextStyle(
+                                color: AppColors.dark,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 10,
                               ),
                             ),
                           ),
-                  ),
-                ),
-                if (academy.featured)
-                  Positioned(
-                    top: 12,
-                    left: 12,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.gold,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: const Text(
-                        'FEATURED',
-                        style: TextStyle(
-                          color: AppColors.dark,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 10,
+                        ),
+                      Positioned(
+                        left: 15,
+                        right: 15,
+                        bottom: 13,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _cleanAcademyCopy(academy.name),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 19,
+                                height: 1.1,
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              _cleanAcademyCopy(academy.sports),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
+                    ],
                   ),
-              ],
-            ),
-            Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _cleanAcademyCopy(academy.name),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 16,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(15, 12, 15, 14),
+                child: Row(
+                  children: [
+                    const Icon(
+                      CupertinoIcons.star_fill,
+                      color: AppColors.gold,
+                      size: 15,
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _cleanAcademyCopy(academy.sports),
-                    style: const TextStyle(
+                    const SizedBox(width: 5),
+                    Text(
+                      _cleanAcademyCopy(academy.rating),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(width: 14),
+                    const Icon(
+                      CupertinoIcons.location_solid,
                       color: AppColors.muted,
-                      fontSize: 13,
+                      size: 14,
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(
-                        CupertinoIcons.star_fill,
-                        color: AppColors.gold,
-                        size: 15,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        _cleanAcademyCopy(academy.rating),
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(width: 12),
-                      const Icon(
-                        CupertinoIcons.location_solid,
-                        color: AppColors.muted,
-                        size: 14,
-                      ),
-                      const SizedBox(width: 2),
-                      Text(
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
                         _cleanAcademyCopy(
                           academy.distanceFrom(
                             LocationService.instance.current.value,
                           ),
                         ),
-                        style: const TextStyle(color: AppColors.muted),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontSize: 12,
+                        ),
                       ),
-                    ],
-                  ),
-                ],
+                    ),
+                    Icon(
+                      CupertinoIcons.arrow_up_right,
+                      color: theme.colorScheme.primary,
+                      size: 18,
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
+
+Widget _academyImageFallback(Academy academy) => DecoratedBox(
+  decoration: BoxDecoration(gradient: LinearGradient(colors: academy.gradient)),
+  child: Center(
+    child: Icon(
+      academy.icon,
+      color: Colors.white.withValues(alpha: .7),
+      size: 54,
+    ),
+  ),
+);
 
 String _cleanAcademyCopy(String value) => value
     .replaceAll('\u00e2\u20ac\u00a2', '\u2022')
@@ -1790,6 +1835,8 @@ class AcademyProfileScreen extends StatefulWidget {
 
 class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
   bool _following = false;
+  bool _courtsExpanded = false;
+  bool _eventsExpanded = false;
   late final PageController _packageController;
   int _activePackagePage = 0;
 
@@ -1817,7 +1864,7 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
             Stack(
               children: [
                 Container(
-                  height: 150,
+                  height: 216,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
@@ -1894,54 +1941,108 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                     ),
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
+                Positioned(
+                  left: 18,
+                  right: 18,
+                  bottom: 16,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          Flexible(
-                            child: Text(
-                              _cleanAcademyCopy(academy.name),
-                              style: const TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
                           const Icon(
                             CupertinoIcons.checkmark_seal_fill,
-                            color: AppColors.purple,
-                            size: 20,
+                            color: Color(0xFF91F0B7),
+                            size: 15,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            academy.featured
+                                ? 'FEATURED ACADEMY'
+                                : 'SPORTS ACADEMY',
+                            style: const TextStyle(
+                              color: Color(0xFFBDF7D0),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.1,
+                            ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          const Icon(
-                            CupertinoIcons.star_fill,
-                            color: AppColors.gold,
-                            size: 15,
+                      const SizedBox(height: 7),
+                      Text(
+                        _cleanAcademyCopy(academy.name),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          height: 1.05,
+                          fontWeight: FontWeight.w900,
+                          shadows: [
+                            Shadow(color: Colors.black54, blurRadius: 8),
+                          ],
+                        ),
+                      ),
+                      if (academy.address.isNotEmpty) ...[
+                        const SizedBox(height: 5),
+                        Text(
+                          _cleanAcademyCopy(academy.address),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '${_cleanAcademyCopy(academy.rating)}  \u2022  ${_cleanAcademyCopy(academy.distanceFrom(LocationService.instance.current.value))}',
-                            style: const TextStyle(color: AppColors.muted),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Positioned(
+                  top: 18,
+                  right: 10,
+                  child: SafeArea(
+                    child: CircleIconButton(
+                      icon: _following
+                          ? CupertinoIcons.heart_fill
+                          : CupertinoIcons.heart,
+                      dark: true,
+                      onTap: () => setState(() => _following = !_following),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 7,
+                    children: [
+                      _AcademyFactChip(
+                        icon: CupertinoIcons.star_fill,
+                        label: _cleanAcademyCopy(academy.rating),
+                        accent: AppColors.gold,
+                      ),
+                      _AcademyFactChip(
+                        icon: CupertinoIcons.location_solid,
+                        label: _cleanAcademyCopy(
+                          academy.distanceFrom(
+                            LocationService.instance.current.value,
                           ),
-                        ],
+                        ),
                       ),
                     ],
                   ),
                 ),
+                const SizedBox(width: 10),
                 SizedBox(
-                  height: 44,
+                  height: 48,
                   child: FilledButton(
                     onPressed: () => setState(() => _following = !_following),
                     style: FilledButton.styleFrom(
@@ -1952,7 +2053,7 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                           ? AppColors.ink
                           : Colors.white,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(16),
                       ),
                     ),
                     child: Text(
@@ -1970,12 +2071,28 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   const Expanded(
-                    child: Text(
-                      'Training packages',
-                      style: TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w900,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'TRAIN WITH PURPOSE',
+                          style: TextStyle(
+                            color: AppColors.green,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.05,
+                          ),
+                        ),
+                        SizedBox(height: 3),
+                        Text(
+                          'Training programs',
+                          style: TextStyle(
+                            fontSize: 20,
+                            height: 1.12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   if ((academy.packages.isNotEmpty
@@ -1998,7 +2115,7 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
               ),
               const SizedBox(height: 9),
               SizedBox(
-                height: 218,
+                height: 226,
                 child: PageView.builder(
                   controller: _packageController,
                   itemCount: academy.packages.isNotEmpty
@@ -2010,11 +2127,17 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                     final packageCard = academy.packages.isNotEmpty
                         ? _AcademyPackageCard(
                             package: academy.packages[index],
-                            fallbackImage: _academyPackageImage(academy),
+                            fallbackImage: _academyPackageImage(
+                              academy,
+                              programTitle: academy.packages[index].title,
+                            ),
                           )
                         : _TrainingPackageCard(
                             title: academy.trainingPackages[index],
-                            imageUrl: _academyPackageImage(academy),
+                            imageUrl: _academyPackageImage(
+                              academy,
+                              programTitle: academy.trainingPackages[index],
+                            ),
                           );
                     return Padding(
                       padding: const EdgeInsets.only(right: 10, bottom: 3),
@@ -2078,42 +2201,38 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                 final list = (snapshot.data ?? const <Court>[])
                     .where((court) => court.academyId == academy.id)
                     .toList();
-                return CardBox(
-                  padding: EdgeInsets.zero,
-                  child: ExpansionTile(
-                    tilePadding: const EdgeInsets.symmetric(horizontal: 16),
-                    childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-                    title: const Text(
-                      'Courts',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    subtitle: Text(
-                      snapshot.connectionState == ConnectionState.waiting
-                          ? 'Loading courts'
-                          : '${list.length} ${list.length == 1 ? 'court' : 'courts'}',
-                    ),
-                    children: [
-                      if (snapshot.connectionState == ConnectionState.waiting)
-                        const Padding(
-                          padding: EdgeInsets.all(16),
+                return _AcademyExpandablePanel(
+                  title: 'Courts and facilities',
+                  subtitle: snapshot.connectionState == ConnectionState.waiting
+                      ? 'Finding academy courts…'
+                      : '${list.length} ${list.length == 1 ? 'court' : 'courts'}',
+                  icon: CupertinoIcons.sportscourt,
+                  expanded: _courtsExpanded,
+                  onToggle: () =>
+                      setState(() => _courtsExpanded = !_courtsExpanded),
+                  child: snapshot.connectionState == ConnectionState.waiting
+                      ? const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 20),
                           child: Center(child: CircularProgressIndicator()),
                         )
-                      else if (list.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: Text('No courts are listed right now.'),
+                      : snapshot.hasError
+                      ? const _AcademyEmptyMessage(
+                          text:
+                              'Courts could not load. Check your connection and try again.',
                         )
-                      else
-                        for (final court in list)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: CourtListCard(court: court),
-                          ),
-                    ],
-                  ),
+                      : list.isEmpty
+                      ? const _AcademyEmptyMessage(
+                          text: 'No courts are listed for this academy yet.',
+                        )
+                      : Column(
+                          children: [
+                            for (var index = 0; index < list.length; index++)
+                              _AcademyCourtRow(
+                                court: list[index],
+                                last: index == list.length - 1,
+                              ),
+                          ],
+                        ),
                 );
               },
             ),
@@ -2124,42 +2243,40 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
                 final list = (snapshot.data ?? const <EventItem>[])
                     .where((event) => event.academyId == academy.id)
                     .toList();
-                return CardBox(
-                  padding: EdgeInsets.zero,
-                  child: ExpansionTile(
-                    tilePadding: const EdgeInsets.symmetric(horizontal: 16),
-                    childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-                    title: const Text(
-                      'Upcoming events',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    subtitle: Text(
-                      snapshot.connectionState == ConnectionState.waiting
-                          ? 'Loading events'
-                          : '${list.length} ${list.length == 1 ? 'event' : 'events'}',
-                    ),
-                    children: [
-                      if (snapshot.connectionState == ConnectionState.waiting)
-                        const Padding(
-                          padding: EdgeInsets.all(16),
+                return _AcademyExpandablePanel(
+                  title: 'Upcoming events',
+                  subtitle: snapshot.connectionState == ConnectionState.waiting
+                      ? 'Checking the academy calendar…'
+                      : '${list.length} ${list.length == 1 ? 'event' : 'events'}',
+                  icon: CupertinoIcons.calendar,
+                  expanded: _eventsExpanded,
+                  onToggle: () =>
+                      setState(() => _eventsExpanded = !_eventsExpanded),
+                  child: snapshot.connectionState == ConnectionState.waiting
+                      ? const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 20),
                           child: Center(child: CircularProgressIndicator()),
                         )
-                      else if (list.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: Text('No upcoming events are listed.'),
+                      : snapshot.hasError
+                      ? const _AcademyEmptyMessage(
+                          text:
+                              'Events could not load. Check your connection and try again.',
                         )
-                      else
-                        for (final event in list)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: _EventCard(event: event),
-                          ),
-                    ],
-                  ),
+                      : list.isEmpty
+                      ? const _AcademyEmptyMessage(
+                          text: 'No upcoming events are listed.',
+                        )
+                      : Column(
+                          children: [
+                            for (var index = 0; index < list.length; index++)
+                              Padding(
+                                padding: EdgeInsets.only(
+                                  bottom: index == list.length - 1 ? 0 : 10,
+                                ),
+                                child: _EventCard(event: list[index]),
+                              ),
+                          ],
+                        ),
                 );
               },
             ),
@@ -2189,8 +2306,24 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
   }
 }
 
-String _academyPackageImage(Academy academy) {
-  final sports = academy.sports.toLowerCase();
+String _academyPackageImage(Academy academy, {String programTitle = ''}) {
+  final sports =
+      '${programTitle.toLowerCase()} ${academy.sports.toLowerCase()}';
+  final isInfinity = academy.name.toLowerCase().contains('infinity');
+  if (isInfinity) {
+    if (sports.contains('volleyball')) {
+      return 'asset:assets/images/infinity_sports/court_volleyball.jpeg';
+    }
+    if (sports.contains('padel') || sports.contains('tennis')) {
+      return 'asset:assets/images/infinity_sports/court_padel.jpeg';
+    }
+    if (sports.contains('basketball') || sports.contains('3x3')) {
+      return 'asset:assets/images/infinity_sports/court_basketball_ac.jpeg';
+    }
+    return academy.imageUrl.isNotEmpty
+        ? academy.imageUrl
+        : 'asset:assets/images/infinity_sports/court_3x3.jpeg';
+  }
   if (sports.contains('basketball') || sports.contains('3x3')) {
     return 'asset:assets/images/sports/basketball_court_ball.png';
   }
@@ -2219,11 +2352,108 @@ class _TrainingPackageCard extends StatelessWidget {
   final String imageUrl;
 
   @override
-  Widget build(BuildContext context) => _PackageCardLayout(
-    title: _cleanAcademyCopy(title),
-    imageUrl: imageUrl,
-    description: '',
-  );
+  Widget build(BuildContext context) {
+    final program = _LegacyAcademyProgram.parse(title);
+    return _PackageCardLayout(
+      title: program.title,
+      imageUrl: imageUrl,
+      sport: program.sport,
+      description: program.description,
+      price: program.price,
+      duration: program.duration,
+      age: program.age,
+    );
+  }
+}
+
+class _LegacyAcademyProgram {
+  const _LegacyAcademyProgram({
+    required this.title,
+    required this.sport,
+    required this.description,
+    required this.price,
+    required this.duration,
+    required this.age,
+  });
+
+  final String title;
+  final String sport;
+  final String description;
+  final String price;
+  final String duration;
+  final String age;
+
+  static _LegacyAcademyProgram parse(String raw) {
+    final parts = raw
+        .split(';')
+        .map(_cleanAcademyCopy)
+        .where((part) => part.isNotEmpty)
+        .toList();
+    var title = parts.isEmpty ? 'Training program' : parts.first;
+    final details = parts.skip(1).toList();
+    final titleColon = title.indexOf(':');
+    if (titleColon > 0) {
+      final colonDetails = title.substring(titleColon + 1).trim();
+      if (RegExp(
+        r'\b(?:ages?\s|sessions?\b|classes?\b|contact\s+for\s+|Monday\b|Tuesday\b|Wednesday\b|Thursday\b|Friday\b|Saturday\b|Sunday\b|\d+\s*(?:JOD|JD))',
+        caseSensitive: false,
+      ).hasMatch(colonDetails)) {
+        title = title.substring(0, titleColon).trim();
+        details.insert(0, colonDetails);
+      }
+    }
+    final text = details.join(' · ');
+    final ageMatch = RegExp(
+      r'\bages?\s+[^;,.]+',
+      caseSensitive: false,
+    ).firstMatch(text);
+    final age =
+        ageMatch?.group(0) ??
+        RegExp(
+          r'\bU\d{1,2}\b',
+          caseSensitive: false,
+        ).firstMatch(title)?.group(0) ??
+        '';
+    final duration =
+        RegExp(
+          r'\b\d+\s+(?:sessions?|classes?)(?:\s+over\s+[^;,.]+)?',
+          caseSensitive: false,
+        ).firstMatch(text)?.group(0) ??
+        '';
+    final price =
+        RegExp(
+          r'\b(?:\d+(?:\.\d+)?\s*(?:JOD|JD)|contact\s+for\s+(?:current\s+)?price)\b',
+          caseSensitive: false,
+        ).firstMatch(text)?.group(0) ??
+        '';
+    final schedule = details.where(
+      (part) => RegExp(
+        r'\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b',
+        caseSensitive: false,
+      ).hasMatch(part),
+    );
+    final description = schedule.isNotEmpty
+        ? schedule.first
+        : details.firstWhere(
+            (part) => part != age && part != duration && part != price,
+            orElse: () =>
+                'Contact the academy for current schedule and availability.',
+          );
+    final sport =
+        RegExp(
+          r'\b(Basketball|Football|Soccer|Volleyball|Padel|Tennis|Running|Cycling)\b',
+          caseSensitive: false,
+        ).firstMatch(title)?.group(0) ??
+        'Sports training';
+    return _LegacyAcademyProgram(
+      title: title,
+      sport: sport,
+      description: description,
+      price: price,
+      duration: duration,
+      age: age,
+    );
+  }
 }
 
 class _EventCard extends StatelessWidget {
@@ -2339,12 +2569,23 @@ class _AcademyPackageCard extends StatelessWidget {
     final image = package.imageUrl.isNotEmpty
         ? package.imageUrl
         : fallbackImage;
+    final description = _cleanAcademyCopy(package.description).isNotEmpty
+        ? _cleanAcademyCopy(package.description)
+        : (package.price.trim().isEmpty && package.duration.trim().isEmpty
+              ? 'Contact the academy for schedule and current availability.'
+              : '');
     return _PackageCardLayout(
       title: _cleanAcademyCopy(package.title),
       imageUrl: image,
-      description: _cleanAcademyCopy(package.description),
+      description: description,
       price: _cleanAcademyCopy(package.price),
       duration: _cleanAcademyCopy(package.duration),
+      sport:
+          RegExp(
+            r'\b(Basketball|Football|Soccer|Volleyball|Padel|Tennis|Running|Cycling)\b',
+            caseSensitive: false,
+          ).firstMatch(package.title)?.group(0) ??
+          'Academy program',
     );
   }
 }
@@ -2354,15 +2595,19 @@ class _PackageCardLayout extends StatelessWidget {
     required this.title,
     required this.imageUrl,
     required this.description,
+    required this.sport,
     this.price = '',
     this.duration = '',
+    this.age = '',
   });
 
   final String title;
   final String imageUrl;
   final String description;
+  final String sport;
   final String price;
   final String duration;
+  final String age;
 
   @override
   Widget build(BuildContext context) {
@@ -2370,144 +2615,157 @@ class _PackageCardLayout extends StatelessWidget {
     return CardBox(
       padding: EdgeInsets.zero,
       radius: 20,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-            child: SizedBox(
-              height: 118,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  const DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xFF0B1628), Color(0xFF1F7A8C)],
-                      ),
-                    ),
-                  ),
-                  if (imageUrl.startsWith('asset:'))
-                    Image.asset(
-                      imageUrl.substring(6),
-                      fit: BoxFit.cover,
-                      alignment: const Alignment(0, 0.12),
-                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                    )
-                  else if (imageUrl.isNotEmpty)
-                    CachedNetworkImage(
-                      imageUrl: imageUrl,
-                      fit: BoxFit.cover,
-                      alignment: const Alignment(0, 0.12),
-                      errorWidget: (_, _, _) => const SizedBox.shrink(),
-                    )
-                  else
-                    const Center(
-                      child: Icon(
-                        CupertinoIcons.sportscourt,
-                        size: 56,
-                        color: Colors.white70,
-                      ),
-                    ),
-                  const DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [Colors.transparent, Color(0xD9001018)],
-                        stops: [0.34, 1],
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    top: 12,
-                    left: 12,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
+      child: SizedBox(
+        height: 208,
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: const BorderRadius.horizontal(
+                left: Radius.circular(20),
+              ),
+              child: SizedBox(
+                width: 108,
+                height: double.infinity,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    const DecoratedBox(
                       decoration: BoxDecoration(
-                        color: const Color(0xE60A1716),
-                        borderRadius: BorderRadius.circular(30),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: .24),
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0xFF0B1628), Color(0xFF1F7A8C)],
                         ),
                       ),
-                      child: const Text(
-                        'TRAINING',
-                        style: TextStyle(
+                      child: Center(
+                        child: Icon(
+                          CupertinoIcons.sportscourt,
+                          size: 42,
+                          color: Colors.white54,
+                        ),
+                      ),
+                    ),
+                    if (imageUrl.startsWith('asset:'))
+                      Image.asset(
+                        imageUrl.substring(6),
+                        fit: BoxFit.cover,
+                        alignment: const Alignment(0, 0.12),
+                        errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                      )
+                    else if (imageUrl.isNotEmpty)
+                      CachedNetworkImage(
+                        imageUrl: imageUrl,
+                        fit: BoxFit.cover,
+                        alignment: const Alignment(0, 0.12),
+                        errorWidget: (_, _, _) => const SizedBox.shrink(),
+                      ),
+                    const DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Colors.transparent, Color(0xCC071A15)],
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 10,
+                      right: 8,
+                      bottom: 11,
+                      child: Text(
+                        sport.toUpperCase(),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 10,
+                          height: 1.15,
                           fontWeight: FontWeight.w900,
-                          letterSpacing: .9,
+                          letterSpacing: .55,
                         ),
                       ),
                     ),
-                  ),
-                  Positioned(
-                    left: 16,
-                    right: 16,
-                    bottom: 14,
-                    child: Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 19,
-                        height: 1.15,
-                        shadows: [Shadow(color: Colors.black54, blurRadius: 8)],
-                      ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 9),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (description.trim().isNotEmpty)
-                  Text(
-                    description,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: theme.colorScheme.onSurfaceVariant,
-                      fontSize: 12,
-                      height: 1.2,
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(13, 12, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          CupertinoIcons.sparkles,
+                          color: theme.colorScheme.primary,
+                          size: 14,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          'TRAINING PROGRAM',
+                          style: TextStyle(
+                            color: theme.colorScheme.primary,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: .65,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                if (price.isNotEmpty || duration.isNotEmpty) ...[
-                  if (description.trim().isNotEmpty) const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      if (price.isNotEmpty)
-                        _PackageDetailPill(
-                          icon: CupertinoIcons.money_dollar_circle,
-                          label: price,
-                          emphasized: true,
+                    const SizedBox(height: 7),
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        height: 1.15,
+                      ),
+                    ),
+                    if (description.trim().isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontSize: 11,
+                          height: 1.3,
                         ),
-                      if (duration.isNotEmpty)
-                        _PackageDetailPill(
-                          icon: CupertinoIcons.clock,
-                          label: duration,
-                        ),
+                      ),
                     ],
-                  ),
-                ],
-              ],
+                    const Spacer(),
+                    Wrap(
+                      spacing: 5,
+                      runSpacing: 5,
+                      children: [
+                        if (price.isNotEmpty)
+                          _PackageDetailPill(
+                            icon: CupertinoIcons.money_dollar_circle,
+                            label: price,
+                            emphasized: true,
+                          ),
+                        if (duration.isNotEmpty)
+                          _PackageDetailPill(
+                            icon: CupertinoIcons.clock,
+                            label: duration,
+                          ),
+                        if (age.isNotEmpty)
+                          _PackageDetailPill(
+                            icon: CupertinoIcons.person_2,
+                            label: age,
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2557,6 +2815,315 @@ class _PackageDetailPill extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _AcademyFactChip extends StatelessWidget {
+  const _AcademyFactChip({
+    required this.icon,
+    required this.label,
+    this.accent,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color? accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      constraints: const BoxConstraints(minHeight: 36, maxWidth: 210),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: .7),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: accent ?? theme.colorScheme.primary, size: 14),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AcademyExpandablePanel extends StatelessWidget {
+  const _AcademyExpandablePanel({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.expanded,
+    required this.onToggle,
+    required this.child,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return CardBox(
+      padding: EdgeInsets.zero,
+      radius: 19,
+      child: Column(
+        children: [
+          Semantics(
+            button: true,
+            expanded: expanded,
+            label: '$title, $subtitle',
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(19),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(19),
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  onToggle();
+                },
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 74),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 11, 13, 11),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 43,
+                          height: 43,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Icon(
+                            icon,
+                            color: theme.colorScheme.primary,
+                            size: 21,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                subtitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        AnimatedRotation(
+                          turns: expanded ? .5 : 0,
+                          duration: const Duration(milliseconds: 240),
+                          curve: Curves.easeInOutCubic,
+                          child: Icon(
+                            CupertinoIcons.chevron_down,
+                            color: theme.colorScheme.onSurfaceVariant,
+                            size: 18,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          ClipRect(
+            child: AnimatedSize(
+              alignment: Alignment.topCenter,
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeInOutCubic,
+              child: expanded
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                      child: child,
+                    )
+                  : const SizedBox(width: double.infinity, height: 0),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AcademyEmptyMessage extends StatelessWidget {
+  const _AcademyEmptyMessage({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+    child: Text(
+      text,
+      textAlign: TextAlign.center,
+      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+    ),
+  );
+}
+
+class _AcademyCourtRow extends StatelessWidget {
+  const _AcademyCourtRow({required this.court, required this.last});
+
+  final Court court;
+  final bool last;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final images = court.galleryImages;
+    final fallbackPhoto = Container(
+      color: theme.colorScheme.surfaceContainerHighest,
+      alignment: Alignment.center,
+      child: Icon(
+        CupertinoIcons.sportscourt,
+        color: theme.colorScheme.onSurfaceVariant,
+        size: 24,
+      ),
+    );
+    Widget photo = fallbackPhoto;
+    if (images.isNotEmpty) {
+      final src = images.first;
+      photo = src.startsWith('asset:')
+          ? Image.asset(
+              src.substring(6),
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => fallbackPhoto,
+            )
+          : CachedNetworkImage(
+              imageUrl: src,
+              fit: BoxFit.cover,
+              errorWidget: (_, _, _) => fallbackPhoto,
+            );
+    }
+    return Column(
+      children: [
+        Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(15),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(15),
+            onTap: () {
+              HapticFeedback.selectionClick();
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => CourtDetailsScreen(court: court),
+                ),
+              );
+            },
+            child: SizedBox(
+              height: 88,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: SizedBox(width: 74, height: 72, child: photo),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _cleanAcademyCopy(court.name),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            _cleanAcademyCopy(court.sport),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(
+                                CupertinoIcons.location_solid,
+                                size: 12,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  _cleanAcademyCopy(
+                                    court.address.isEmpty
+                                        ? court.subtitle
+                                        : court.address,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Icon(
+                      CupertinoIcons.chevron_right,
+                      size: 16,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (!last)
+          Divider(
+            height: 1,
+            indent: 88,
+            color: theme.colorScheme.outlineVariant.withValues(alpha: .5),
+          ),
+      ],
     );
   }
 }
