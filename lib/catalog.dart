@@ -6,6 +6,7 @@ import 'main.dart';
 import 'location_service.dart';
 import 'more_screens.dart';
 import 'test_data_seed.dart';
+import 'academy_profile_data.dart';
 
 // ---------------------------------------------------------------------------
 // Shared visual presets (kept as const so icon tree-shaking still works).
@@ -321,28 +322,28 @@ Academy _academyFrom(String id, Map<String, dynamic> d) => Academy(
   imageUrl: (d['name'] ?? '').toString().toLowerCase().contains('infinity')
       ? 'asset:assets/images/infinity_sports/court_3x3.jpeg'
       : (d['imageUrl'] ?? d['image'] ?? '').toString(),
+  imageUrls: academyImageList(d['imageUrls']),
   latitude: (d['latitude'] as num?)?.toDouble(),
   longitude: (d['longitude'] as num?)?.toDouble(),
   address: (d['address'] ?? '').toString(),
   phone: (d['phone'] ?? '').toString(),
   email: (d['email'] ?? '').toString(),
   description: (d['description'] ?? '').toString(),
-  trainingPackages: List<String>.from(
-    (d['trainingPackages'] as List? ?? const []).whereType<String>(),
-  ),
-  packages: (d['packages'] as List? ?? const [])
-      .whereType<Map>()
-      .map(
-        (row) => AcademyPackage(
-          title: (row['title'] ?? '').toString(),
-          description: (row['description'] ?? '').toString(),
-          price: (row['price'] ?? '').toString(),
-          duration: (row['duration'] ?? '').toString(),
-          imageUrl: (row['imageUrl'] ?? '').toString(),
-        ),
-      )
-      .where((package) => package.title.trim().isNotEmpty)
-      .toList(),
+  trainingPackages: academyFieldList(
+    d['trainingPackages'],
+  ).whereType<String>().toList(),
+  packages:
+      academyPackageList(d['packages'], legacyNames: d['trainingPackages'])
+          .map(
+            (row) => AcademyPackage(
+              title: (row['title'] ?? '').toString(),
+              description: (row['description'] ?? '').toString(),
+              price: (row['price'] ?? '').toString(),
+              duration: (row['duration'] ?? '').toString(),
+              imageUrl: (row['imageUrl'] ?? '').toString(),
+            ),
+          )
+          .toList(),
 );
 
 Offer _offerFrom(String id, Map<String, dynamic> d) => Offer(

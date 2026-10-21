@@ -1492,6 +1492,7 @@ class Academy {
     required this.gradient,
     required this.icon,
     this.imageUrl = '',
+    this.imageUrls = const [],
     this.latitude,
     this.longitude,
     this.address = '',
@@ -1511,6 +1512,7 @@ class Academy {
   final List<Color> gradient;
   final IconData icon;
   final String imageUrl;
+  final List<String> imageUrls;
   final double? latitude;
   final double? longitude;
   final String address;
@@ -2016,6 +2018,50 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
               ],
             ),
             const SizedBox(height: 16),
+            if (academy.imageUrls.isNotEmpty) ...[
+              SizedBox(
+                height: 112,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: academy.imageUrls.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 10),
+                  itemBuilder: (context, index) {
+                    final imageUrl = academy.imageUrls[index];
+                    final fallback = Container(
+                      width: 156,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
+                      alignment: Alignment.center,
+                      child: Icon(
+                        CupertinoIcons.photo,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    );
+                    final image = imageUrl.startsWith('asset:')
+                        ? Image.asset(
+                            imageUrl.substring(6),
+                            width: 156,
+                            height: 112,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => fallback,
+                          )
+                        : CachedNetworkImage(
+                            imageUrl: imageUrl,
+                            width: 156,
+                            height: 112,
+                            fit: BoxFit.cover,
+                            errorWidget: (_, _, _) => fallback,
+                          );
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: image,
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [

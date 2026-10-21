@@ -1440,25 +1440,29 @@ export const createManagedOwnerAccount = onCall(callableOptions, async (request)
   const temporaryPassword = randomBytes(32).toString('base64url');
   let created;
   try {
+    created = await getAuth().createUser({email, displayName, password: temporaryPassword, emailVerified: false});
+    const userRef = db.collection('users').doc(created.uid);
+    const auditRef = db.collection('auditLogs').doc();
+    const batch = db.batch();
     if (communityId) {
-      await db.collection('communities').doc(communityId).set({
+      batch.set(db.collection('communities').doc(communityId), {
         name: text(request.data?.communityName, 'communityName'),
         sport: text(request.data?.sport, 'sport'),
         description: typeof request.data?.description === 'string' ? request.data.description.trim() : '',
         imageUrl: typeof request.data?.imageUrl === 'string' ? request.data.imageUrl.trim() : '',
-        active: true, createdBy: uid, createdAt: FieldValue.serverTimestamp(),
+        active: true, createdBy: uid, updatedAt: FieldValue.serverTimestamp(),
       }, {merge: true});
     }
-    created = await getAuth().createUser({email, displayName, password: temporaryPassword, emailVerified: false});
-    await db.collection('users').doc(created.uid).set({
+    batch.set(userRef, {
       uid: created.uid, email, displayName,
       role: ownerType === 'community' ? 'communityOwner' : ownerType === 'court' ? 'courtOwner' : 'academyOwner', ownerType,
       ...(academyId ? {academyId} : {}), ...(communityId ? {communityId} : {}),
       courtIds: courtId ? [courtId] : [], permissions: [], suspended: false,
       mustChangePassword: false, createdBy: uid, createdAt: FieldValue.serverTimestamp(),
     });
-    await db.collection('auditLogs').add({actorId: uid, action: 'owner.create', entity: 'user',
+    batch.set(auditRef, {actorId: uid, action: 'owner.create', entity: 'user',
       entityId: created.uid, ...(academyId ? {academyId} : {}), ...(communityId ? {communityId} : {}), ownerType, courtId, createdAt: FieldValue.serverTimestamp()});
+    await batch.commit();
   } catch (error) {
     if (created?.uid) await getAuth().deleteUser(created.uid).catch(() => undefined);
     if ((error as {code?: string}).code === 'auth/email-already-exists') {

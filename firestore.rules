@@ -189,7 +189,7 @@ service cloud.firestore {
           && validAcademy()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'name', 'address', 'latitude', 'longitude', 'phone', 'email',
-          'imageUrl', 'description', 'sports', 'trainingPackages', 'packages', 'updatedAt'
+          'imageUrl', 'imageUrls', 'description', 'sports', 'trainingPackages', 'packages', 'updatedAt'
         ]));
       allow delete: if superAdmin();
     }
@@ -201,7 +201,7 @@ service cloud.firestore {
         (active() && role('communityOwner') && me().data.communityId == communityId
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'name', 'sport', 'description', 'imageUrl', 'city', 'contactEmail',
-            'contactPhone', 'websiteUrl', 'instagramUrl', 'updatedAt'
+            'imageUrls', 'contactPhone', 'websiteUrl', 'instagramUrl', 'updatedAt'
           ]));
       allow delete: if permission('communities.manage');
     }
@@ -237,11 +237,13 @@ service cloud.firestore {
       allow create: if permission('platform.manage') ||
         ownsAcademy(request.resource.data.academyId) ||
         (active() && role('communityOwner') && request.resource.data.communityId == me().data.communityId);
-      allow update, delete: if permission('platform.manage') ||
+      allow update: if permission('platform.manage') ||
         (ownsAcademy(resource.data.academyId)
           && request.resource.data.academyId == resource.data.academyId) ||
         (active() && role('communityOwner') && resource.data.communityId == me().data.communityId
           && request.resource.data.communityId == resource.data.communityId);
+      allow delete: if permission('platform.manage') ||
+        (active() && role('communityOwner') && resource.data.communityId == me().data.communityId);
     }
 
     match /achievements/{id} {

@@ -806,6 +806,7 @@ class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
   final _description = TextEditingController();
   final _sports = TextEditingController();
   List<Map<String, dynamic>> _packages = [];
+  List<String> _imageUrls = [];
   String _imageUrl = '';
   bool _loaded = false;
   bool _saving = false;
@@ -832,23 +833,11 @@ class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
       data['sports'],
     ).map((value) => value.toString()).join(', ');
     _imageUrl = data['imageUrl']?.toString() ?? '';
-    _packages = academyFieldList(
+    _imageUrls = academyImageList(data['imageUrls']);
+    _packages = academyPackageList(
       data['packages'],
-    ).whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList();
-    // Keep legacy package names visible so an owner can gradually enrich them.
-    for (final title in academyFieldList(
-      data['trainingPackages'],
-    ).whereType<String>()) {
-      if (!_packages.any((item) => item['title'] == title)) {
-        _packages.add({
-          'title': title,
-          'description': '',
-          'price': '',
-          'duration': '',
-          'imageUrl': '',
-        });
-      }
-    }
+      legacyNames: data['trainingPackages'],
+    );
     _loaded = true;
   }
 
@@ -1032,6 +1021,7 @@ class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
         'address': _address.text.trim(),
         'description': _description.text.trim(),
         'imageUrl': _imageUrl,
+        'imageUrls': _imageUrls,
         'sports': _sports.text
             .split(',')
             .map((value) => value.trim())
@@ -1126,6 +1116,17 @@ class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
               onUpload: (bytes, name) => AcademyService.instance
                   .uploadAcademyImage(bytes: bytes, fileName: name),
               onUrlChanged: (url) => setState(() => _imageUrl = url),
+            ),
+            const SizedBox(height: 12),
+            _AcademyImageGalleryEditor(
+              imageUrls: _imageUrls,
+              onChanged: (images) => setState(() => _imageUrls = images),
+              onUpload: (bytes, name, assetName) =>
+                  AcademyService.instance.uploadAcademyImage(
+                    bytes: bytes,
+                    fileName: name,
+                    assetName: assetName,
+                  ),
             ),
             const SizedBox(height: 8),
             Card(
@@ -1421,6 +1422,193 @@ class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
       );
     },
   );
+}
+
+class _AcademyImageGalleryEditor extends StatefulWidget {
+  const _AcademyImageGalleryEditor({
+    required this.imageUrls,
+    required this.onChanged,
+    required this.onUpload,
+  });
+
+  final List<String> imageUrls;
+  final ValueChanged<List<String>> onChanged;
+  final Future<String> Function(
+    Uint8List bytes,
+    String fileName,
+    String assetName,
+  )
+  onUpload;
+
+  @override
+  State<_AcademyImageGalleryEditor> createState() =>
+      _AcademyImageGalleryEditorState();
+}
+
+class _AcademyImageGalleryEditorState
+    extends State<_AcademyImageGalleryEditor> {
+  bool _uploading = false;
+
+  Future<void> _addPhoto() async {
+    final photo = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 84,
+      maxWidth: 1600,
+    );
+    if (photo == null) return;
+    final bytes = await photo.readAsBytes();
+    if (bytes.lengthInBytes > 5 * 1024 * 1024) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Choose a photo smaller than 5 MB.')),
+        );
+      }
+      return;
+    }
+    setState(() => _uploading = true);
+    try {
+      final url = await widget.onUpload(
+        bytes,
+        photo.name,
+        'gallery-${DateTime.now().microsecondsSinceEpoch}',
+      );
+      widget.onChanged([...widget.imageUrls, url]);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Photo upload failed: $error')));
+      }
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: colors.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Academy photos',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      SizedBox(height: 3),
+                      Text('Show players more of your space.'),
+                    ],
+                  ),
+                ),
+                IconButton.filledTonal(
+                  tooltip: 'Add academy photo',
+                  onPressed: _uploading ? null : _addPhoto,
+                  icon: _uploading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.add_photo_alternate_outlined),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (widget.imageUrls.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 18),
+                decoration: BoxDecoration(
+                  color: colors.surfaceContainerHighest.withValues(alpha: .55),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Text(
+                  'Add photos of your training, facilities or community.',
+                  textAlign: TextAlign.center,
+                ),
+              )
+            else
+              SizedBox(
+                height: 104,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: widget.imageUrls.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 8),
+                  itemBuilder: (context, index) {
+                    final url = widget.imageUrls[index];
+                    final fallback = ColoredBox(
+                      color: colors.surfaceContainerHighest,
+                      child: Icon(
+                        Icons.broken_image_outlined,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    );
+                    final image = url.startsWith('asset:')
+                        ? Image.asset(
+                            url.substring(6),
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => fallback,
+                          )
+                        : CachedNetworkImage(
+                            imageUrl: url,
+                            fit: BoxFit.cover,
+                            errorWidget: (_, _, _) => fallback,
+                          );
+                    return SizedBox(
+                      width: 136,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            image,
+                            Positioned(
+                              right: 4,
+                              top: 4,
+                              child: Material(
+                                color: Colors.black54,
+                                shape: const CircleBorder(),
+                                child: IconButton(
+                                  tooltip: 'Remove photo',
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: () {
+                                    final next = [...widget.imageUrls]
+                                      ..removeAt(index);
+                                    widget.onChanged(next);
+                                  },
+                                  icon: const Icon(
+                                    Icons.close_rounded,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _PackageFactChip extends StatelessWidget {

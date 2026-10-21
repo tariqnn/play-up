@@ -664,10 +664,16 @@ function OwnerAccounts() {
       setEmail("");
       setCourtId("");
     } catch (err) {
+      const code =
+        typeof err === "object" && err !== null && "code" in err
+          ? String((err as { code?: unknown }).code)
+          : "";
       setError(
         accountCreated
           ? "The account was created, but the setup email could not be sent. Check the Firebase email template and resend it below."
-          : err instanceof Error
+          : code === "functions/unauthenticated"
+            ? "Firebase rejected this request because the browser App Check token was missing. Verify that admin.play-up.fit is allowed for this App Check web key, then reload and retry."
+            : err instanceof Error
             ? err.message
             : "The owner account could not be created.",
       );

@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'academy_profile_data.dart';
 
 class CommunityModeDashboard extends StatelessWidget {
   const CommunityModeDashboard({super.key});
@@ -59,6 +60,7 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
   final _website = TextEditingController();
   final _instagram = TextEditingController();
   String _imageUrl = '';
+  List<String> _imageUrls = [];
   bool _hydrated = false;
   bool _saving = false;
   bool _uploading = false;
@@ -85,6 +87,7 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
     _website.text = data['websiteUrl']?.toString() ?? '';
     _instagram.text = data['instagramUrl']?.toString() ?? '';
     _imageUrl = data['imageUrl']?.toString() ?? '';
+    _imageUrls = academyImageList(data['imageUrls']);
     _hydrated = true;
   }
 
@@ -133,6 +136,48 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
     }
   }
 
+  Future<void> _addGalleryPhoto() async {
+    final photo = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 84,
+      maxWidth: 1600,
+    );
+    if (photo == null) return;
+    final bytes = await photo.readAsBytes();
+    if (bytes.lengthInBytes > 5 * 1024 * 1024) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Choose a photo smaller than 5 MB.')),
+        );
+      }
+      return;
+    }
+    setState(() => _uploading = true);
+    try {
+      final extension = photo.name.split('.').last.toLowerCase();
+      final mime = extension == 'png'
+          ? 'image/png'
+          : extension == 'webp'
+          ? 'image/webp'
+          : 'image/jpeg';
+      final asset = 'gallery-${DateTime.now().microsecondsSinceEpoch}';
+      final ref = FirebaseStorage.instance.ref(
+        'community-images/${widget.communityId}/$asset.$extension',
+      );
+      await ref.putData(bytes, SettableMetadata(contentType: mime));
+      final url = await ref.getDownloadURL();
+      if (mounted) setState(() => _imageUrls = [..._imageUrls, url]);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Photo upload failed: $error')));
+      }
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
@@ -148,6 +193,7 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
             'websiteUrl': _website.text.trim(),
             'instagramUrl': _instagram.text.trim(),
             'imageUrl': _imageUrl,
+            'imageUrls': _imageUrls,
             'updatedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
       if (mounted) {
@@ -166,22 +212,32 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
     }
   }
 
-  Future<void> _publishEvent() async {
-    final title = TextEditingController();
-    final description = TextEditingController();
-    final location = TextEditingController();
-    DateTime? date;
+  Future<void> _publishEvent([
+    String? eventId,
+    Map<String, dynamic>? initial,
+  ]) async {
+    final title = TextEditingController(text: initial?['title']?.toString());
+    final description = TextEditingController(
+      text: initial?['description']?.toString(),
+    );
+    final location = TextEditingController(
+      text: initial?['location']?.toString(),
+    );
+    DateTime? date = DateTime.tryParse(initial?['date']?.toString() ?? '');
     final shouldSave = await showDialog<bool>(
       context: context,
       builder: (dialog) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Publish a community event'),
+          title: Text(
+            eventId == null ? 'Publish a community event' : 'Edit event',
+          ),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
                   controller: title,
+                  onChanged: (_) => setDialogState(() {}),
                   decoration: const InputDecoration(labelText: 'Event name'),
                 ),
                 TextField(
@@ -199,7 +255,8 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
                       context: context,
                       firstDate: DateTime.now(),
                       lastDate: DateTime.now().add(const Duration(days: 365)),
-                      initialDate: DateTime.now().add(const Duration(days: 1)),
+                      initialDate:
+                          date ?? DateTime.now().add(const Duration(days: 1)),
                     );
                     if (picked != null) setDialogState(() => date = picked);
                   },
@@ -222,32 +279,86 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
               onPressed: title.text.trim().isEmpty || date == null
                   ? null
                   : () => Navigator.pop(dialog, true),
-              child: const Text('Publish'),
+              child: Text(eventId == null ? 'Publish' : 'Save event'),
             ),
           ],
         ),
       ),
     );
-    if (shouldSave == true && date != null) {
-      await FirebaseFirestore.instance.collection('events').add({
-        'communityId': widget.communityId,
-        'title': title.text.trim(),
-        'description': description.text.trim(),
-        'location': location.text.trim(),
-        'date':
-            '${date!.year.toString().padLeft(4, '0')}-${date!.month.toString().padLeft(2, '0')}-${date!.day.toString().padLeft(2, '0')}',
-        'status': 'published',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+    try {
+      if (shouldSave == true && date != null) {
+        final payload = <String, dynamic>{
+          'communityId': widget.communityId,
+          'title': title.text.trim(),
+          'description': description.text.trim(),
+          'location': location.text.trim(),
+          'date':
+              '${date!.year.toString().padLeft(4, '0')}-${date!.month.toString().padLeft(2, '0')}-${date!.day.toString().padLeft(2, '0')}',
+          'status': 'published',
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
+        if (eventId == null) {
+          payload['createdAt'] = FieldValue.serverTimestamp();
+          await FirebaseFirestore.instance.collection('events').add(payload);
+        } else {
+          await FirebaseFirestore.instance
+              .collection('events')
+              .doc(eventId)
+              .update(payload);
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                eventId == null ? 'Event published.' : 'Event updated.',
+              ),
+            ),
+          );
+        }
+      }
+    } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Event published.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not save event: $error')),
+        );
+      }
+    } finally {
+      title.dispose();
+      description.dispose();
+      location.dispose();
+    }
+  }
+
+  Future<void> _deleteEvent(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Delete this event?'),
+        content: const Text(
+          'It will be removed from your public community page.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialog, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await FirebaseFirestore.instance.collection('events').doc(id).delete();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not delete event: $error')),
+        );
       }
     }
-    title.dispose();
-    description.dispose();
-    location.dispose();
   }
 
   @override
@@ -428,6 +539,17 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
               ],
             ),
             const SizedBox(height: 12),
+            _CommunityGalleryEditor(
+              imageUrls: _imageUrls,
+              uploading: _uploading,
+              onAdd: _addGalleryPhoto,
+              onRemove: (url) => setState(
+                () => _imageUrls = _imageUrls
+                    .where((item) => item != url)
+                    .toList(),
+              ),
+            ),
+            const SizedBox(height: 12),
             _CommunityEditorSection(
               icon: Icons.link_rounded,
               title: 'Location and links',
@@ -493,6 +615,79 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(50),
               ),
+            ),
+            const SizedBox(height: 18),
+            _CommunityEditorSection(
+              icon: Icons.event_note_rounded,
+              title: 'Your events',
+              subtitle:
+                  'Edit or remove events shown on your public group page.',
+              children: [
+                StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('events')
+                      .where('communityId', isEqualTo: widget.communityId)
+                      .snapshots(),
+                  builder: (context, events) {
+                    if (events.hasError) {
+                      return const Text(
+                        'Events could not load. Try again later.',
+                      );
+                    }
+                    if (events.connectionState == ConnectionState.waiting &&
+                        !events.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final docs = [...?events.data?.docs]
+                      ..sort(
+                        (a, b) => (a.data()['date']?.toString() ?? '')
+                            .compareTo(b.data()['date']?.toString() ?? ''),
+                      );
+                    if (docs.isEmpty) {
+                      return const Text(
+                        'No events yet. Publish one to share it with members.',
+                      );
+                    }
+                    return Column(
+                      children: [
+                        for (final event in docs)
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              event.data()['title']?.toString() ??
+                                  'Community event',
+                            ),
+                            subtitle: Text(
+                              [event.data()['date'], event.data()['location']]
+                                  .where(
+                                    (value) =>
+                                        value != null &&
+                                        value.toString().isNotEmpty,
+                                  )
+                                  .join(' · '),
+                            ),
+                            trailing: Wrap(
+                              spacing: 2,
+                              children: [
+                                IconButton(
+                                  tooltip: 'Edit event',
+                                  onPressed: () =>
+                                      _publishEvent(event.id, event.data()),
+                                  icon: const Icon(Icons.edit_outlined),
+                                ),
+                                IconButton(
+                                  tooltip: 'Delete event',
+                                  onPressed: () => _deleteEvent(event.id),
+                                  icon: const Icon(Icons.delete_outline),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ],
             ),
           ],
         );
@@ -561,6 +756,110 @@ class _CommunityEditorSection extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             ...children,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CommunityGalleryEditor extends StatelessWidget {
+  const _CommunityGalleryEditor({
+    required this.imageUrls,
+    required this.uploading,
+    required this.onAdd,
+    required this.onRemove,
+  });
+
+  final List<String> imageUrls;
+  final bool uploading;
+  final VoidCallback onAdd;
+  final ValueChanged<String> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: BorderSide(color: colors.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Community gallery',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      SizedBox(height: 3),
+                      Text('Add photos of your activities and members.'),
+                    ],
+                  ),
+                ),
+                IconButton.filledTonal(
+                  tooltip: 'Add gallery photo',
+                  onPressed: uploading ? null : onAdd,
+                  icon: uploading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.add_photo_alternate_outlined),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (imageUrls.isEmpty)
+              const Text(
+                'No gallery photos yet. Add a few to make your group page feel alive.',
+              )
+            else
+              SizedBox(
+                height: 112,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: imageUrls.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 9),
+                  itemBuilder: (context, index) => SizedBox(
+                    width: 142,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: Image.network(
+                            imageUrls[index],
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => ColoredBox(
+                              color: colors.surfaceContainerHighest,
+                              child: const Icon(Icons.broken_image_outlined),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          right: 4,
+                          top: 4,
+                          child: IconButton.filledTonal(
+                            tooltip: 'Remove photo',
+                            onPressed: () => onRemove(imageUrls[index]),
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

@@ -20,6 +20,7 @@ import 'more_screens4.dart';
 import 'custom_dashboard.dart';
 import 'academy_live_screens.dart';
 import 'academy_service.dart';
+import 'academy_profile_data.dart';
 import 'booking_domain.dart';
 import 'tournament_screens.dart';
 import 'multi_court_timeline_screen.dart';
@@ -364,6 +365,9 @@ class _CommunityGroupScreen extends StatelessWidget {
         final description =
             community['description']?.toString() ?? group.description;
         final cover = community['imageUrl']?.toString() ?? '';
+        final gallery = academyImageList(
+          community['imageUrls'],
+        ).where((url) => url != cover).toList();
         return Scaffold(
           body: AppScrollPage(
             child: Column(
@@ -414,6 +418,31 @@ class _CommunityGroupScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
+                if (gallery.isNotEmpty) ...[
+                  SizedBox(
+                    height: 128,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: gallery.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 10),
+                      itemBuilder: (context, index) => ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: AspectRatio(
+                          aspectRatio: 1.25,
+                          child: Image.network(
+                            gallery[index],
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => const ColoredBox(
+                              color: Color(0xFFE9EFEA),
+                              child: Icon(Icons.broken_image_outlined),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                ],
                 if (description.isNotEmpty)
                   CardBox(
                     child: Text(
