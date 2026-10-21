@@ -403,6 +403,26 @@ Future<void> enterAsGuest(BuildContext context) async {
   Navigator.of(context).popUntil((route) => route.isFirst);
 }
 
+/// Waits for the root AuthGate to observe a newly signed-in Firebase user
+/// before dismissing the login route. Firebase persists credentials before
+/// every authStateChanges listener has rebuilt its widget tree; popping the
+/// login page immediately can briefly expose the stale welcome screen.
+Future<void> _finishSignIn(BuildContext context, User user) async {
+  try {
+    await FirebaseAuth.instance
+        .authStateChanges()
+        .firstWhere((current) => current?.uid == user.uid)
+        .timeout(const Duration(seconds: 10));
+  } catch (_) {
+    // Firebase has already returned a signed-in UserCredential. If the
+    // listener notification is delayed, keep the persisted session and still
+    // let AuthGate resolve from Firebase's current user.
+  }
+  await WidgetsBinding.instance.endOfFrame;
+  if (!context.mounted) return;
+  Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
+}
+
 class PlayUpApp extends StatelessWidget {
   const PlayUpApp({super.key});
 
@@ -2574,9 +2594,9 @@ class _AuthScreenState extends State<AuthScreen> {
           }
         }
         if (!mounted) return;
-        Navigator.of(context).popUntil((route) => route.isFirst);
+        if (user != null) await _finishSignIn(context, user);
       } else {
-        Navigator.of(context).popUntil((route) => route.isFirst);
+        if (user != null) await _finishSignIn(context, user);
       }
     } on FirebaseAuthException catch (error) {
       setState(() => _error = friendlyAuthError(error));
@@ -2939,7 +2959,7 @@ class _AuthScreenState extends State<AuthScreen> {
       if (user != null) {
         await AppRepository.instance.ensureUserProfile(user);
       }
-      if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+      if (mounted && user != null) await _finishSignIn(context, user);
     } on FirebaseAuthException catch (error) {
       setState(() => _error = friendlyAuthError(error));
     } catch (error) {
