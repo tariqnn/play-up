@@ -3559,25 +3559,79 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
 // Academy Owner mode
 // ---------------------------------------------------------------------------
 
-class AcademyModeDashboard extends StatelessWidget {
+class AcademyModeDashboard extends StatefulWidget {
   const AcademyModeDashboard({super.key, this.standalone = false});
   final bool standalone;
 
   @override
+  State<AcademyModeDashboard> createState() => _AcademyModeDashboardState();
+}
+
+class _AcademyModeDashboardState extends State<AcademyModeDashboard> {
+  late Future<OwnerScope> _scopeFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _scopeFuture = AcademyService.instance.ownerScope();
+  }
+
+  void _retryScope() {
+    setState(() => _scopeFuture = AcademyService.instance.ownerScope());
+  }
+
+  String _scopeError(Object? error) {
+    if (error is StateError) {
+      return switch (error.message) {
+        'Sign in is required.' => 'Your session ended. Sign in again to open the academy workspace.',
+        'No academy is assigned to this account.' => 'This owner account is not linked to an academy yet. Ask the PlayUp administrator to assign the academy, then try again.',
+        'This court-owner account needs one assigned court.' => 'This court-owner account needs one assigned court. Ask the academy administrator to assign it, then try again.',
+        _ => error.message.toString(),
+      };
+    }
+    return 'We could not load the academy assignment. Check your connection and access, then try again.';
+  }
+
+  @override
   Widget build(BuildContext context) {
     return FutureBuilder<OwnerScope>(
-      future: AcademyService.instance.ownerScope(),
+      future: _scopeFuture,
       builder: (context, scopeSnapshot) {
         if (scopeSnapshot.hasError) {
           return Scaffold(
             body: AppScrollPage(
-              child: EmptyState(
-                icon: Icons.lock_outline,
-                title: 'Workspace unavailable',
-                message:
-                    'We could not load your assigned academy. Check your connection or ask your administrator to check your access.',
-                action: 'Return to sign in',
-                onTap: () => SocialAuth.signOutEverywhere(),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.business_outlined, size: 48),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Academy workspace unavailable',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        _scopeError(scopeSnapshot.error),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 20),
+                      PrimaryButton(
+                        label: 'Try again',
+                        icon: Icons.refresh,
+                        onPressed: _retryScope,
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: () => SocialAuth.signOutEverywhere(),
+                        child: const Text('Sign out'),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           );
@@ -3598,7 +3652,9 @@ class AcademyModeDashboard extends StatelessWidget {
                   title: isCourtOwner
                       ? 'Court Operations'
                       : 'Academy Operations',
-                  onBack: standalone ? null : () => Navigator.of(context).pop(),
+                  onBack: widget.standalone
+                      ? null
+                      : () => Navigator.of(context).pop(),
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -3731,7 +3787,7 @@ class AcademyModeDashboard extends StatelessWidget {
                       ),
                     ),
                   ),
-                if (standalone) ...[
+                if (widget.standalone) ...[
                   const SizedBox(height: 18),
                   SecondaryButton(
                     label: 'Sign out',
