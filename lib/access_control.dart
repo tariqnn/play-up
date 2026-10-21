@@ -3,6 +3,7 @@ enum AppRole {
   platformAdmin,
   academyOwner,
   courtOwner,
+  communityOwner,
   academyStaff,
   player;
 
@@ -11,6 +12,7 @@ enum AppRole {
     'platformAdmin' => platformAdmin,
     'academyOwner' => academyOwner,
     'courtOwner' => courtOwner,
+    'communityOwner' => communityOwner,
     'academyStaff' => academyStaff,
     _ => player,
   };
@@ -69,6 +71,7 @@ class AccessContext {
       role == AppRole.courtOwner ||
       role == AppRole.academyStaff;
   bool get isCourtOwner => role == AppRole.courtOwner;
+  bool get isCommunityOwner => role == AppRole.communityOwner;
 
   bool can(String permission) {
     if (suspended) return false;

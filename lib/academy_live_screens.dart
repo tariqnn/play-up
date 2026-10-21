@@ -781,195 +781,539 @@ class LiveAcademyAnalyticsScreen extends StatelessWidget {
 
 class AcademyProfileManagementScreen extends StatelessWidget {
   const AcademyProfileManagementScreen({super.key});
+
   @override
   Widget build(BuildContext context) => _TenantScaffold(
     title: 'Academy profile',
-    builder: (id) => StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: AcademyService.instance.academy(id),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final data = snapshot.data!.data() ?? {};
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            TextFormField(
-              initialValue: data['name']?.toString(),
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(labelText: 'Academy name'),
-              onChanged: (v) => data['name'] = v,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              initialValue: data['phone']?.toString(),
-              keyboardType: TextInputType.phone,
-              autofillHints: const [AutofillHints.telephoneNumber],
-              decoration: const InputDecoration(labelText: 'Contact phone'),
-              onChanged: (v) => data['phone'] = v,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              initialValue: data['address']?.toString(),
-              textCapitalization: TextCapitalization.words,
-              autofillHints: const [AutofillHints.fullStreetAddress],
-              decoration: const InputDecoration(labelText: 'Address'),
-              onChanged: (v) => data['address'] = v,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              initialValue: data['description']?.toString(),
-              maxLines: 4,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(labelText: 'Description'),
-              onChanged: (v) => data['description'] = v,
-            ),
-            const SizedBox(height: 12),
-            _AcademyCoverEditor(
-              initialUrl: data['imageUrl']?.toString() ?? '',
-              onUpload: (bytes, name) => AcademyService.instance
-                  .uploadAcademyImage(bytes: bytes, fileName: name),
-              onUrlChanged: (url) => data['imageUrl'] = url,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              initialValue: (data['sports'] as List? ?? const []).join(', '),
-              decoration: const InputDecoration(
-                labelText: 'Sports (comma separated)',
+    builder: (id) => _AcademyProfileEditor(academyId: id),
+  );
+}
+
+class _AcademyProfileEditor extends StatefulWidget {
+  const _AcademyProfileEditor({required this.academyId});
+  final String academyId;
+
+  @override
+  State<_AcademyProfileEditor> createState() => _AcademyProfileEditorState();
+}
+
+class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
+  final _formKey = GlobalKey<FormState>();
+  final _name = TextEditingController();
+  final _phone = TextEditingController();
+  final _address = TextEditingController();
+  final _description = TextEditingController();
+  final _sports = TextEditingController();
+  List<Map<String, dynamic>> _packages = [];
+  String _imageUrl = '';
+  bool _loaded = false;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _phone.dispose();
+    _address.dispose();
+    _description.dispose();
+    _sports.dispose();
+    super.dispose();
+  }
+
+  void _hydrate(Map<String, dynamic> data) {
+    if (_loaded) return;
+    _name.text = data['name']?.toString() ?? '';
+    _phone.text = data['phone']?.toString() ?? '';
+    _address.text = data['address']?.toString() ?? '';
+    _description.text = data['description']?.toString() ?? '';
+    _sports.text = (data['sports'] as List? ?? const []).join(', ');
+    _imageUrl = data['imageUrl']?.toString() ?? '';
+    _packages = (data['packages'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+    // Keep legacy package names visible so an owner can gradually enrich them.
+    for (final title
+        in (data['trainingPackages'] as List? ?? const [])
+            .whereType<String>()) {
+      if (!_packages.any((item) => item['title'] == title)) {
+        _packages.add({
+          'title': title,
+          'description': '',
+          'price': '',
+          'duration': '',
+          'imageUrl': '',
+        });
+      }
+    }
+    _loaded = true;
+  }
+
+  Future<void> _editPackage([int? index]) async {
+    final original = index == null ? <String, dynamic>{} : _packages[index];
+    final title = TextEditingController(text: original['title']?.toString());
+    final description = TextEditingController(
+      text: original['description']?.toString(),
+    );
+    final price = TextEditingController(text: original['price']?.toString());
+    final duration = TextEditingController(
+      text: original['duration']?.toString(),
+    );
+    var imageUrl = original['imageUrl']?.toString() ?? '';
+    var uploading = false;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(index == null ? 'Add training package' : 'Edit package'),
+          content: SizedBox(
+            width: 440,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (imageUrl.isNotEmpty)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: CachedNetworkImage(
+                        imageUrl: imageUrl,
+                        height: 150,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorWidget: (_, _, _) => const SizedBox(height: 24),
+                      ),
+                    )
+                  else
+                    Container(
+                      height: 100,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(
+                        Icons.fitness_center_outlined,
+                        size: 34,
+                      ),
+                    ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: uploading
+                          ? null
+                          : () async {
+                              final photo = await ImagePicker().pickImage(
+                                source: ImageSource.gallery,
+                                imageQuality: 84,
+                                maxWidth: 1400,
+                              );
+                              if (photo == null) return;
+                              setDialogState(() => uploading = true);
+                              try {
+                                final url = await AcademyService.instance
+                                    .uploadAcademyImage(
+                                      bytes: await photo.readAsBytes(),
+                                      fileName: photo.name,
+                                      assetName:
+                                          'package-${DateTime.now().millisecondsSinceEpoch}',
+                                    );
+                                setDialogState(() {
+                                  imageUrl = url;
+                                  uploading = false;
+                                });
+                              } catch (error) {
+                                setDialogState(() => uploading = false);
+                                if (context.mounted)
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text(error.toString())),
+                                  );
+                              }
+                            },
+                      icon: uploading
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.add_photo_alternate_outlined),
+                      label: Text(
+                        uploading ? 'Uploading photo…' : 'Choose package photo',
+                      ),
+                    ),
+                  ),
+                  TextField(
+                    controller: title,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(
+                      labelText: 'Package name',
+                    ),
+                  ),
+                  TextField(
+                    controller: description,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'What is included',
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: price,
+                          decoration: const InputDecoration(labelText: 'Price'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: duration,
+                          decoration: const InputDecoration(
+                            labelText: 'Duration / sessions',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              onChanged: (v) => data['sports'] = v
-                  .split(',')
-                  .map((s) => s.trim())
-                  .where((s) => s.isNotEmpty)
-                  .toList(),
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              initialValue:
-                  ((data['packages'] as List? ?? const []).whereType<Map>())
-                      .map(
-                        (p) => [
-                          p['title'],
-                          p['description'],
-                          p['price'],
-                          p['duration'],
-                          p['imageUrl'],
-                        ].map((v) => (v ?? '').toString()).join(' | '),
-                      )
-                      .join('\n'),
-              minLines: 4,
-              maxLines: 8,
-              decoration: const InputDecoration(
-                labelText: 'Training packages',
-                helperText:
-                    'One per line: title | description | price | duration | photo URL',
-              ),
-              onChanged: (v) => data['_packageLines'] = v,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              initialValue: '',
-              minLines: 4,
-              maxLines: 8,
-              decoration: const InputDecoration(
-                labelText: 'Add or replace academy events',
-                helperText:
-                    'One per line: title | YYYY-MM-DD | location | description | photo URL. Saving replaces this academy’s event list.',
-              ),
-              onChanged: (v) => data['_eventLines'] = v,
-            ),
-            const SizedBox(height: 20),
             FilledButton(
-              onPressed: () async {
-                try {
-                  final packageSource = (data['_packageLines'] ?? '')
-                      .toString();
-                  final packages = packageSource
-                      .split('\n')
-                      .map((line) => line.trim())
-                      .where((line) => line.isNotEmpty)
-                      .map((line) {
-                        final parts = line
-                            .split('|')
-                            .map((part) => part.trim())
-                            .toList();
-                        return <String, dynamic>{
-                          'title': parts[0],
-                          'description': parts.length > 1 ? parts[1] : '',
-                          'price': parts.length > 2 ? parts[2] : '',
-                          'duration': parts.length > 3 ? parts[3] : '',
-                          'imageUrl': parts.length > 4 ? parts[4] : '',
-                        };
-                      })
-                      .where((p) => (p['title'] as String).isNotEmpty)
-                      .toList();
-                  await AcademyService.instance.saveAcademy({
-                    'name': data['name'] ?? '',
-                    'phone': data['phone'] ?? '',
-                    'address': data['address'] ?? '',
-                    'description': data['description'] ?? '',
-                    'imageUrl': data['imageUrl'] ?? '',
-                    'sports': data['sports'] ?? const <String>[],
-                    'packages': packages,
-                  });
-                  if (data.containsKey('_eventLines')) {
-                    final existing = await FirebaseFirestore.instance
-                        .collection('events')
-                        .where('academyId', isEqualTo: id)
-                        .get();
-                    final batch = FirebaseFirestore.instance.batch();
-                    for (final doc in existing.docs) {
-                      batch.delete(doc.reference);
-                    }
-                    for (final line
-                        in (data['_eventLines'] as String)
-                            .split('\n')
-                            .map((line) => line.trim())
-                            .where((line) => line.isNotEmpty)) {
-                      final parts = line
-                          .split('|')
-                          .map((part) => part.trim())
-                          .toList();
-                      if (parts.length < 2 ||
-                          DateTime.tryParse(parts[1]) == null) {
-                        throw StateError(
-                          'Each event needs a title and a valid YYYY-MM-DD date.',
-                        );
-                      }
-                      final ref = FirebaseFirestore.instance
-                          .collection('events')
-                          .doc();
-                      batch.set(ref, {
-                        'academyId': id,
-                        'title': parts[0],
-                        'date': parts[1],
-                        'location': parts.length > 2 ? parts[2] : '',
-                        'description': parts.length > 3 ? parts[3] : '',
-                        'imageUrl': parts.length > 4 ? parts[4] : '',
-                        'status': 'published',
-                        'createdAt': FieldValue.serverTimestamp(),
+              onPressed: uploading
+                  ? null
+                  : () {
+                      if (title.text.trim().isEmpty) return;
+                      final value = <String, dynamic>{
+                        'title': title.text.trim(),
+                        'description': description.text.trim(),
+                        'price': price.text.trim(),
+                        'duration': duration.text.trim(),
+                        'imageUrl': imageUrl,
+                      };
+                      setState(() {
+                        if (index == null) {
+                          _packages.add(value);
+                        } else {
+                          _packages[index] = value;
+                        }
                       });
-                    }
-                    await batch.commit();
-                  }
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Academy profile saved.')),
-                    );
-                  }
-                } catch (error) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text(error.toString())));
-                  }
-                }
-              },
-              child: const Text('Save academy profile'),
+                      Navigator.pop(dialogContext);
+                    },
+              child: const Text('Save package'),
             ),
           ],
+        ),
+      ),
+    );
+    title.dispose();
+    description.dispose();
+    price.dispose();
+    duration.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate() || _saving) return;
+    setState(() => _saving = true);
+    try {
+      await AcademyService.instance.saveAcademy({
+        'name': _name.text.trim(),
+        'phone': _phone.text.trim(),
+        'address': _address.text.trim(),
+        'description': _description.text.trim(),
+        'imageUrl': _imageUrl,
+        'sports': _sports.text
+            .split(',')
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toList(),
+        'packages': _packages,
+      });
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Academy profile saved.')));
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not save profile: $error')),
         );
-      },
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(
+    BuildContext context,
+  ) => StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+    stream: AcademyService.instance.academy(widget.academyId),
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting &&
+          !snapshot.hasData)
+        return const Center(child: CircularProgressIndicator());
+      if (snapshot.hasError)
+        return _ProfileLoadError(
+          message:
+              'We could not load this academy profile. Check your connection and account access, then retry.',
+          onRetry: () => setState(() {}),
+        );
+      if (snapshot.data == null || !snapshot.data!.exists)
+        return const _ProfileLoadError(
+          message:
+              'This academy profile is missing. Ask PlayUp support to reconnect the owner account.',
+          onRetry: null,
+        );
+      final data = snapshot.data!.data() ?? <String, dynamic>{};
+      _hydrate(data);
+      return Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(22),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.storefront_rounded,
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    size: 28,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _name.text.isEmpty ? 'Your academy' : _name.text,
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Keep your public details and programs up to date.',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            _AcademyCoverEditor(
+              initialUrl: _imageUrl,
+              onUpload: (bytes, name) => AcademyService.instance
+                  .uploadAcademyImage(bytes: bytes, fileName: name),
+              onUrlChanged: (url) => setState(() => _imageUrl = url),
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _name,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Academy name',
+                prefixIcon: Icon(Icons.badge_outlined),
+              ),
+              validator: (value) => value == null || value.trim().isEmpty
+                  ? 'Enter the academy name.'
+                  : null,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _description,
+              maxLines: 3,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'About your academy',
+                prefixIcon: Icon(Icons.subject_outlined),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _phone,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                labelText: 'Contact phone',
+                prefixIcon: Icon(Icons.call_outlined),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _address,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Location / address',
+                prefixIcon: Icon(Icons.location_on_outlined),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _sports,
+              decoration: const InputDecoration(
+                labelText: 'Sports',
+                helperText: 'Separate each sport with a comma',
+                prefixIcon: Icon(Icons.sports_soccer_outlined),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Training packages',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                IconButton.filledTonal(
+                  onPressed: () => _editPackage(),
+                  icon: const Icon(Icons.add),
+                  tooltip: 'Add package',
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (_packages.isEmpty)
+              const Card(
+                child: ListTile(
+                  leading: Icon(Icons.fitness_center_outlined),
+                  title: Text('No packages yet'),
+                  subtitle: Text(
+                    'Add a photo, price and details for each program.',
+                  ),
+                ),
+              ),
+            for (var index = 0; index < _packages.length; index++)
+              Card(
+                clipBehavior: Clip.antiAlias,
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  leading: SizedBox(
+                    width: 62,
+                    height: 62,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child:
+                          (_packages[index]['imageUrl']
+                                  ?.toString()
+                                  .isNotEmpty ??
+                              false)
+                          ? CachedNetworkImage(
+                              imageUrl: _packages[index]['imageUrl'].toString(),
+                              fit: BoxFit.cover,
+                              errorWidget: (_, _, _) =>
+                                  const Icon(Icons.fitness_center_outlined),
+                            )
+                          : const ColoredBox(
+                              color: Color(0xFFE8F2EA),
+                              child: Icon(Icons.fitness_center_outlined),
+                            ),
+                    ),
+                  ),
+                  title: Text(
+                    _packages[index]['title']?.toString() ?? 'Package',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  subtitle: Text(
+                    [_packages[index]['price'], _packages[index]['duration']]
+                            .where(
+                              (value) =>
+                                  value != null && value.toString().isNotEmpty,
+                            )
+                            .join(' · ')
+                            .isEmpty
+                        ? 'Add price and duration'
+                        : [
+                                _packages[index]['price'],
+                                _packages[index]['duration'],
+                              ]
+                              .where(
+                                (value) =>
+                                    value != null &&
+                                    value.toString().isNotEmpty,
+                              )
+                              .join(' · '),
+                  ),
+                  trailing: PopupMenuButton<String>(
+                    onSelected: (action) {
+                      if (action == 'edit') _editPackage(index);
+                      if (action == 'delete')
+                        setState(() => _packages.removeAt(index));
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'edit', child: Text('Edit')),
+                      PopupMenuItem(value: 'delete', child: Text('Remove')),
+                    ],
+                  ),
+                ),
+              ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _saving ? null : _save,
+              icon: _saving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.check_rounded),
+              label: Text(_saving ? 'Saving…' : 'Save changes'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(52),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Manage courts, events and bookings from Academy Operations.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class _ProfileLoadError extends StatelessWidget {
+  const _ProfileLoadError({required this.message, required this.onRetry});
+  final String message;
+  final VoidCallback? onRetry;
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.cloud_off_outlined, size: 44),
+          const SizedBox(height: 14),
+          Text(message, textAlign: TextAlign.center),
+          if (onRetry != null) ...[
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try again'),
+            ),
+          ],
+        ],
+      ),
     ),
   );
 }
@@ -1179,7 +1523,9 @@ class _TenantScaffoldState extends State<_TenantScaffold> {
             ),
           );
         }
-        if (snapshot.hasError || snapshot.data == null || snapshot.data!.isEmpty) {
+        if (snapshot.hasError ||
+            snapshot.data == null ||
+            snapshot.data!.isEmpty) {
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(28),
@@ -1202,7 +1548,9 @@ class _TenantScaffoldState extends State<_TenantScaffold> {
                     onPressed: _retry,
                     icon: const Icon(Icons.refresh),
                     label: const Text('Try again'),
-                    style: FilledButton.styleFrom(minimumSize: const Size(150, 48)),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(150, 48),
+                    ),
                   ),
                 ],
               ),

@@ -17,7 +17,11 @@ service firebase.storage {
         'academies.manage' in profile().permissions ||
         (
           profile().academyId == academyId &&
-          profile().role in ['academyOwner', 'academyStaff']
+          (
+            profile().role == 'academyOwner' ||
+            (profile().role == 'academyStaff' &&
+              'academy.courts.manage' in profile().permissions)
+          )
         ) ||
         (
           profile().academyId == academyId &&
@@ -31,14 +35,16 @@ service firebase.storage {
       allow read: if true;
       allow write: if canManageCourt(academyId, courtId)
         && request.resource.size < 5 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
+        && request.resource.contentType.matches('image/(jpeg|png|webp|heic|heif)');
     }
+
     match /profile-images/{uid}/{fileName} {
       allow read: if true;
       allow write: if signedIn() && request.auth.uid == uid
         && request.resource.size < 5 * 1024 * 1024
         && request.resource.contentType.matches('image/(jpeg|png|webp|heic|heif)');
     }
+
     match /academy-images/{academyId}/{fileName} {
       allow read: if true;
       allow write: if signedIn() && profile().suspended != true && (
@@ -48,6 +54,17 @@ service firebase.storage {
           profile().role == 'academyOwner' ||
           (profile().role == 'academyStaff' && 'academy.profile.manage' in profile().permissions)
         ))
+      )
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp|heic|heif)');
+    }
+
+    match /community-images/{communityId}/{fileName} {
+      allow read: if true;
+      allow write: if signedIn() && profile().suspended != true && (
+        profile().role == 'superAdmin' ||
+        'communities.manage' in profile().permissions ||
+        (profile().role == 'communityOwner' && profile().communityId == communityId)
       )
         && request.resource.size < 5 * 1024 * 1024
         && request.resource.contentType.matches('image/(jpeg|png|webp|heic|heif)');

@@ -193,6 +193,7 @@ class AcademyService {
   Future<String> uploadAcademyImage({
     required Uint8List bytes,
     required String fileName,
+    String assetName = 'cover',
   }) async {
     if (bytes.lengthInBytes > 5 * 1024 * 1024) {
       throw StateError('Academy photos must be smaller than 5 MB.');
@@ -213,8 +214,12 @@ class AcademyService {
       'heif' => 'image/heif',
       _ => 'image/jpeg',
     };
+    final safeAssetName = assetName
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9_-]'), '-')
+        .replaceAll(RegExp(r'-+'), '-');
     final ref = FirebaseStorage.instance.ref(
-      'academy-images/${scope.academyId}/cover.$safeExtension',
+      'academy-images/${scope.academyId}/${safeAssetName.isEmpty ? 'cover' : safeAssetName}.$safeExtension',
     );
     await ref.putData(bytes, SettableMetadata(contentType: contentType));
     return ref.getDownloadURL();

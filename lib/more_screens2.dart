@@ -279,7 +279,7 @@ class CommunityGroupsSection extends StatelessWidget {
                                     ),
                                   ),
                                   Text(
-                                    '${group.sport} · ${group.description}',
+                                    '${group.sport} Â· ${group.description}',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
@@ -346,93 +346,218 @@ class _CommunityGroupScreen extends StatelessWidget {
       now.day,
     ).subtract(Duration(days: now.weekday - DateTime.monday));
     final nextMonday = monday.add(const Duration(days: 7));
-    return Scaffold(
-      body: AppScrollPage(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            PageTopBar(title: group.name, onBack: () => Navigator.pop(context)),
-            const SizedBox(height: 14),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: SizedBox(
-                height: 185,
-                width: double.infinity,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Image.asset(group.image, fit: BoxFit.cover),
-                    const DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [Colors.transparent, Colors.black87],
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('communities')
+          .doc(group.id)
+          .snapshots(),
+      builder: (context, communitySnapshot) {
+        final community =
+            communitySnapshot.data?.data() ?? const <String, dynamic>{};
+        final name = (community['name']?.toString().trim().isNotEmpty ?? false)
+            ? community['name'].toString()
+            : group.name;
+        final sport =
+            (community['sport']?.toString().trim().isNotEmpty ?? false)
+            ? community['sport'].toString()
+            : group.sport;
+        final description =
+            community['description']?.toString() ?? group.description;
+        final cover = community['imageUrl']?.toString() ?? '';
+        return Scaffold(
+          body: AppScrollPage(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                PageTopBar(title: name, onBack: () => Navigator.pop(context)),
+                const SizedBox(height: 14),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: SizedBox(
+                    height: 185,
+                    width: double.infinity,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (cover.isEmpty)
+                          Image.asset(group.image, fit: BoxFit.cover)
+                        else
+                          Image.network(
+                            cover,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) =>
+                                Image.asset(group.image, fit: BoxFit.cover),
+                          ),
+                        const DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Colors.transparent, Colors.black87],
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    Positioned(
-                      left: 16,
-                      bottom: 15,
-                      child: Text(
-                        '${group.sport} · Community',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
+                        Positioned(
+                          left: 16,
+                          bottom: 15,
+                          child: Text(
+                            '$sport Â· Community',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            const SectionHeader(title: 'Matches this week'),
-            const SizedBox(height: 10),
-            StreamBuilder<List<OpenMatch>>(
-              stream: openMatchesStream(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snapshot.hasError) {
-                  return const CardBox(
+                const SizedBox(height: 20),
+                if (description.isNotEmpty)
+                  CardBox(
                     child: Text(
-                      'This group schedule could not load. Try again shortly.',
+                      description,
+                      style: const TextStyle(height: 1.5),
                     ),
-                  );
-                }
-                final matches = (snapshot.data ?? const <OpenMatch>[]).where((
-                  match,
-                ) {
-                  final start = match.startUtc?.toLocal();
-                  return match.groupId == group.id &&
-                      start != null &&
-                      !start.isBefore(monday) &&
-                      start.isBefore(nextMonday);
-                }).toList()..sort((a, b) => a.startUtc!.compareTo(b.startUtc!));
-                if (matches.isEmpty) {
-                  return CardBox(
+                  ),
+                if ((community['city']?.toString().isNotEmpty ?? false) ||
+                    (community['contactPhone']?.toString().isNotEmpty ??
+                        false)) ...[
+                  const SizedBox(height: 10),
+                  CardBox(
                     child: Text(
-                      'No ${group.sport.toLowerCase()} matches are scheduled for this group this week yet.',
+                      [community['city'], community['contactPhone']]
+                          .where(
+                            (value) =>
+                                value != null && value.toString().isNotEmpty,
+                          )
+                          .join(' Â· '),
                     ),
-                  );
-                }
-                return Column(
-                  children: [
-                    for (final match in matches)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: OpenMatchCard(match: match),
-                      ),
-                  ],
-                );
-              },
+                  ),
+                ],
+                const SizedBox(height: 18),
+                const SectionHeader(title: 'Community events'),
+                const SizedBox(height: 10),
+                StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('events')
+                      .where('communityId', isEqualTo: group.id)
+                      .snapshots(),
+                  builder: (context, eventsSnapshot) {
+                    if (eventsSnapshot.hasError)
+                      return const CardBox(
+                        child: Text(
+                          'Community events could not load right now.',
+                        ),
+                      );
+                    if (eventsSnapshot.connectionState ==
+                            ConnectionState.waiting &&
+                        !eventsSnapshot.hasData)
+                      return const Center(child: CircularProgressIndicator());
+                    final events = [...?eventsSnapshot.data?.docs]
+                      ..sort(
+                        (a, b) => (a.data()['date']?.toString() ?? '')
+                            .compareTo(b.data()['date']?.toString() ?? ''),
+                      );
+                    final today = DateTime.now().toIso8601String().substring(
+                      0,
+                      10,
+                    );
+                    final upcoming = events.where(
+                      (event) =>
+                          event.data()['status'] != 'cancelled' &&
+                          (event.data()['date']?.toString() ?? '').compareTo(
+                                today,
+                              ) >=
+                              0,
+                    );
+                    if (upcoming.isEmpty)
+                      return const CardBox(
+                        child: Text('No community events announced yet.'),
+                      );
+                    return Column(
+                      children: [
+                        for (final event in upcoming)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: CardBox(
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(
+                                  Icons.event_available_outlined,
+                                ),
+                                title: Text(
+                                  event.data()['title']?.toString() ??
+                                      'Community event',
+                                ),
+                                subtitle: Text(
+                                  [
+                                        event.data()['date'],
+                                        event.data()['location'],
+                                      ]
+                                      .where(
+                                        (value) =>
+                                            value != null &&
+                                            value.toString().isNotEmpty,
+                                      )
+                                      .join(' · '),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 20),
+                const SectionHeader(title: 'Matches this week'),
+                const SizedBox(height: 10),
+                StreamBuilder<List<OpenMatch>>(
+                  stream: openMatchesStream(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      return const CardBox(
+                        child: Text(
+                          'This group schedule could not load. Try again shortly.',
+                        ),
+                      );
+                    }
+                    final matches =
+                        (snapshot.data ?? const <OpenMatch>[]).where((match) {
+                            final start = match.startUtc?.toLocal();
+                            return match.groupId == group.id &&
+                                start != null &&
+                                !start.isBefore(monday) &&
+                                start.isBefore(nextMonday);
+                          }).toList()
+                          ..sort((a, b) => a.startUtc!.compareTo(b.startUtc!));
+                    if (matches.isEmpty) {
+                      return CardBox(
+                        child: Text(
+                          'No ${sport.toLowerCase()} matches are scheduled for this group this week yet.',
+                        ),
+                      );
+                    }
+                    return Column(
+                      children: [
+                        for (final match in matches)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: OpenMatchCard(match: match),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -651,8 +776,8 @@ class OpenMatchCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     match.distanceFrom(location).isEmpty
-                        ? '${match.court}  •  ${match.time}'
-                        : '${match.court}  •  ${match.time}  •  ${match.distanceFrom(location)}',
+                        ? '${match.court}  â€¢  ${match.time}'
+                        : '${match.court}  â€¢  ${match.time}  â€¢  ${match.distanceFrom(location)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -668,7 +793,7 @@ class OpenMatchCard extends StatelessWidget {
               children: [
                 _MatchStat(
                   icon: CupertinoIcons.person_2_fill,
-                  label: '${match.joined} joined • needs ${match.needed}',
+                  label: '${match.joined} joined â€¢ needs ${match.needed}',
                 ),
                 const Spacer(),
                 Text(
@@ -884,7 +1009,7 @@ class MatchDetailsScreen extends StatelessWidget {
                                     ),
                                     const SizedBox(width: 4),
                                     Text(
-                                      '$rel% Reliable • ${isHigh
+                                      '$rel% Reliable â€¢ ${isHigh
                                           ? 'High Trust'
                                           : isGood
                                           ? 'Good Standing'
@@ -1141,12 +1266,12 @@ class MatchDetailsScreen extends StatelessWidget {
                   ),
                   onPressed: () async {
                     final waText =
-                        '🎾 *Join my ${match.sport} match on PlayUp!*\n'
-                        '📍 Court: ${match.court}\n'
-                        '⏰ Time: ${match.time}\n'
-                        '💰 Cash Fee: ${match.pricePerPlayer}\n'
-                        '👥 Need ${match.needed} more player${match.needed == 1 ? '' : 's'}!\n\n'
-                        '👉 Join match: https://play-up.fit/join/match/${match.id ?? ''}';
+                        'ðŸŽ¾ *Join my ${match.sport} match on PlayUp!*\n'
+                        'ðŸ“ Court: ${match.court}\n'
+                        'â° Time: ${match.time}\n'
+                        'ðŸ’° Cash Fee: ${match.pricePerPlayer}\n'
+                        'ðŸ‘¥ Need ${match.needed} more player${match.needed == 1 ? '' : 's'}!\n\n'
+                        'ðŸ‘‰ Join match: https://play-up.fit/join/match/${match.id ?? ''}';
                     final waUri = Uri.parse(
                       'whatsapp://send?text=${Uri.encodeComponent(waText)}',
                     );
@@ -1789,7 +1914,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Step ${_step + 1} of ${_steps.length}  •  ${_steps[_step]}',
+              'Step ${_step + 1} of ${_steps.length}  â€¢  ${_steps[_step]}',
               style: const TextStyle(
                 color: AppColors.muted,
                 fontWeight: FontWeight.w700,
@@ -1887,7 +2012,9 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                       style: TextStyle(fontWeight: FontWeight.w900),
                     ),
                     const SizedBox(height: 8),
-                    Text(DateFormat('EEE, d MMM yyyy • h:mm a').format(_start)),
+                    Text(
+                      DateFormat('EEE, d MMM yyyy â€¢ h:mm a').format(_start),
+                    ),
                     const SizedBox(height: 10),
                     SecondaryButton(
                       label: 'Change date and time',
@@ -1983,7 +2110,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                                   icon: CupertinoIcons.sportscourt,
                                   title: court.name,
                                   subtitle:
-                                      '${court.address.isEmpty ? court.subtitle : court.address} • ${court.price}',
+                                      '${court.address.isEmpty ? court.subtitle : court.address} â€¢ ${court.price}',
                                   selected: _court?.id == court.id,
                                 ),
                               ),
@@ -2184,7 +2311,7 @@ class PreMatchCheckInScreen extends StatelessWidget {
                 const SizedBox(height: 6),
                 Center(
                   child: Text(
-                    'Starts in 42 min • Infinity Sports Center',
+                    'Starts in 42 min â€¢ Infinity Sports Center',
                     style: TextStyle(color: Colors.white.withValues(alpha: .7)),
                   ),
                 ),
@@ -2405,7 +2532,7 @@ class _SlotSelectionScreenState extends State<SlotSelectionScreen> {
     final total = ((rate * _duration) / 60).round();
     if (total <= 0) return widget.court.price;
     final isPeak = widget.court.isPeakHour(effectiveStart.hour);
-    return '${widget.court.currency} ${(total / 100).toStringAsFixed(2)}${isPeak ? ' • Peak' : ''}';
+    return '${widget.court.currency} ${(total / 100).toStringAsFixed(2)}${isPeak ? ' â€¢ Peak' : ''}';
   }
 
   @override
@@ -2763,12 +2890,12 @@ class BookingDetailsScreen extends StatelessWidget {
         : DateFormat('EEEE, d MMMM y').format(start);
     final timeLabel = start == null
         ? 'Time pending'
-        : '${DateFormat.jm().format(start)}${end == null ? '' : ' – ${DateFormat.jm().format(end)}'}';
+        : '${DateFormat.jm().format(start)}${end == null ? '' : ' â€“ ${DateFormat.jm().format(end)}'}';
     final paymentLabel = paymentStatus == 'collected'
         ? 'Collected at venue'
         : paymentStatus == 'notRequired'
         ? 'No payment required'
-        : 'Pay at venue · $currency ${(totalMinor / 100).toStringAsFixed(2)}';
+        : 'Pay at venue Â· $currency ${(totalMinor / 100).toStringAsFixed(2)}';
     return Scaffold(
       body: AppScrollPage(
         child: Column(
@@ -3019,12 +3146,12 @@ class BookingDetailsScreen extends StatelessWidget {
                           ),
                           onPressed: () async {
                             final waText =
-                                '💵 *PlayUp Cash Split - ${court.name}*\n'
-                                '📅 Date: $dateLabel\n'
-                                '⏰ Time: $timeLabel\n'
-                                '💰 Total Court Fee: $currency ${(totalMinor / 100).toStringAsFixed(2)}\n'
-                                '👥 Share per Player: $currency $perPlayerAmount\n\n'
-                                'Please bring exact cash to the court! 🙌';
+                                'ðŸ’µ *PlayUp Cash Split - ${court.name}*\n'
+                                'ðŸ“… Date: $dateLabel\n'
+                                'â° Time: $timeLabel\n'
+                                'ðŸ’° Total Court Fee: $currency ${(totalMinor / 100).toStringAsFixed(2)}\n'
+                                'ðŸ‘¥ Share per Player: $currency $perPlayerAmount\n\n'
+                                'Please bring exact cash to the court! ðŸ™Œ';
                             final waUri = Uri.parse(
                               'whatsapp://send?text=${Uri.encodeComponent(waText)}',
                             );
@@ -3472,7 +3599,7 @@ class AcademyModeDashboard extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Manage today’s activity, then keep your venue ready for the next booking.',
+                  'Manage todayâ€™s activity, then keep your venue ready for the next booking.',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                     height: 1.5,
@@ -3500,7 +3627,7 @@ class AcademyModeDashboard extends StatelessWidget {
                   SettingsTile(
                     icon: CupertinoIcons.building_2_fill,
                     title: 'Academy profile',
-                    subtitle: 'Name, location and contact details',
+                    subtitle: 'Photos, contact details, sports and training packages',
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => const AcademyProfileManagementScreen(),
@@ -3814,7 +3941,7 @@ class CourtManagementScreen extends StatelessWidget {
                                       ),
                                     ),
                                     Text(
-                                      '${court.subtitle} • ${court.price}',
+                                      '${court.subtitle} â€¢ ${court.price}',
                                       style: const TextStyle(
                                         color: AppColors.muted,
                                         fontSize: 12,
@@ -3926,9 +4053,9 @@ class _BookingManagementScreenState extends State<BookingManagementScreen> {
             ),
             const SizedBox(height: 18),
             for (final booking in const [
-              ('Ahmad S.', 'Basketball • 6:00 PM', 'Court 1'),
-              ('Lina H.', 'Padel • 7:30 PM', 'Court 3'),
-              ('Omar K.', 'Volleyball • 9:00 PM', 'Court 2'),
+              ('Ahmad S.', 'Basketball â€¢ 6:00 PM', 'Court 1'),
+              ('Lina H.', 'Padel â€¢ 7:30 PM', 'Court 3'),
+              ('Omar K.', 'Volleyball â€¢ 9:00 PM', 'Court 2'),
             ])
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -3948,7 +4075,7 @@ class _BookingManagementScreenState extends State<BookingManagementScreen> {
                               ),
                             ),
                             Text(
-                              '${booking.$2} • ${booking.$3}',
+                              '${booking.$2} â€¢ ${booking.$3}',
                               style: const TextStyle(
                                 color: AppColors.muted,
                                 fontSize: 12,

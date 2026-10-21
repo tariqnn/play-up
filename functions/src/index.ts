@@ -1418,11 +1418,19 @@ export const createManagedOwnerAccount = onCall(callableOptions, async (request)
   }
   const email = text(request.data?.email, 'email').toLowerCase();
   const displayName = text(request.data?.displayName, 'displayName');
-  const academyId = text(request.data?.academyId, 'academyId');
-  const ownerType = request.data?.ownerType === 'court' ? 'court' : 'academy';
+  const ownerType = ['court', 'community'].includes(request.data?.ownerType) ? request.data.ownerType : 'academy';
+  const communityId = ownerType === 'community' ? text(request.data?.communityId, 'communityId').toLowerCase() : null;
+  if (communityId && !/^[a-z0-9-]{3,48}$/.test(communityId)) {
+    throw new HttpsError('invalid-argument', 'Community ID must use 3-48 lowercase letters, numbers, or hyphens.');
+  }
+  const academyId = ownerType === 'community' ? null : text(request.data?.academyId, 'academyId');
   const courtId = ownerType === 'court' ? text(request.data?.courtId, 'courtId') : null;
-  const academy = await db.collection('academies').doc(academyId).get();
-  if (!academy.exists) throw new HttpsError('not-found', 'Academy does not exist.');
+  if (academyId) {
+    const academy = await db.collection('academies').doc(academyId).get();
+    if (!academy.exists) throw new HttpsError('not-found', 'Academy does not exist.');
+  } else if (!text(request.data?.communityName, 'communityName') || !text(request.data?.sport, 'sport')) {
+    throw new HttpsError('invalid-argument', 'Community name and sport are required.');
+  }
   if (courtId) {
     const court = await db.collection('courts').doc(courtId).get();
     if (!court.exists || court.data()?.academyId !== academyId) {
@@ -1432,15 +1440,25 @@ export const createManagedOwnerAccount = onCall(callableOptions, async (request)
   const temporaryPassword = randomBytes(32).toString('base64url');
   let created;
   try {
+    if (communityId) {
+      await db.collection('communities').doc(communityId).set({
+        name: text(request.data?.communityName, 'communityName'),
+        sport: text(request.data?.sport, 'sport'),
+        description: typeof request.data?.description === 'string' ? request.data.description.trim() : '',
+        imageUrl: typeof request.data?.imageUrl === 'string' ? request.data.imageUrl.trim() : '',
+        active: true, createdBy: uid, createdAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+    }
     created = await getAuth().createUser({email, displayName, password: temporaryPassword, emailVerified: false});
     await db.collection('users').doc(created.uid).set({
       uid: created.uid, email, displayName,
-      role: ownerType === 'court' ? 'courtOwner' : 'academyOwner', ownerType,
-      academyId, courtIds: courtId ? [courtId] : [], permissions: [], suspended: false,
+      role: ownerType === 'community' ? 'communityOwner' : ownerType === 'court' ? 'courtOwner' : 'academyOwner', ownerType,
+      ...(academyId ? {academyId} : {}), ...(communityId ? {communityId} : {}),
+      courtIds: courtId ? [courtId] : [], permissions: [], suspended: false,
       mustChangePassword: false, createdBy: uid, createdAt: FieldValue.serverTimestamp(),
     });
     await db.collection('auditLogs').add({actorId: uid, action: 'owner.create', entity: 'user',
-      entityId: created.uid, academyId, ownerType, courtId, createdAt: FieldValue.serverTimestamp()});
+      entityId: created.uid, ...(academyId ? {academyId} : {}), ...(communityId ? {communityId} : {}), ownerType, courtId, createdAt: FieldValue.serverTimestamp()});
   } catch (error) {
     if (created?.uid) await getAuth().deleteUser(created.uid).catch(() => undefined);
     if ((error as {code?: string}).code === 'auth/email-already-exists') {
@@ -1448,7 +1466,7 @@ export const createManagedOwnerAccount = onCall(callableOptions, async (request)
     }
     throw error;
   }
-  return {uid: created.uid, email, resetRequired: true};
+  return {uid: created.uid, email, resetRequired: true, communityId};
 });
 
 export const deleteMyAccount = onCall({...callableOptions, timeoutSeconds: 120}, async (request) => {

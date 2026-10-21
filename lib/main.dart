@@ -46,6 +46,7 @@ import 'tournament_screens.dart';
 import 'test_data_seed.dart';
 import 'sport_activities_screen.dart';
 import 'sport_hub_screen.dart';
+import 'community_owner.dart';
 
 const useFirebaseEmulators = bool.fromEnvironment('USE_FIREBASE_EMULATORS');
 
@@ -887,6 +888,9 @@ class AuthGate extends StatelessWidget {
                     role == 'courtOwner' ||
                     role == 'academyStaff') {
                   return const AcademyModeDashboard(standalone: true);
+                }
+                if (role == 'communityOwner') {
+                  return const CommunityModeDashboard();
                 }
                 if (!user.isAnonymous && profile['setupComplete'] != true) {
                   return const SportsSelectionScreen();
