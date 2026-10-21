@@ -43,6 +43,9 @@ workflows:
         script: xcode-project use-profiles
       - name: Build signed IPA
         script: |
+          # This app only requests foreground location; avoid linking Geolocator's
+          # unused always-location APIs, which trigger Apple's missing-purpose warning.
+          export BYPASS_PERMISSION_LOCATION_ALWAYS=1
           flutter build ipa --release \
             --build-number=$PROJECT_BUILD_NUMBER \
             --dart-define=APPLE_SIGN_IN_ENABLED=true \
