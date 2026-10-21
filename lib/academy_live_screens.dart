@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import 'academy_service.dart';
+import 'academy_profile_data.dart';
 import 'booking_presentation.dart';
 import 'package:intl/intl.dart';
 
@@ -825,16 +826,19 @@ class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
     _phone.text = data['phone']?.toString() ?? '';
     _address.text = data['address']?.toString() ?? '';
     _description.text = data['description']?.toString() ?? '';
-    _sports.text = (data['sports'] as List? ?? const []).join(', ');
+    // Production academy documents contain both legacy strings and arrays.
+    // Normalize both shapes before rendering the editor.
+    _sports.text = academyFieldList(
+      data['sports'],
+    ).map((value) => value.toString()).join(', ');
     _imageUrl = data['imageUrl']?.toString() ?? '';
-    _packages = (data['packages'] as List? ?? const [])
-        .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item))
-        .toList();
+    _packages = academyFieldList(
+      data['packages'],
+    ).whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList();
     // Keep legacy package names visible so an owner can gradually enrich them.
-    for (final title
-        in (data['trainingPackages'] as List? ?? const [])
-            .whereType<String>()) {
+    for (final title in academyFieldList(
+      data['trainingPackages'],
+    ).whereType<String>()) {
       if (!_packages.any((item) => item['title'] == title)) {
         _packages.add({
           'title': title,
