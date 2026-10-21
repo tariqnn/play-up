@@ -1124,52 +1124,92 @@ class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
               onUrlChanged: (url) => setState(() => _imageUrl = url),
             ),
             const SizedBox(height: 8),
-            TextFormField(
-              controller: _name,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                labelText: 'Academy name',
-                prefixIcon: Icon(Icons.badge_outlined),
+            Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(22),
+                side: BorderSide(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
               ),
-              validator: (value) => value == null || value.trim().isEmpty
-                  ? 'Enter the academy name.'
-                  : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _description,
-              maxLines: 3,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(
-                labelText: 'About your academy',
-                prefixIcon: Icon(Icons.subject_outlined),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _phone,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: 'Contact phone',
-                prefixIcon: Icon(Icons.call_outlined),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _address,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                labelText: 'Location / address',
-                prefixIcon: Icon(Icons.location_on_outlined),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _sports,
-              decoration: const InputDecoration(
-                labelText: 'Sports',
-                helperText: 'Separate each sport with a comma',
-                prefixIcon: Icon(Icons.sports_soccer_outlined),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.edit_note_rounded,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Public details',
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'This is what players see on your academy page.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: _name,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: const InputDecoration(
+                        labelText: 'Academy name',
+                        prefixIcon: Icon(Icons.badge_outlined),
+                      ),
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
+                          ? 'Enter the academy name.'
+                          : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _description,
+                      maxLines: 3,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: const InputDecoration(
+                        labelText: 'About your academy',
+                        prefixIcon: Icon(Icons.subject_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _phone,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Contact phone',
+                        prefixIcon: Icon(Icons.call_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _address,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: const InputDecoration(
+                        labelText: 'Location / address',
+                        prefixIcon: Icon(Icons.location_on_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _sports,
+                      decoration: const InputDecoration(
+                        labelText: 'Sports',
+                        helperText: 'Separate each sport with a comma',
+                        prefixIcon: Icon(Icons.sports_soccer_outlined),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 24),
@@ -1204,67 +1244,149 @@ class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
             for (var index = 0; index < _packages.length; index++)
               Card(
                 clipBehavior: Clip.antiAlias,
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant,
                   ),
-                  leading: SizedBox(
-                    width: 62,
-                    height: 62,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child:
-                          (_packages[index]['imageUrl']
-                                  ?.toString()
-                                  .isNotEmpty ??
-                              false)
-                          ? CachedNetworkImage(
-                              imageUrl: _packages[index]['imageUrl'].toString(),
-                              fit: BoxFit.cover,
-                              errorWidget: (_, _, _) =>
-                                  const Icon(Icons.fitness_center_outlined),
-                            )
-                          : const ColoredBox(
-                              color: Color(0xFFE8F2EA),
-                              child: Icon(Icons.fitness_center_outlined),
-                            ),
-                    ),
-                  ),
-                  title: Text(
-                    _packages[index]['title']?.toString() ?? 'Package',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  subtitle: Text(
-                    [_packages[index]['price'], _packages[index]['duration']]
-                            .where(
-                              (value) =>
-                                  value != null && value.toString().isNotEmpty,
-                            )
-                            .join(' · ')
-                            .isEmpty
-                        ? 'Add price and duration'
-                        : [
-                                _packages[index]['price'],
-                                _packages[index]['duration'],
-                              ]
-                              .where(
-                                (value) =>
-                                    value != null &&
-                                    value.toString().isNotEmpty,
+                ),
+                child: InkWell(
+                  onTap: () => _editPackage(index),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 104,
+                        height: 122,
+                        child:
+                            (_packages[index]['imageUrl']
+                                    ?.toString()
+                                    .isNotEmpty ??
+                                false)
+                            ? CachedNetworkImage(
+                                imageUrl: _packages[index]['imageUrl']
+                                    .toString(),
+                                fit: BoxFit.cover,
+                                errorWidget: (_, _, _) => const ColoredBox(
+                                  color: Color(0xFFE8F2EA),
+                                  child: Icon(
+                                    Icons.fitness_center_outlined,
+                                    size: 30,
+                                  ),
+                                ),
                               )
-                              .join(' · '),
-                  ),
-                  trailing: PopupMenuButton<String>(
-                    onSelected: (action) {
-                      if (action == 'edit') _editPackage(index);
-                      if (action == 'delete') {
-                        setState(() => _packages.removeAt(index));
-                      }
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(value: 'edit', child: Text('Edit')),
-                      PopupMenuItem(value: 'delete', child: Text('Remove')),
+                            : const ColoredBox(
+                                color: Color(0xFFE8F2EA),
+                                child: Center(
+                                  child: Icon(
+                                    Icons.fitness_center_outlined,
+                                    size: 30,
+                                  ),
+                                ),
+                              ),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 8, 4, 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      _packages[index]['title']?.toString() ??
+                                          'Package',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                    ),
+                                  ),
+                                  PopupMenuButton<String>(
+                                    tooltip: 'Package actions',
+                                    onSelected: (action) {
+                                      if (action == 'edit') {
+                                        _editPackage(index);
+                                      }
+                                      if (action == 'delete') {
+                                        setState(
+                                          () => _packages.removeAt(index),
+                                        );
+                                      }
+                                    },
+                                    itemBuilder: (_) => const [
+                                      PopupMenuItem(
+                                        value: 'edit',
+                                        child: Text('Edit package'),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'delete',
+                                        child: Text('Remove package'),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              if ((_packages[index]['description']
+                                      ?.toString()
+                                      .trim()
+                                      .isNotEmpty ??
+                                  false))
+                                Text(
+                                  _packages[index]['description'].toString(),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurfaceVariant,
+                                      ),
+                                ),
+                              const Spacer(),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 4,
+                                children: [
+                                  if ((_packages[index]['price']
+                                          ?.toString()
+                                          .isNotEmpty ??
+                                      false))
+                                    _PackageFactChip(
+                                      _packages[index]['price'].toString(),
+                                      Icons.payments_outlined,
+                                    ),
+                                  if ((_packages[index]['duration']
+                                          ?.toString()
+                                          .isNotEmpty ??
+                                      false))
+                                    _PackageFactChip(
+                                      _packages[index]['duration'].toString(),
+                                      Icons.schedule_rounded,
+                                    ),
+                                  if ((_packages[index]['price']
+                                              ?.toString()
+                                              .isNotEmpty !=
+                                          true) &&
+                                      (_packages[index]['duration']
+                                              ?.toString()
+                                              .isNotEmpty !=
+                                          true))
+                                    const _PackageFactChip(
+                                      'Add price and duration',
+                                      Icons.edit_outlined,
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1294,6 +1416,37 @@ class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
         ),
       );
     },
+  );
+}
+
+class _PackageFactChip extends StatelessWidget {
+  const _PackageFactChip(this.label, this.icon);
+  final String label;
+  final IconData icon;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+    decoration: BoxDecoration(
+      color: Theme.of(
+        context,
+      ).colorScheme.primaryContainer.withValues(alpha: .62),
+      borderRadius: BorderRadius.circular(30),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(
+            context,
+          ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
+        ),
+      ],
+    ),
   );
 }
 

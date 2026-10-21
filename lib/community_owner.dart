@@ -288,86 +288,189 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
           );
         }
         _hydrate(snapshot.data!.data()!);
+        final colors = Theme.of(context).colorScheme;
         return ListView(
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
           children: [
-            Text(
-              'Manage your group page, photos and events.',
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-            const SizedBox(height: 16),
             ClipRRect(
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(24),
               child: SizedBox(
-                height: 180,
-                child: _imageUrl.isEmpty
-                    ? ColoredBox(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.surfaceContainerHighest,
-                        child: const Icon(Icons.groups_rounded, size: 52),
-                      )
-                    : Image.network(
-                        _imageUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => const ColoredBox(
-                          color: Color(0xFFE8F2EA),
-                          child: Icon(Icons.groups_rounded, size: 48),
+                height: 220,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _imageUrl.isEmpty
+                        ? ColoredBox(
+                            color: colors.primaryContainer,
+                            child: Icon(
+                              Icons.groups_rounded,
+                              size: 56,
+                              color: colors.primary,
+                            ),
+                          )
+                        : Image.network(
+                            _imageUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => ColoredBox(
+                              color: colors.primaryContainer,
+                              child: Icon(
+                                Icons.groups_rounded,
+                                size: 56,
+                                color: colors.primary,
+                              ),
+                            ),
+                          ),
+                    const DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Color(0x00000000), Color(0xD9101B15)],
                         ),
                       ),
+                    ),
+                    Positioned(
+                      left: 18,
+                      right: 16,
+                      bottom: 16,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: colors.primary,
+                              borderRadius: BorderRadius.circular(30),
+                            ),
+                            child: const Text(
+                              'COMMUNITY PAGE',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1.1,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 7),
+                          Text(
+                            _name.text.isEmpty
+                                ? 'Your sports community'
+                                : _name.text,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Bring your group together on PlayUp',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Positioned(
+                      right: 12,
+                      top: 12,
+                      child: FilledButton.tonalIcon(
+                        onPressed: _uploading ? null : _choosePhoto,
+                        icon: _uploading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.photo_library_outlined),
+                        label: Text(_uploading ? 'Uploading' : 'Change photo'),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: _uploading ? null : _choosePhoto,
-                icon: _uploading
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.photo_library_outlined),
-                label: Text(_uploading ? 'Uploading…' : 'Change cover photo'),
-              ),
+            const SizedBox(height: 18),
+            _CommunityEditorSection(
+              icon: Icons.groups_rounded,
+              title: 'About your group',
+              subtitle: 'Help players find and understand your community.',
+              children: [
+                TextField(
+                  controller: _name,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Community name',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _sport,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(labelText: 'Main sport'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _description,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Description',
+                    alignLabelWithHint: true,
+                  ),
+                ),
+              ],
             ),
-            TextField(
-              controller: _name,
-              decoration: const InputDecoration(labelText: 'Community name'),
+            const SizedBox(height: 12),
+            _CommunityEditorSection(
+              icon: Icons.link_rounded,
+              title: 'Location and links',
+              subtitle: 'Give members a clear way to reach the group.',
+              children: [
+                TextField(
+                  controller: _city,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'City / meeting area',
+                    prefixIcon: Icon(Icons.location_on_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _phone,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Public contact phone',
+                    prefixIcon: Icon(Icons.call_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _website,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    labelText: 'Website',
+                    prefixIcon: Icon(Icons.language_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _instagram,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    labelText: 'Instagram',
+                    prefixIcon: Icon(Icons.camera_alt_outlined),
+                  ),
+                ),
+              ],
             ),
-            TextField(
-              controller: _sport,
-              decoration: const InputDecoration(labelText: 'Sport'),
-            ),
-            TextField(
-              controller: _description,
-              maxLines: 4,
-              decoration: const InputDecoration(labelText: 'About the group'),
-            ),
-            TextField(
-              controller: _city,
-              decoration: const InputDecoration(
-                labelText: 'City / meeting area',
-              ),
-            ),
-            TextField(
-              controller: _phone,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: 'Public contact phone',
-              ),
-            ),
-            TextField(
-              controller: _website,
-              keyboardType: TextInputType.url,
-              decoration: const InputDecoration(labelText: 'Website'),
-            ),
-            TextField(
-              controller: _instagram,
-              keyboardType: TextInputType.url,
-              decoration: const InputDecoration(labelText: 'Instagram'),
-            ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: _saving ? null : _save,
               icon: _saving
@@ -376,21 +479,91 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.check),
-              label: Text(_saving ? 'Saving…' : 'Save community page'),
+                  : const Icon(Icons.check_rounded),
+              label: Text(_saving ? 'Saving...' : 'Save community page'),
               style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(52),
+                minimumSize: const Size.fromHeight(54),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             OutlinedButton.icon(
               onPressed: _publishEvent,
               icon: const Icon(Icons.event_available_outlined),
-              label: const Text('Publish an event'),
+              label: const Text('Publish a group event'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(50),
+              ),
             ),
           ],
         );
       },
     ),
   );
+}
+
+class _CommunityEditorSection extends StatelessWidget {
+  const _CommunityEditorSection({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.children,
+  });
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: BorderSide(color: colors.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: colors.primaryContainer,
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Icon(icon, color: colors.primary, size: 21),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                      Text(
+                        subtitle,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
 }

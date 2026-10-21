@@ -3583,9 +3583,12 @@ class _AcademyModeDashboardState extends State<AcademyModeDashboard> {
   String _scopeError(Object? error) {
     if (error is StateError) {
       return switch (error.message) {
-        'Sign in is required.' => 'Your session ended. Sign in again to open the academy workspace.',
-        'No academy is assigned to this account.' => 'This owner account is not linked to an academy yet. Ask the PlayUp administrator to assign the academy, then try again.',
-        'This court-owner account needs one assigned court.' => 'This court-owner account needs one assigned court. Ask the academy administrator to assign it, then try again.',
+        'Sign in is required.' =>
+          'Your session ended. Sign in again to open the academy workspace.',
+        'No academy is assigned to this account.' =>
+          'This owner account is not linked to an academy yet. Ask the PlayUp administrator to assign the academy, then try again.',
+        'This court-owner account needs one assigned court.' =>
+          'This court-owner account needs one assigned court. Ask the academy administrator to assign it, then try again.',
         _ => error.message.toString(),
       };
     }
@@ -3656,18 +3659,12 @@ class _AcademyModeDashboardState extends State<AcademyModeDashboard> {
                       ? null
                       : () => Navigator.of(context).pop(),
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  'Manage todayâ€™s activity, then keep your venue ready for the next booking.',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 14),
+                _OwnerAcademyHero(academyId: scope.academyId),
+                const SizedBox(height: 18),
                 if (scope.canManageBookings) ...[
                   PrimaryButton(
-                    label: 'Open bookings & check-in',
+                    label: 'Bookings & check-in',
                     icon: Icons.event_available_outlined,
                     onPressed: () => Navigator.push(
                       context,
@@ -3680,96 +3677,115 @@ class _AcademyModeDashboardState extends State<AcademyModeDashboard> {
                 ],
                 const LiveAcademyDashboardSummary(),
                 const SizedBox(height: 20),
-                const SectionHeader(title: 'Your venue'),
-                const SizedBox(height: 12),
-                if (scope.canManageAcademy)
-                  SettingsTile(
-                    icon: CupertinoIcons.building_2_fill,
-                    title: 'Academy profile',
-                    subtitle:
-                        'Photos, contact details, sports and training packages',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const AcademyProfileManagementScreen(),
+                const SectionHeader(title: 'Manage your venue'),
+                const SizedBox(height: 10),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final actions = <_OwnerAction>[
+                      if (scope.canManageAcademy)
+                        _OwnerAction(
+                          'Academy profile',
+                          'Photos, details and programs',
+                          CupertinoIcons.building_2_fill,
+                          const Color(0xFF167A48),
+                          () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  const AcademyProfileManagementScreen(),
+                            ),
+                          ),
+                        ),
+                      if (scope.canManageCourts)
+                        _OwnerAction(
+                          'Courts',
+                          'Prices and availability',
+                          CupertinoIcons.sportscourt,
+                          const Color(0xFF216B9A),
+                          () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const LiveCourtManagementScreen(),
+                            ),
+                          ),
+                        ),
+                      if (scope.canManageCatalog)
+                        _OwnerAction(
+                          'Events',
+                          'Publish activities',
+                          CupertinoIcons.calendar,
+                          const Color(0xFF9A5B12),
+                          () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const EventManagementScreen(),
+                            ),
+                          ),
+                        ),
+                      if (scope.canManageStaff)
+                        _OwnerAction(
+                          'Your team',
+                          'Staff and permissions',
+                          CupertinoIcons.person_2_fill,
+                          const Color(0xFF7453A6),
+                          () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  const AcademyStaffManagementScreen(),
+                            ),
+                          ),
+                        ),
+                      if (scope.canManageCatalog)
+                        _OwnerAction(
+                          'Offers',
+                          'Rewards for players',
+                          CupertinoIcons.gift,
+                          const Color(0xFFB14C68),
+                          () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const OffersManagementScreen(),
+                            ),
+                          ),
+                        ),
+                      if (scope.canManageTournaments)
+                        _OwnerAction(
+                          'Tournaments',
+                          'Create a competition',
+                          CupertinoIcons.flag_fill,
+                          const Color(0xFFB14C68),
+                          () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const CreateTournamentScreen(),
+                            ),
+                          ),
+                        ),
+                      if (scope.canViewAnalytics)
+                        _OwnerAction(
+                          'Reports',
+                          'Bookings and revenue',
+                          CupertinoIcons.chart_bar_alt_fill,
+                          const Color(0xFF216B9A),
+                          () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  const LiveAcademyAnalyticsScreen(),
+                            ),
+                          ),
+                        ),
+                    ];
+                    final columns = constraints.maxWidth > 640 ? 3 : 2;
+                    return GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: actions.length,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: columns,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                        mainAxisExtent: 126,
                       ),
-                    ),
-                  ),
-                if (scope.canManageStaff)
-                  SettingsTile(
-                    icon: CupertinoIcons.person_2_fill,
-                    title: 'Your team',
-                    subtitle: 'Staff accounts and permissions',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const AcademyStaffManagementScreen(),
-                      ),
-                    ),
-                  ),
-                if (scope.canManageCourts)
-                  SettingsTile(
-                    icon: CupertinoIcons.sportscourt,
-                    title: 'Courts & availability',
-                    subtitle: 'Prices, opening hours and maintenance',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const LiveCourtManagementScreen(),
-                      ),
-                    ),
-                  ),
-                if (scope.canManageBookings)
-                  SettingsTile(
-                    icon: CupertinoIcons.calendar,
-                    title: 'Bookings & check-in',
-                    subtitle: 'Confirm, check in and collect payment',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const LiveBookingManagementScreen(),
-                      ),
-                    ),
-                  ),
-                if (scope.canManageCatalog)
-                  SettingsTile(
-                    icon: CupertinoIcons.gift,
-                    title: 'Offers',
-                    subtitle: 'Rewards and incentives for your players',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const OffersManagementScreen(),
-                      ),
-                    ),
-                  ),
-                if (scope.canManageCatalog)
-                  SettingsTile(
-                    icon: CupertinoIcons.rosette,
-                    title: 'Events',
-                    subtitle: 'Activities at your academy',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const EventManagementScreen(),
-                      ),
-                    ),
-                  ),
-                if (scope.canManageTournaments)
-                  SettingsTile(
-                    icon: CupertinoIcons.flag_fill,
-                    title: 'Create Tournament',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const CreateTournamentScreen(),
-                      ),
-                    ),
-                  ),
-                if (scope.canViewAnalytics)
-                  SettingsTile(
-                    icon: CupertinoIcons.chart_bar_alt_fill,
-                    title: 'Reports',
-                    subtitle: 'Bookings, completed sessions and revenue',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const LiveAcademyAnalyticsScreen(),
-                      ),
-                    ),
-                  ),
+                      itemBuilder: (context, index) =>
+                          _OwnerActionCard(action: actions[index]),
+                    );
+                  },
+                ),
                 const SizedBox(height: 20),
                 const SectionHeader(title: 'Workspace preferences'),
                 const SizedBox(height: 12),
@@ -3801,6 +3817,172 @@ class _AcademyModeDashboardState extends State<AcademyModeDashboard> {
       },
     );
   }
+}
+
+class _OwnerAction {
+  const _OwnerAction(
+    this.title,
+    this.subtitle,
+    this.icon,
+    this.color,
+    this.onTap,
+  );
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+}
+
+class _OwnerActionCard extends StatelessWidget {
+  const _OwnerActionCard({required this.action});
+  final _OwnerAction action;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      elevation: 0,
+      color: colors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: colors.outlineVariant.withValues(alpha: .65)),
+      ),
+      child: InkWell(
+        onTap: action.onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: action.color.withValues(alpha: .11),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Icon(action.icon, color: action.color, size: 21),
+              ),
+              const Spacer(),
+              Text(
+                action.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                action.subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OwnerAcademyHero extends StatelessWidget {
+  const _OwnerAcademyHero({required this.academyId});
+  final String academyId;
+
+  @override
+  Widget build(
+    BuildContext context,
+  ) => StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+    stream: AcademyService.instance.academy(academyId),
+    builder: (context, snapshot) {
+      final data = snapshot.data?.data() ?? const <String, dynamic>{};
+      final name = data['name']?.toString().trim() ?? '';
+      final address = data['address']?.toString().trim() ?? '';
+      final image = data['imageUrl']?.toString() ?? '';
+      final green = Theme.of(context).colorScheme.primary;
+      return Container(
+        height: 174,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: const Color(0xFF123927),
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (image.isNotEmpty)
+              Image.network(
+                image,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+              ),
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerRight,
+                  end: Alignment.centerLeft,
+                  colors: [Color(0x1A10271C), Color(0xE610271C)],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: green.withValues(alpha: .96),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Text(
+                      'OWNER STUDIO',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.1,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    name.isEmpty ? 'Your academy' : name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    address.isEmpty
+                        ? 'Your venue, bookings and programs in one place'
+                        : address,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
 }
 
 class LiveAcademyDashboardSummary extends StatelessWidget {
