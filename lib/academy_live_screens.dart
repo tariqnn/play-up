@@ -924,10 +924,11 @@ class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
                                 });
                               } catch (error) {
                                 setDialogState(() => uploading = false);
-                                if (context.mounted)
+                                if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(content: Text(error.toString())),
                                   );
+                                }
                               }
                             },
                       icon: uploading
@@ -1034,15 +1035,17 @@ class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
             .toList(),
         'packages': _packages,
       });
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Academy profile saved.')));
+      }
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Could not save profile: $error')),
         );
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1055,20 +1058,23 @@ class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
     stream: AcademyService.instance.academy(widget.academyId),
     builder: (context, snapshot) {
       if (snapshot.connectionState == ConnectionState.waiting &&
-          !snapshot.hasData)
+          !snapshot.hasData) {
         return const Center(child: CircularProgressIndicator());
-      if (snapshot.hasError)
+      }
+      if (snapshot.hasError) {
         return _ProfileLoadError(
           message:
               'We could not load this academy profile. Check your connection and account access, then retry.',
           onRetry: () => setState(() {}),
         );
-      if (snapshot.data == null || !snapshot.data!.exists)
+      }
+      if (snapshot.data == null || !snapshot.data!.exists) {
         return const _ProfileLoadError(
           message:
               'This academy profile is missing. Ask PlayUp support to reconnect the owner account.',
           onRetry: null,
         );
+      }
       final data = snapshot.data!.data() ?? <String, dynamic>{};
       _hydrate(data);
       return Form(
@@ -1252,8 +1258,9 @@ class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
                   trailing: PopupMenuButton<String>(
                     onSelected: (action) {
                       if (action == 'edit') _editPackage(index);
-                      if (action == 'delete')
+                      if (action == 'delete') {
                         setState(() => _packages.removeAt(index));
+                      }
                     },
                     itemBuilder: (_) => const [
                       PopupMenuItem(value: 'edit', child: Text('Edit')),

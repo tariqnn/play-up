@@ -16,9 +16,10 @@ class CommunityModeDashboard extends StatelessWidget {
         .doc(FirebaseAuth.instance.currentUser?.uid)
         .get(),
     builder: (context, snapshot) {
-      if (snapshot.connectionState == ConnectionState.waiting)
+      if (snapshot.connectionState == ConnectionState.waiting) {
         return const Scaffold(body: Center(child: CircularProgressIndicator()));
-      if (snapshot.hasError)
+      }
+      if (snapshot.hasError) {
         return const Scaffold(
           body: Center(
             child: Text(
@@ -26,8 +27,9 @@ class CommunityModeDashboard extends StatelessWidget {
             ),
           ),
         );
+      }
       final id = snapshot.data?.data()?['communityId']?.toString() ?? '';
-      if (id.isEmpty)
+      if (id.isEmpty) {
         return const Scaffold(
           body: Center(
             child: Text(
@@ -35,6 +37,7 @@ class CommunityModeDashboard extends StatelessWidget {
             ),
           ),
         );
+      }
       return CommunityOwnerStudio(communityId: id);
     },
   );
@@ -94,10 +97,11 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
     if (photo == null) return;
     final bytes = await photo.readAsBytes();
     if (bytes.lengthInBytes > 5 * 1024 * 1024) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Choose a photo smaller than 5 MB.')),
         );
+      }
       return;
     }
     setState(() => _uploading = true);
@@ -113,11 +117,12 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
       );
       await ref.putData(bytes, SettableMetadata(contentType: mime));
       final url = await ref.getDownloadURL();
-      if (mounted)
+      if (mounted) {
         setState(() {
           _imageUrl = url;
           _uploading = false;
         });
+      }
     } catch (error) {
       if (mounted) {
         setState(() => _uploading = false);
@@ -145,15 +150,17 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
             'imageUrl': _imageUrl,
             'updatedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Community page saved.')));
+      }
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Could not save: $error')));
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -232,10 +239,11 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
         'status': 'published',
         'createdAt': FieldValue.serverTimestamp(),
       });
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Event published.')));
+      }
     }
     title.dispose();
     description.dispose();
@@ -252,9 +260,10 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting &&
-            !snapshot.hasData)
+            !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
-        if (snapshot.hasError)
+        }
+        if (snapshot.hasError) {
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(28),
@@ -272,10 +281,12 @@ class _CommunityOwnerStudioState extends State<CommunityOwnerStudio> {
               ),
             ),
           );
-        if (snapshot.data?.exists != true)
+        }
+        if (snapshot.data?.exists != true) {
           return const Center(
             child: Text('This community page has not been created yet.'),
           );
+        }
         _hydrate(snapshot.data!.data()!);
         return ListView(
           padding: const EdgeInsets.all(18),

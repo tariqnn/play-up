@@ -445,16 +445,18 @@ class _CommunityGroupScreen extends StatelessWidget {
                       .where('communityId', isEqualTo: group.id)
                       .snapshots(),
                   builder: (context, eventsSnapshot) {
-                    if (eventsSnapshot.hasError)
+                    if (eventsSnapshot.hasError) {
                       return const CardBox(
                         child: Text(
                           'Community events could not load right now.',
                         ),
                       );
+                    }
                     if (eventsSnapshot.connectionState ==
                             ConnectionState.waiting &&
-                        !eventsSnapshot.hasData)
+                        !eventsSnapshot.hasData) {
                       return const Center(child: CircularProgressIndicator());
+                    }
                     final events = [...?eventsSnapshot.data?.docs]
                       ..sort(
                         (a, b) => (a.data()['date']?.toString() ?? '')
@@ -472,10 +474,11 @@ class _CommunityGroupScreen extends StatelessWidget {
                               ) >=
                               0,
                     );
-                    if (upcoming.isEmpty)
+                    if (upcoming.isEmpty) {
                       return const CardBox(
                         child: Text('No community events announced yet.'),
                       );
+                    }
                     return Column(
                       children: [
                         for (final event in upcoming)
@@ -3627,7 +3630,8 @@ class AcademyModeDashboard extends StatelessWidget {
                   SettingsTile(
                     icon: CupertinoIcons.building_2_fill,
                     title: 'Academy profile',
-                    subtitle: 'Photos, contact details, sports and training packages',
+                    subtitle:
+                        'Photos, contact details, sports and training packages',
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => const AcademyProfileManagementScreen(),
