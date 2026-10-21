@@ -1126,23 +1126,90 @@ class AcademyStaffManagementScreen extends StatelessWidget {
   }
 }
 
-class _TenantScaffold extends StatelessWidget {
+class _TenantScaffold extends StatefulWidget {
   const _TenantScaffold({required this.title, required this.builder});
   final String title;
   final Widget Function(String) builder;
+
+  @override
+  State<_TenantScaffold> createState() => _TenantScaffoldState();
+}
+
+class _TenantScaffoldState extends State<_TenantScaffold> {
+  late Future<String> _academyId;
+
+  @override
+  void initState() {
+    super.initState();
+    _academyId = AcademyService.instance.academyId();
+  }
+
+  void _retry() {
+    setState(() => _academyId = AcademyService.instance.academyId());
+  }
+
+  String _helpMessage(Object? error) {
+    if (error is StateError) {
+      final message = error.message.toString();
+      if (message == 'Sign in is required.') {
+        return 'Sign in with your academy staff account, then try again.';
+      }
+      if (message == 'No academy is assigned to this account.') {
+        return 'This account is not connected to an academy yet. Ask your PlayUp admin to assign your academy.';
+      }
+      if (message == 'This court-owner account needs one assigned court.') {
+        return 'This staff account needs one court assignment. Ask your academy owner to update its access.';
+      }
+    }
+    return 'We could not load your academy workspace. Check your connection and access, then try again.';
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(title)),
+    appBar: AppBar(title: Text(widget.title)),
     body: FutureBuilder<String>(
-      future: AcademyService.instance.academyId(),
+      future: _academyId,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return Center(
+            child: Semantics(
+              liveRegion: true,
+              label: 'Loading academy workspace',
+              child: CircularProgressIndicator(),
+            ),
+          );
         }
-        if (snapshot.hasError || snapshot.data == null) {
-          return Center(child: Text(snapshot.error.toString()));
+        if (snapshot.hasError || snapshot.data == null || snapshot.data!.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.business_outlined,
+                    size: 38,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    _helpMessage(snapshot.error),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
+                  const SizedBox(height: 18),
+                  FilledButton.icon(
+                    onPressed: _retry,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Try again'),
+                    style: FilledButton.styleFrom(minimumSize: const Size(150, 48)),
+                  ),
+                ],
+              ),
+            ),
+          );
         }
-        return builder(snapshot.data!);
+        return widget.builder(snapshot.data!);
       },
     ),
   );

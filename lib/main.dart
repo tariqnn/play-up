@@ -2082,6 +2082,15 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               child: Row(
                 children: [
+                  if (_currentPage > 0)
+                    IconButton(
+                      tooltip: 'Back',
+                      onPressed: () => _pageController.previousPage(
+                        duration: const Duration(milliseconds: 280),
+                        curve: Curves.easeInOut,
+                      ),
+                      icon: const Icon(CupertinoIcons.back),
+                    ),
                   const PlayUpMark(size: 38),
                   const SizedBox(width: 10),
                   Expanded(
@@ -2241,7 +2250,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                                     height: 1.15,
                                     fontWeight: FontWeight.w900,
                                     letterSpacing: -0.5,
-                                  ),
+                                  ).copyWith(color: theme.colorScheme.onSurface),
                                 ),
                                 const SizedBox(height: 10),
                                 Text(
@@ -2302,21 +2311,37 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   // Dot Indicators
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(
-                      _slides.length,
-                      (i) => AnimatedContainer(
-                        duration: const Duration(milliseconds: 250),
-                        margin: const EdgeInsets.symmetric(horizontal: 4),
-                        width: _currentPage == i ? 24 : 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: _currentPage == i
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.outlineVariant,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
+                  Semantics(
+                    label: 'Onboarding progress',
+                    value: 'Step ${_currentPage + 1} of ${_slides.length}',
+                    child: ExcludeSemantics(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          ...List.generate(
+                            _slides.length,
+                            (i) => AnimatedContainer(
+                              duration: const Duration(milliseconds: 250),
+                              margin: const EdgeInsets.symmetric(horizontal: 4),
+                              width: _currentPage == i ? 24 : 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: _currentPage == i
+                                    ? theme.colorScheme.primary
+                                    : theme.colorScheme.outlineVariant,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Step ${_currentPage + 1} of ${_slides.length}',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -2568,6 +2593,9 @@ class _AuthScreenState extends State<AuthScreen> {
   }) {
     return TextField(
       controller: controller,
+      onChanged: (_) {
+        if (_error != null) setState(() => _error = null);
+      },
       obscureText: obscureText,
       keyboardType: keyboardType,
       textInputAction: obscureText
@@ -2733,7 +2761,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                       ? FontWeight.w900
                                       : FontWeight.w600,
                                   color: !_isSignUp
-                                      ? Colors.white
+                                      ? AppColors.dark
                                       : Colors.white70,
                                 ),
                               ),
@@ -2761,7 +2789,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                       ? FontWeight.w900
                                       : FontWeight.w600,
                                   color: _isSignUp
-                                      ? Colors.white
+                                      ? AppColors.dark
                                       : Colors.white70,
                                 ),
                               ),
@@ -3194,15 +3222,27 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   void _next() {
     if (_page == 2) {
-      Navigator.of(
-        context,
-      ).pushReplacement(MaterialPageRoute(builder: (_) => const MainShell()));
+      _enterApp();
       return;
     }
     _controller.nextPage(
       duration: const Duration(milliseconds: 280),
       curve: Curves.easeOutCubic,
     );
+  }
+
+  void _previous() {
+    if (_page == 0) return;
+    _controller.previousPage(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _enterApp() {
+    Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute(builder: (_) => const MainShell()));
   }
 
   @override
@@ -3213,13 +3253,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           padding: const EdgeInsets.fromLTRB(24, 12, 24, 22),
           child: Column(
             children: [
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(builder: (_) => const MainShell()),
-                  ),
-                  child: const Text('Skip'),
+              SizedBox(
+                height: 48,
+                child: Row(
+                  children: [
+                    if (_page > 0)
+                      TextButton.icon(
+                        onPressed: _previous,
+                        icon: const Icon(CupertinoIcons.back, size: 18),
+                        label: const Text('Back'),
+                      )
+                    else
+                      const SizedBox(width: 76),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: _enterApp,
+                      child: const Text('Skip'),
+                    ),
+                  ],
                 ),
               ),
               Expanded(
@@ -3235,35 +3286,62 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
               Row(
                 children: [
-                  ...List.generate(
-                    3,
-                    (index) => AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      width: index == _page ? 18 : 7,
-                      height: 7,
-                      margin: const EdgeInsets.only(right: 7),
-                      decoration: BoxDecoration(
-                        color: index == _page
-                            ? AppColors.purple
-                            : const Color(0xFFD4D7DE),
-                        borderRadius: BorderRadius.circular(999),
+                  Semantics(
+                    label: 'Onboarding progress',
+                    value: 'Step ${_page + 1} of 3',
+                    child: Row(
+                      children: List.generate(
+                        3,
+                        (index) => AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          width: index == _page ? 18 : 7,
+                          height: 7,
+                          margin: const EdgeInsets.only(right: 7),
+                          decoration: BoxDecoration(
+                            color: index == _page
+                                ? AppColors.purple
+                                : const Color(0xFFD4D7DE),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  ExcludeSemantics(
+                    child: Text(
+                      'Step ${_page + 1} of 3',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
                   const Spacer(),
-                  SizedBox(
-                    width: 58,
-                    height: 58,
-                    child: FilledButton(
-                      onPressed: _next,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.purple,
-                        shape: const CircleBorder(),
-                      ),
-                      child: const Icon(CupertinoIcons.arrow_right),
+                ],
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                height: 54,
+                child: FilledButton.icon(
+                  onPressed: _next,
+                  icon: Icon(
+                    _page == 2
+                        ? CupertinoIcons.compass
+                        : CupertinoIcons.arrow_right,
+                    size: 19,
+                  ),
+                  label: Text(_page == 2 ? 'Explore PlayUp' : 'Next'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.purple,
+                    foregroundColor: Colors.white,
+                    textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
                     ),
                   ),
-                ],
+                ),
               ),
             ],
           ),
