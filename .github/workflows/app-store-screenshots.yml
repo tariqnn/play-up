@@ -41,12 +41,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          open -a Simulator || true
           DEVICE_ID="$(python3 - <<'PY'
           import json, subprocess
           try:
-              listing = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True, timeout=30)
+              listing = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True, timeout=90)
           except subprocess.TimeoutExpired:
-              raise SystemExit("CoreSimulator device listing did not respond within 30 seconds")
+              raise SystemExit("CoreSimulator device listing did not respond within 90 seconds")
           data = json.loads(listing)
           devices = [device for group in data["devices"].values() for device in group]
           for preferred in ("iPhone 16 Pro", "iPhone 17 Pro"):
@@ -90,12 +91,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          open -a Simulator || true
           DEVICE_ID="$(python3 - <<'PY'
           import json, subprocess
           try:
-              listing = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True, timeout=30)
+              listing = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True, timeout=90)
           except subprocess.TimeoutExpired:
-              raise SystemExit("CoreSimulator device listing did not respond within 30 seconds")
+              raise SystemExit("CoreSimulator device listing did not respond within 90 seconds")
           data = json.loads(listing)
           devices = [device for group in data["devices"].values() for device in group]
           names = ("iPad Pro 13-inch (M5)", "iPad Pro 13-inch (M4)")
