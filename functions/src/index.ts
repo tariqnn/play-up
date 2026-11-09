@@ -89,6 +89,7 @@ export const syncPublicProfile = onDocumentWritten("users/{userId}", async (even
   }
   await ref.set({
     displayName: data.displayName ?? "Player",
+    ...(typeof data.photoUrl === "string" && data.photoUrl.trim() ? {photoUrl: data.photoUrl.trim()} : {}),
     city: data.city ?? "Location not set",
     level: data.level ?? 1,
     rankTitle: data.rankTitle ?? "Rookie",
@@ -1190,15 +1191,26 @@ export const createMatch = onCall(callableOptions, async (request) => {
 export const createExternalMatch = onCall(callableOptions, async (request) => {
   const uid = requireAuth(request);
   const user = await profile(uid);
-  if (!canHostExternalMatches(user)) {
-    throw new HttpsError("permission-denied", "This account is not enabled for external match hosting.");
-  }
   const title = text(request.data?.title, "title");
   const sport = text(request.data?.sport, "sport");
+  const isOpenAirActivity = ["cycling", "running"].includes(sport.toLowerCase());
+  if (!isOpenAirActivity && !canHostExternalMatches(user)) {
+    throw new HttpsError("permission-denied", "This account is not enabled for external match hosting.");
+  }
   const skill = text(request.data?.skill, "skill");
   const venueNote = text(request.data?.venueNote, "venueNote");
-  if (title.length > 100 || sport.length > 40 || skill.length > 40 || venueNote.length > 200) {
+  const activityDistance = typeof request.data?.activityDistance === "string"
+    ? request.data.activityDistance.trim()
+    : "";
+  const activityNotes = typeof request.data?.activityNotes === "string"
+    ? request.data.activityNotes.trim()
+    : "";
+  if (title.length > 100 || sport.length > 40 || skill.length > 40 || venueNote.length > 200
+    || activityDistance.length > 80 || activityNotes.length > 500) {
     throw new HttpsError("invalid-argument", "One or more match details are too long.");
+  }
+  if (isOpenAirActivity && !activityDistance && !activityNotes) {
+    throw new HttpsError("invalid-argument", "Add a target distance or activity notes.");
   }
   const start = date(request.data?.startUtc, "startUtc");
   const capacity = Number(request.data?.capacity);
@@ -1224,6 +1236,14 @@ export const createExternalMatch = onCall(callableOptions, async (request) => {
   if (communityGroupId === "running" && sport.toLowerCase() !== "running") {
     throw new HttpsError("invalid-argument", "Running group matches must use Running.");
   }
+  const latitude = request.data?.latitude;
+  const longitude = request.data?.longitude;
+  const safeLatitude = typeof latitude === "number" && latitude >= -90 && latitude <= 90
+    ? latitude
+    : null;
+  const safeLongitude = typeof longitude === "number" && longitude >= -180 && longitude <= 180
+    ? longitude
+    : null;
   const matchRef = db.collection("matches").doc();
   await db.runTransaction(async (tx) => {
     tx.create(matchRef, {
@@ -1236,8 +1256,15 @@ export const createExternalMatch = onCall(callableOptions, async (request) => {
       courtId: "",
       courtName: venueNote,
       venueNote,
+      ...(isOpenAirActivity ? {
+        activityType: "outdoor",
+        activityDistance,
+        activityNotes,
+        latitude: safeLatitude,
+        longitude: safeLongitude,
+      } : {}),
       bookingId: null,
-      source: "external",
+      source: isOpenAirActivity ? "communityActivity" : "external",
       startUtc: Timestamp.fromDate(start),
       endUtc: Timestamp.fromDate(new Date(start.valueOf() + 60 * 60_000)),
       skillRange: skill,

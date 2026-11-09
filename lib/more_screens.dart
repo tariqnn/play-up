@@ -4102,6 +4102,8 @@ class FriendsScreen extends StatefulWidget {
 
 class _FriendsScreenState extends State<FriendsScreen> {
   int _tab = 0;
+  final Set<String> _sendingRequests = <String>{};
+  final Set<String> _sentRequestIds = <String>{};
   static const _tabs = ['Friends', 'Requests', 'Suggested'];
 
   @override
@@ -4199,12 +4201,14 @@ class _FriendsScreenState extends State<FriendsScreen> {
                       for (final entry in profiles.entries.where(
                         (entry) =>
                             entry.key != uid &&
-                            !connectedIds.contains(entry.key),
+                            !connectedIds.contains(entry.key) &&
+                            !_sentRequestIds.contains(entry.key),
                       )) {
                         rows.add(
                           _friendRow(
                             entry.value,
                             label: 'Add',
+                            busy: _sendingRequests.contains(entry.key),
                             onTap: () => _send(entry.key),
                           ),
                         );
@@ -4243,14 +4247,16 @@ class _FriendsScreenState extends State<FriendsScreen> {
   Widget _friendRow(
     Map<String, dynamic> profile, {
     required String label,
+    bool busy = false,
     required VoidCallback onTap,
   }) {
     final name = (profile['displayName'] ?? 'Player').toString();
+    final photoUrl = (profile['photoUrl'] ?? '').toString();
     final sports = List<String>.from(profile['sports'] as List? ?? const []);
     return CardBox(
       child: Row(
         children: [
-          Avatar(name: name, size: 46),
+          Avatar(name: name, size: 46, photoUrl: photoUrl),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -4264,15 +4270,33 @@ class _FriendsScreenState extends State<FriendsScreen> {
               ],
             ),
           ),
-          FilledButton(onPressed: onTap, child: Text(label)),
+          FilledButton(
+            onPressed: busy ? null : onTap,
+            child: busy
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Text(label),
+          ),
         ],
       ),
     );
   }
 
   Future<void> _send(String playerId) async {
+    if (_sendingRequests.contains(playerId) ||
+        _sentRequestIds.contains(playerId)) {
+      return;
+    }
+    setState(() => _sendingRequests.add(playerId));
     try {
       await AppRepository.instance.sendFriendRequest(playerId);
+      if (!mounted) return;
+      setState(() => _sentRequestIds.add(playerId));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Friend request sent.')));
     } catch (error) {
       if (!mounted) return;
       await showAdaptiveMessage(
@@ -4283,6 +4307,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
           '',
         ),
       );
+    } finally {
+      if (mounted) setState(() => _sendingRequests.remove(playerId));
     }
   }
 

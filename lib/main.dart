@@ -1293,13 +1293,19 @@ class AppRepository {
     bool externalVenue = false,
     String venueNote = '',
     String communityGroupId = '',
+    String activityDistance = '',
+    String activityNotes = '',
+    double? activityLatitude,
+    double? activityLongitude,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || user.isAnonymous) {
       throw const DomainValidationException('Sign in to create a match.');
     }
     if (externalVenue) {
-      if (!await canCreateExternalMatches()) {
+      final openAirActivity =
+          sport.toLowerCase() == 'cycling' || sport.toLowerCase() == 'running';
+      if (!openAirActivity && !await canCreateExternalMatches()) {
         throw const DomainValidationException(
           'This account is not enabled for external match hosting.',
         );
@@ -1318,6 +1324,12 @@ class AppRepository {
               'skill': skill,
               'startUtc': startUtc.toUtc().toIso8601String(),
               'venueNote': venueNote.trim(),
+              if (activityDistance.trim().isNotEmpty)
+                'activityDistance': activityDistance.trim(),
+              if (activityNotes.trim().isNotEmpty)
+                'activityNotes': activityNotes.trim(),
+              'latitude': activityLatitude,
+              'longitude': activityLongitude,
               if (communityGroupId.isNotEmpty)
                 'communityGroupId': communityGroupId,
             });
@@ -1548,10 +1560,46 @@ class AppRepository {
     final members = [user.uid, playerId]..sort();
     final ref = _db.collection('friendships').doc(members.join('_'));
     try {
+      // Refresh the Firebase session before invoking the callable. The SDK
+      // attaches this ID token automatically; a refresh avoids an expired
+      // cached token producing a misleading Unauthenticated response.
+      final idToken = await user.getIdToken(true);
+      if (idToken == null || idToken.isEmpty) {
+        throw const DomainValidationException(
+          'Your sign-in session could not be refreshed. Sign in again and retry.',
+        );
+      }
+      if (FirebaseAuth.instance.currentUser?.uid != user.uid) {
+        throw const DomainValidationException(
+          'Your signed-in account changed. Reopen Friends and try again.',
+        );
+      }
+      if (!kDebugMode &&
+          !useFirebaseEmulators &&
+          !kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.android ||
+              defaultTargetPlatform == TargetPlatform.iOS)) {
+        final appCheckToken = await FirebaseAppCheck.instance.getToken(true);
+        if (appCheckToken == null || appCheckToken.isEmpty) {
+          throw const DomainValidationException(
+            'PlayUp could not verify this app session. Update the app and try again.',
+          );
+        }
+      }
       await _functions.httpsCallable('sendFriendRequest').call({
         'playerId': playerId,
       });
     } on FirebaseFunctionsException catch (error) {
+      if (error.code == 'unauthenticated') {
+        final currentUser = FirebaseAuth.instance.currentUser;
+        if (currentUser != null && !currentUser.isAnonymous) {
+          await currentUser.getIdToken(true);
+          await _functions.httpsCallable('sendFriendRequest').call({
+            'playerId': playerId,
+          });
+          return;
+        }
+      }
       if (useFirebaseEmulators && _callableUnavailable(error)) {
         await ref.set({
           'members': members,
@@ -2269,12 +2317,15 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                               children: [
                                 Text(
                                   slide.title,
-                                  style: const TextStyle(
-                                    fontSize: 26,
-                                    height: 1.15,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: -0.5,
-                                  ).copyWith(color: theme.colorScheme.onSurface),
+                                  style:
+                                      const TextStyle(
+                                        fontSize: 26,
+                                        height: 1.15,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: -0.5,
+                                      ).copyWith(
+                                        color: theme.colorScheme.onSurface,
+                                      ),
                                 ),
                                 const SizedBox(height: 10),
                                 Text(
@@ -3290,10 +3341,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     else
                       const SizedBox(width: 76),
                     const Spacer(),
-                    TextButton(
-                      onPressed: _enterApp,
-                      child: const Text('Skip'),
-                    ),
+                    TextButton(onPressed: _enterApp, child: const Text('Skip')),
                   ],
                 ),
               ),
@@ -3778,7 +3826,7 @@ class HomeScreen extends StatelessWidget {
           ),
           const SizedBox(height: 22),
           SectionHeader(
-            title: 'Courts near you',
+            title: 'Partner courts',
             onSeeAll: () => onTabChange(1),
           ),
           const SizedBox(height: 12),
@@ -3795,44 +3843,23 @@ class HomeScreen extends StatelessWidget {
                     ),
                   );
                 }
-                return ValueListenableBuilder<AppLocation?>(
-                  valueListenable: LocationService.instance.current,
-                  builder: (context, location, _) {
-                    final allCourts = snapshot.data ?? const <Court>[];
-                    final nearby = CatalogService.instance.nearbyCourts(
-                      allCourts,
-                      location,
-                      radiusKm: 40,
-                    );
-                    if (location == null) {
-                      return _NearbyCourtsEmpty(
-                        title: 'Set your location to find nearby courts',
-                        onChoose: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const LocationPickerScreen(),
-                          ),
-                        ),
-                      );
-                    }
-                    if (nearby.isEmpty) {
-                      return _NearbyCourtsEmpty(
-                        title: 'No courts within 40 km of your location',
-                        onChoose: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const LocationPickerScreen(),
-                          ),
-                        ),
-                      );
-                    }
-                    return ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemBuilder: (_, index) =>
-                          CourtCarouselCard(court: nearby[index]),
-                      separatorBuilder: (context, index) =>
-                          const SizedBox(width: 12),
-                      itemCount: nearby.length,
-                    );
-                  },
+                final courts = CatalogService.instance.nearbyCourts(
+                  snapshot.data ?? const <Court>[],
+                  LocationService.instance.current.value,
+                  radiusKm: null,
+                );
+                if (courts.isEmpty) {
+                  return const CardBox(
+                    child: Text('Partner courts will appear here when listed.'),
+                  );
+                }
+                return ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemBuilder: (_, index) =>
+                      CourtCarouselCard(court: courts[index]),
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(width: 12),
+                  itemCount: courts.length,
                 );
               },
             ),
@@ -3858,14 +3885,15 @@ class HomeScreen extends StatelessWidget {
                   child: Text('No academies are listed yet.'),
                 );
               }
-              return Column(
-                children: [
-                  for (final academy in list.take(3))
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 14),
-                      child: AcademyHomeCard(academy: academy),
-                    ),
-                ],
+              return SizedBox(
+                height: 236,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: list.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) =>
+                      AcademyHomeCard(academy: list[index]),
+                ),
               );
             },
           ),
@@ -4267,33 +4295,6 @@ class _HomeEventCard extends StatelessWidget {
   );
 }
 
-class _NearbyCourtsEmpty extends StatelessWidget {
-  const _NearbyCourtsEmpty({required this.title, required this.onChoose});
-  final String title;
-  final VoidCallback onChoose;
-
-  @override
-  Widget build(BuildContext context) => CardBox(
-    child: Row(
-      children: [
-        const Icon(
-          CupertinoIcons.location_circle_fill,
-          color: AppColors.green,
-          size: 30,
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-        ),
-        TextButton(onPressed: onChoose, child: const Text('Set location')),
-      ],
-    ),
-  );
-}
-
 class _HomeSportItem {
   const _HomeSportItem({
     required this.sport,
@@ -4619,6 +4620,9 @@ class AcademyHomeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final packages = academy.trainingPackages.isNotEmpty
+        ? academy.trainingPackages
+        : academy.packages.map((item) => item.title).toList();
     return InkWell(
       borderRadius: BorderRadius.circular(22),
       onTap: () => Navigator.of(context).push(
@@ -4626,93 +4630,135 @@ class AcademyHomeCard extends StatelessWidget {
           builder: (_) => AcademyProfileScreen(academy: academy),
         ),
       ),
-      child: CardBox(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: academy.gradient),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: academy.imageUrl.isEmpty
-                    ? Icon(
-                        academy.icon,
-                        color: Colors.white.withValues(alpha: .7),
-                        size: 30,
-                      )
-                    : CachedNetworkImage(
-                        imageUrl: academy.imageUrl,
-                        width: 64,
-                        height: 64,
-                        fit: BoxFit.cover,
-                        errorWidget: (context, url, error) => Icon(
-                          academy.icon,
-                          color: Colors.white.withValues(alpha: .7),
-                          size: 30,
-                        ),
-                      ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+      child: SizedBox(
+        width: 286,
+        child: CardBox(
+          padding: EdgeInsets.zero,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(22),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      Flexible(
-                        child: Text(
-                          academy.name,
-                          style: const TextStyle(fontWeight: FontWeight.w900),
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(colors: academy.gradient),
                         ),
                       ),
-                      if (academy.featured) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.gold.withValues(alpha: .18),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Text(
-                            'Featured',
-                            style: TextStyle(
-                              color: Color(0xFFB8860B),
-                              fontSize: 10,
-                              fontWeight: FontWeight.w900,
+                      if (academy.imageUrl.isNotEmpty)
+                        CachedNetworkImage(
+                          imageUrl: academy.imageUrl,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, _, _) => Center(
+                            child: Icon(
+                              academy.icon,
+                              color: Colors.white70,
+                              size: 40,
                             ),
                           ),
+                        )
+                      else
+                        Center(
+                          child: Icon(
+                            academy.icon,
+                            color: Colors.white70,
+                            size: 40,
+                          ),
                         ),
-                      ],
+                      const DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.transparent, Colors.black54],
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: 14,
+                        right: 14,
+                        bottom: 12,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                academy.name,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 17,
+                                  height: 1.1,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            if (academy.featured)
+                              const Icon(
+                                Icons.verified_rounded,
+                                color: AppColors.green,
+                                size: 20,
+                              ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    academy.sports,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 12,
-                    ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        academy.sports,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      if (packages.isNotEmpty)
+                        Row(
+                          children: [
+                            const Icon(
+                              CupertinoIcons.bookmark_fill,
+                              size: 14,
+                              color: AppColors.green,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                packages.take(2).join('  ·  '),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      else
+                        const Text(
+                          'Explore training programs',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            const Icon(
-              CupertinoIcons.chevron_right,
-              color: AppColors.muted,
-              size: 18,
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -4789,6 +4835,8 @@ class _BookScreenState extends State<BookScreen> {
                   'Volleyball',
                   'Dodgeball',
                   'Badminton',
+                  'Cycling',
+                  'Running',
                   'Fitness',
                   'Sea Sports',
                   'Kayaking',
@@ -4851,13 +4899,9 @@ class _BookScreenState extends State<BookScreen> {
                     }
                     return EmptyState(
                       icon: CupertinoIcons.sportscourt,
-                      title: location == null
-                          ? 'Choose your location'
-                          : 'No courts within 40 km',
-                      message: location == null
-                          ? 'Set your location to find real nearby courts.'
-                          : 'Try another sport or adjust your search.',
-                      action: location == null ? 'Set location' : 'Open map',
+                      title: 'No courts match your filters',
+                      message: 'Try another sport or clear your search.',
+                      action: 'Open map',
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => location == null
@@ -4944,6 +4988,8 @@ class _PlayScreenState extends State<PlayScreen> {
                   'Volleyball',
                   'Dodgeball',
                   'Badminton',
+                  'Cycling',
+                  'Running',
                 ])
                   SportChip(
                     label: sport,
@@ -4955,12 +5001,14 @@ class _PlayScreenState extends State<PlayScreen> {
           ),
           const SizedBox(height: 20),
           PrimaryButton(
-            label: 'Create Match',
+            label: _sport == 'Cycling' || _sport == 'Running'
+                ? 'Create Activity'
+                : 'Create Match',
             icon: CupertinoIcons.plus,
             onPressed: () => _createMatch(context),
           ),
           const SizedBox(height: 22),
-          const CommunityGroupsSection(),
+          CommunityGroupsSection(initialSport: _sport),
           const SizedBox(height: 12),
           SecondaryButton(
             label: 'Browse Tournaments',
@@ -5236,7 +5284,18 @@ class ProfileScreen extends StatelessWidget {
             stream: AppRepository.instance.currentUserDoc(),
             builder: (context, snapshot) {
               final data = snapshot.data ?? const {};
-              final name = (data['displayName'] ?? 'Guest Player').toString();
+              final name =
+                  (data['displayName'] ??
+                          FirebaseAuth.instance.currentUser?.displayName ??
+                          'Guest Player')
+                      .toString();
+              final photoUrl =
+                  (data['photoUrl'] ??
+                          FirebaseAuth.instance.currentUser?.photoURL ??
+                          '')
+                      .toString();
+              final city = (data['city'] ?? '').toString().trim();
+              final bio = (data['bio'] ?? '').toString().trim();
               final rank = (data['rankTitle'] ?? 'Rookie').toString();
               final level = (data['level'] as num?)?.toInt() ?? 1;
               final matches = (data['matches'] as num?)?.toInt() ?? 0;
@@ -5267,6 +5326,7 @@ class ProfileScreen extends StatelessWidget {
                                     ? 'A'
                                     : name.characters.first.toUpperCase(),
                                 size: 92,
+                                photoUrl: photoUrl,
                               ),
                               Positioned(
                                 right: -6,
@@ -5290,6 +5350,47 @@ class ProfileScreen extends StatelessWidget {
                               fontSize: 14,
                             ),
                           ),
+                          if (city.isNotEmpty || bio.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            if (city.isNotEmpty)
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    CupertinoIcons.location,
+                                    size: 14,
+                                    color: AppColors.muted,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    city,
+                                    style: const TextStyle(
+                                      color: AppColors.muted,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            if (bio.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 320,
+                                ),
+                                child: Text(
+                                  bio,
+                                  textAlign: TextAlign.center,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: AppColors.muted,
+                                    height: 1.35,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                           const SizedBox(height: 6),
                           Builder(
                             builder: (context) {
@@ -5441,13 +5542,16 @@ class ProfileScreen extends StatelessWidget {
                     child: Text('Tap to choose the sports you play.'),
                   );
                 }
-                return Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    for (final sport in selected)
-                      SizedBox(
-                        width: 92,
+                return SizedBox(
+                  height: 112,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: selected.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 10),
+                    itemBuilder: (context, index) {
+                      final sport = selected[index];
+                      return SizedBox(
+                        width: 104,
                         child: SportSquare(
                           icon:
                               kSportOptions
@@ -5457,8 +5561,9 @@ class ProfileScreen extends StatelessWidget {
                               CupertinoIcons.sportscourt,
                           label: sport,
                         ),
-                      ),
-                  ],
+                      );
+                    },
+                  ),
                 );
               },
             ),
@@ -5518,6 +5623,34 @@ class CourtDetailsScreen extends StatelessWidget {
   const CourtDetailsScreen({super.key, required this.court});
 
   final Court court;
+
+  Future<void> _openTraining(BuildContext context) async {
+    if (court.academyId.isNotEmpty) {
+      try {
+        final academies = await CatalogService.instance.academies().first;
+        final academy = academies
+            .where((item) => item.id == court.academyId)
+            .firstOrNull;
+        if (academy != null && context.mounted) {
+          await Navigator.of(context).push<void>(
+            MaterialPageRoute(
+              builder: (_) => AcademyProfileScreen(academy: academy),
+            ),
+          );
+          return;
+        }
+      } catch (_) {
+        // The sport-filtered directory remains available when the linked
+        // academy record cannot be fetched.
+      }
+    }
+    if (!context.mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => AcademiesListScreen(initialSport: court.sport),
+      ),
+    );
+  }
 
   static String _aboutFor(Court court) {
     final description = court.description.trim();
@@ -5669,6 +5802,56 @@ class CourtDetailsScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _CourtActionTile(
+                    icon: CupertinoIcons.calendar,
+                    label: 'Book',
+                    onTap: () {
+                      if (court.bookable) {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => SlotSelectionScreen(court: court),
+                          ),
+                        );
+                      } else {
+                        showAdaptiveMessage(
+                          context,
+                          title: 'Online booking is not available yet',
+                          message:
+                              'This venue has not enabled time-slot booking. Use Open directions or contact the venue to arrange a visit.',
+                        );
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _CourtActionTile(
+                    icon: CupertinoIcons.person_2_fill,
+                    label: 'Play',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => OpenMatchesScreen(
+                          initialSport: court.sport,
+                          initialCourt: court.name,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _CourtActionTile(
+                    icon: CupertinoIcons.book_fill,
+                    label: 'Train',
+                    onTap: () => _openTraining(context),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
             SecondaryButton(
               label: 'Open directions',
               onPressed: () => _openDirections(context),
@@ -5746,6 +5929,39 @@ class CourtDetailsScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CourtActionTile extends StatelessWidget {
+  const _CourtActionTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+    borderRadius: BorderRadius.circular(16),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: SizedBox(
+        height: 76,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: AppColors.green, size: 21),
+            const SizedBox(height: 6),
+            Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _CourtPhotoGallery extends StatefulWidget {

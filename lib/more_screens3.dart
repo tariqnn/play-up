@@ -22,7 +22,9 @@ import 'academy_service.dart';
 // ---------------------------------------------------------------------------
 
 class LocationPickerScreen extends StatefulWidget {
-  const LocationPickerScreen({super.key});
+  const LocationPickerScreen({super.key, this.selectForResult = false});
+
+  final bool selectForResult;
 
   @override
   State<LocationPickerScreen> createState() => _LocationPickerScreenState();
@@ -63,7 +65,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       final value = await LocationService.instance.useCurrentLocation();
       if (value != null && mounted) {
         setState(() => _selected = value);
-        Navigator.of(context).pop();
+        Navigator.of(context).pop(widget.selectForResult ? value : null);
       }
     } catch (error) {
       if (mounted) {
@@ -175,12 +177,20 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
               ),
             const SizedBox(height: 12),
             PrimaryButton(
-              label: 'Save Location',
+              label: widget.selectForResult
+                  ? 'Use this location'
+                  : 'Save Location',
               onPressed: _selected == null
                   ? null
                   : () async {
-                      await LocationService.instance.setManual(_selected!);
-                      if (context.mounted) Navigator.of(context).pop();
+                      if (widget.selectForResult) {
+                        if (context.mounted) {
+                          Navigator.of(context).pop(_selected);
+                        }
+                      } else {
+                        await LocationService.instance.setManual(_selected!);
+                        if (context.mounted) Navigator.of(context).pop();
+                      }
                     },
             ),
           ],

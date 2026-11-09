@@ -77,6 +77,8 @@ class OpenMatch {
     this.hostReliability,
     this.status = 'open',
     this.groupId = '',
+    this.activityDistance = '',
+    this.activityNotes = '',
   });
 
   final String scoreStatus;
@@ -85,6 +87,8 @@ class OpenMatch {
   final int? hostReliability;
   final String status;
   final String groupId;
+  final String activityDistance;
+  final String activityNotes;
 
   factory OpenMatch.fromMap(Map<String, dynamic> d, {String? id}) {
     final players = (d['players'] as List?)?.length ?? 1;
@@ -123,6 +127,8 @@ class OpenMatch {
       hostReliability: (d['hostReliability'] as num?)?.toInt(),
       status: (d['status'] ?? 'open').toString(),
       groupId: (d['communityGroupId'] ?? '').toString(),
+      activityDistance: (d['activityDistance'] ?? '').toString(),
+      activityNotes: (d['activityNotes'] ?? '').toString(),
     );
   }
 
@@ -221,92 +227,114 @@ class CommunityGroupsSection extends StatelessWidget {
   final String? initialSport;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const SectionHeader(title: 'Community groups'),
-      const SizedBox(height: 12),
-      for (final group in _communityGroups.where(
-        (group) =>
-            initialSport == null ||
-            group.sport.toLowerCase() == initialSport!.toLowerCase(),
-      ))
-        Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(18),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => _CommunityGroupScreen(group: group),
-              ),
+  Widget build(BuildContext context) {
+    final filter = initialSport?.trim() ?? '';
+    final groups = _communityGroups.where((group) {
+      return filter.isEmpty ||
+          filter.toLowerCase() == 'all' ||
+          group.sport.toLowerCase() == filter.toLowerCase();
+    }).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader(title: 'Community groups'),
+        const SizedBox(height: 12),
+        if (groups.isEmpty)
+          const CardBox(
+            child: Center(child: Text('No groups for this sport yet.')),
+          )
+        else
+          SizedBox(
+            height: 148,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: groups.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (context, index) =>
+                  _CommunityGroupCard(group: groups[index]),
             ),
-            child: CardBox(
-              padding: EdgeInsets.zero,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: SizedBox(
-                  height: 124,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Image.asset(group.image, fit: BoxFit.cover),
-                      const DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [Colors.transparent, Colors.black87],
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        left: 14,
-                        right: 14,
-                        bottom: 12,
-                        child: Row(
-                          children: [
-                            Icon(group.icon, color: Colors.white, size: 22),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    group.name,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  Text(
-                                    '${group.sport} Â· ${group.description}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const Icon(
-                              CupertinoIcons.chevron_right,
-                              color: Colors.white,
-                              size: 16,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+          ),
+      ],
+    );
+  }
+}
+
+class _CommunityGroupCard extends StatelessWidget {
+  const _CommunityGroupCard({required this.group});
+
+  final _CommunityGroup group;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 286,
+    child: InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => _CommunityGroupScreen(group: group)),
+      ),
+      child: CardBox(
+        padding: EdgeInsets.zero,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.asset(group.image, fit: BoxFit.cover),
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Colors.black87],
                   ),
                 ),
               ),
-            ),
+              Positioned(
+                left: 14,
+                right: 14,
+                bottom: 12,
+                child: Row(
+                  children: [
+                    Icon(group.icon, color: Colors.white, size: 22),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            group.name,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 16,
+                            ),
+                          ),
+                          Text(
+                            '${group.sport} | ${group.description}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(
+                      CupertinoIcons.chevron_right,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
-    ],
+      ),
+    ),
   );
 }
 
@@ -508,37 +536,94 @@ class _CommunityGroupScreen extends StatelessWidget {
                         child: Text('No community events announced yet.'),
                       );
                     }
-                    return Column(
-                      children: [
-                        for (final event in upcoming)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
+                    final eventList = upcoming.toList();
+                    return SizedBox(
+                      height: 150,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: eventList.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 12),
+                        itemBuilder: (context, index) {
+                          final data = eventList[index].data();
+                          final image =
+                              (data['imageUrl'] ?? data['image'] ?? '')
+                                  .toString();
+                          return SizedBox(
+                            width: 280,
                             child: CardBox(
-                              child: ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: const Icon(
-                                  Icons.event_available_outlined,
-                                ),
-                                title: Text(
-                                  event.data()['title']?.toString() ??
-                                      'Community event',
-                                ),
-                                subtitle: Text(
-                                  [
-                                        event.data()['date'],
-                                        event.data()['location'],
-                                      ]
-                                      .where(
-                                        (value) =>
-                                            value != null &&
-                                            value.toString().isNotEmpty,
-                                      )
-                                      .join(' · '),
-                                ),
+                              padding: const EdgeInsets.all(14),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: SizedBox(
+                                          width: 58,
+                                          height: 58,
+                                          child: image.isEmpty
+                                              ? const ColoredBox(
+                                                  color: Color(0xFFE9EFEA),
+                                                  child: Icon(
+                                                    Icons.event_outlined,
+                                                    color: AppColors.green,
+                                                  ),
+                                                )
+                                              : Image.network(
+                                                  image,
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder: (_, _, _) =>
+                                                      const ColoredBox(
+                                                        color: Color(
+                                                          0xFFE9EFEA,
+                                                        ),
+                                                        child: Icon(
+                                                          Icons.event_outlined,
+                                                          color:
+                                                              AppColors.green,
+                                                        ),
+                                                      ),
+                                                ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          data['title']?.toString() ??
+                                              'Community event',
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const Spacer(),
+                                  Text(
+                                    [data['date'], data['location']]
+                                        .where(
+                                          (value) =>
+                                              value != null &&
+                                              value.toString().isNotEmpty,
+                                        )
+                                        .join(' | '),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: AppColors.muted,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                          ),
-                      ],
+                          );
+                        },
+                      ),
                     );
                   },
                 ),
@@ -574,14 +659,17 @@ class _CommunityGroupScreen extends StatelessWidget {
                         ),
                       );
                     }
-                    return Column(
-                      children: [
-                        for (final match in matches)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: OpenMatchCard(match: match),
-                          ),
-                      ],
+                    return SizedBox(
+                      height: 214,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: matches.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 12),
+                        itemBuilder: (context, index) => SizedBox(
+                          width: 310,
+                          child: OpenMatchCard(match: matches[index]),
+                        ),
+                      ),
                     );
                   },
                 ),
@@ -596,7 +684,8 @@ class _CommunityGroupScreen extends StatelessWidget {
 
 class OpenMatchesScreen extends StatefulWidget {
   final String? initialSport;
-  const OpenMatchesScreen({super.key, this.initialSport});
+  final String? initialCourt;
+  const OpenMatchesScreen({super.key, this.initialSport, this.initialCourt});
 
   @override
   State<OpenMatchesScreen> createState() => _OpenMatchesScreenState();
@@ -630,7 +719,9 @@ class _OpenMatchesScreenState extends State<OpenMatchesScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             PageTopBar(
-              title: 'Open Matches',
+              title: widget.initialCourt == null
+                  ? 'Open Matches'
+                  : 'Matches at ${widget.initialCourt}',
               onBack: () => Navigator.of(context).pop(),
             ),
             const SizedBox(height: 16),
@@ -674,6 +765,12 @@ class _OpenMatchesScreenState extends State<OpenMatchesScreen> {
                 }
                 final source = snapshot.data ?? const <OpenMatch>[];
                 final matches = source.where((m) {
+                  final court = widget.initialCourt?.trim().toLowerCase();
+                  if (court != null &&
+                      court.isNotEmpty &&
+                      m.court.trim().toLowerCase() != court) {
+                    return false;
+                  }
                   if (_filter == 'All') return true;
                   if (_filter == 'Ranked') return m.ranked;
                   return m.sport == _filter;
@@ -820,6 +917,23 @@ class OpenMatchCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (match.activityDistance.isNotEmpty ||
+                match.activityNotes.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                [
+                  match.activityDistance,
+                  match.activityNotes,
+                ].where((value) => value.trim().isNotEmpty).join(' | '),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 12,
+                  height: 1.3,
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             Row(
               children: [
@@ -932,6 +1046,13 @@ class MatchDetailsScreen extends StatelessWidget {
                   DetailRow(label: 'Sport', value: match.sport),
                   DetailRow(label: 'Court', value: match.court),
                   DetailRow(label: 'Time', value: match.time),
+                  if (match.activityDistance.isNotEmpty)
+                    DetailRow(
+                      label: 'Target distance',
+                      value: match.activityDistance,
+                    ),
+                  if (match.activityNotes.isNotEmpty)
+                    DetailRow(label: 'Route notes', value: match.activityNotes),
                   DetailRow(label: 'Skill range', value: match.skill),
                   DetailRow(
                     label: 'Price per player',
@@ -1824,8 +1945,16 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   late Future<Set<String>> _availableIds;
   late Future<bool> _canUseExternalVenues;
   final _venueNote = TextEditingController();
+  final _activityDistance = TextEditingController();
+  final _activityNotes = TextEditingController();
+  double? _activityLatitude;
+  double? _activityLongitude;
 
-  static const _steps = ['Sport', 'Venue', 'Type', 'Rules'];
+  bool get _isOpenAirActivity => _sport == 'Cycling' || _sport == 'Running';
+
+  List<String> get _steps => _isOpenAirActivity
+      ? const ['Sport', 'Meeting point', 'Activity type', 'Route details']
+      : const ['Sport', 'Venue', 'Type', 'Rules'];
 
   @override
   void initState() {
@@ -1837,36 +1966,46 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   @override
   void dispose() {
     _venueNote.dispose();
+    _activityDistance.dispose();
+    _activityNotes.dispose();
     super.dispose();
   }
 
   void _refreshAvailability() {
-    _availableIds = AppRepository.instance.availableCourtIds(
-      sport: _sport,
-      startUtc: _start,
-    );
+    _availableIds = _isOpenAirActivity
+        ? Future<Set<String>>.value(const <String>{})
+        : AppRepository.instance.availableCourtIds(
+            sport: _sport,
+            startUtc: _start,
+          );
   }
 
   Future<void> _publish() async {
     setState(() => _publishing = true);
     try {
       final court = _court;
-      if (!_externalVenue && court == null) {
+      if (!_externalVenue && !_isOpenAirActivity && court == null) {
         throw const DomainValidationException(
           'Choose an available court before publishing.',
         );
       }
       final matchId = await AppRepository.instance.createMatch(
-        title: '$_sport $_type Match',
+        title: _isOpenAirActivity
+            ? '$_sport community activity'
+            : '$_sport $_type Match',
         sport: _sport,
         type: _type,
         capacity: _players,
         skill: _skill,
         court: court,
         startUtc: _start,
-        externalVenue: _externalVenue,
+        externalVenue: _externalVenue || _isOpenAirActivity,
         venueNote: _venueNote.text.trim(),
         communityGroupId: _communityGroupId,
+        activityDistance: _activityDistance.text.trim(),
+        activityNotes: _activityNotes.text.trim(),
+        activityLatitude: _activityLatitude,
+        activityLongitude: _activityLongitude,
       );
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -1878,7 +2017,9 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       if (mounted) {
         await showAdaptiveMessage(
           context,
-          title: 'Could not publish match',
+          title: _isOpenAirActivity
+              ? 'Could not publish activity'
+              : 'Could not publish match',
           message: error.toString().replaceFirst(
             'DomainValidationException: ',
             '',
@@ -1891,7 +2032,10 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   }
 
   void _next() {
-    if (_step == 1 && !_externalVenue && _court == null) {
+    if (_step == 1 &&
+        !_isOpenAirActivity &&
+        !_externalVenue &&
+        _court == null) {
       showAdaptiveMessage(
         context,
         title: 'Choose a court',
@@ -1900,11 +2044,27 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       );
       return;
     }
-    if (_step == 1 && _externalVenue && _venueNote.text.trim().length < 3) {
+    if (_step == 1 &&
+        (_externalVenue || _isOpenAirActivity) &&
+        _venueNote.text.trim().length < 3) {
       showAdaptiveMessage(
         context,
-        title: 'Add venue',
-        message: 'Write the court or venue that will be used.',
+        title: _isOpenAirActivity ? 'Add a meeting point' : 'Add venue',
+        message: _isOpenAirActivity
+            ? 'Enter an address or choose a saved location.'
+            : 'Write the court or venue that will be used.',
+      );
+      return;
+    }
+    if (_step == _steps.length - 1 &&
+        _isOpenAirActivity &&
+        _activityDistance.text.trim().isEmpty &&
+        _activityNotes.text.trim().isEmpty) {
+      showAdaptiveMessage(
+        context,
+        title: 'Add route details',
+        message:
+            'Add a target distance or notes so players know what to expect.',
       );
       return;
     }
@@ -1923,7 +2083,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             PageTopBar(
-              title: 'Create Match',
+              title: _isOpenAirActivity ? 'Create Activity' : 'Create Match',
               onBack: () => _step == 0
                   ? Navigator.of(context).pop()
                   : setState(() => _step--),
@@ -1958,7 +2118,11 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
             PrimaryButton(
               label: _publishing
                   ? 'Publishing...'
-                  : (_step == _steps.length - 1 ? 'Publish Match' : 'Continue'),
+                  : (_step == _steps.length - 1
+                        ? (_isOpenAirActivity
+                              ? 'Publish Activity'
+                              : 'Publish Match')
+                        : 'Continue'),
               onPressed: _publishing ? () {} : _next,
             ),
           ],
@@ -1984,6 +2148,13 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                   onTap: () => setState(() {
                     _sport = sport.label;
                     _court = null;
+                    _externalVenue =
+                        sport.label == 'Cycling' || sport.label == 'Running';
+                    _communityGroupId = sport.label == 'Cycling'
+                        ? 'cycling'
+                        : sport.label == 'Running'
+                        ? 'running'
+                        : '';
                     _refreshAvailability();
                   }),
                 ),
@@ -1992,14 +2163,18 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         );
       case 1:
         return _StepSection(
-          title: 'Choose the venue',
+          title: _isOpenAirActivity
+              ? 'Set meeting point and time'
+              : 'Choose the venue',
           child: Column(
             children: [
               FutureBuilder<bool>(
                 future: _canUseExternalVenues,
                 builder: (context, snapshot) {
                   final canUseExternal = snapshot.data ?? false;
-                  if (!canUseExternal) return const SizedBox.shrink();
+                  if (!canUseExternal || _isOpenAirActivity) {
+                    return const SizedBox.shrink();
+                  }
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Row(
@@ -2039,8 +2214,10 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Match date and time',
+                    Text(
+                      _isOpenAirActivity
+                          ? 'Activity date and time'
+                          : 'Match date and time',
                       style: TextStyle(fontWeight: FontWeight.w900),
                     ),
                     const SizedBox(height: 8),
@@ -2059,9 +2236,18 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
               if (_externalVenue) ...[
                 AppTextField(
                   controller: _venueNote,
-                  label: 'Court or venue note',
+                  label: _isOpenAirActivity
+                      ? 'Meeting point / location'
+                      : 'Court or venue note',
                   icon: CupertinoIcons.location,
                 ),
+                if (_isOpenAirActivity) ...[
+                  const SizedBox(height: 10),
+                  SecondaryButton(
+                    label: 'Choose meeting point from locations',
+                    onPressed: _selectMeetingPoint,
+                  ),
+                ],
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: _communityGroupId.isEmpty
@@ -2086,9 +2272,11 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                       setState(() => _communityGroupId = value ?? ''),
                 ),
                 const SizedBox(height: 12),
-                const CardBox(
+                CardBox(
                   child: Text(
-                    'This does not reserve a PlayUp court. Players will see your venue note on the match.',
+                    _isOpenAirActivity
+                        ? 'Outdoor activities do not reserve a court. Players will see the meeting point and route details.'
+                        : 'This does not reserve a PlayUp court. Players will see your venue note on the match.',
                   ),
                 ),
               ] else
@@ -2159,12 +2347,15 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         );
       case 2:
         return _StepSection(
-          title: 'Match type',
+          title: _isOpenAirActivity ? 'Activity style' : 'Match type',
           child: Wrap(
             spacing: 10,
             runSpacing: 10,
             children: [
-              for (final type in const ['Casual', 'Competitive'])
+              for (final type
+                  in _isOpenAirActivity
+                      ? const ['Social', 'Training']
+                      : const ['Casual', 'Competitive'])
                 SelectablePill(
                   label: type,
                   selected: _type == type,
@@ -2174,6 +2365,100 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
           ),
         );
       default:
+        if (_isOpenAirActivity) {
+          return _StepSection(
+            title: 'Route and activity details',
+            child: Column(
+              children: [
+                AppTextField(
+                  controller: _activityDistance,
+                  label: 'Target distance (for example, 7 km)',
+                  icon: CupertinoIcons.map,
+                ),
+                const SizedBox(height: 12),
+                AppTextField(
+                  controller: _activityNotes,
+                  label: 'Route, pace, or activity notes',
+                  icon: CupertinoIcons.text_alignleft,
+                ),
+                const SizedBox(height: 10),
+                const CardBox(
+                  child: Text(
+                    'Add a distance or a short note about the route so everyone knows what to bring and expect.',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                CardBox(
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Group size (including you)',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                          CounterButton(
+                            icon: CupertinoIcons.minus,
+                            onTap: () => setState(
+                              () => _players = _players > 2 ? _players - 1 : 2,
+                            ),
+                          ),
+                          SizedBox(
+                            width: 44,
+                            child: Center(
+                              child: Text(
+                                '$_players',
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ),
+                          CounterButton(
+                            icon: CupertinoIcons.plus,
+                            onTap: () => setState(
+                              () =>
+                                  _players = _players < 30 ? _players + 1 : 30,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          _isOpenAirActivity ? 'Pace group' : 'Skill range',
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final level in const [
+                            'Open to all',
+                            'Beginner',
+                            'Intermediate',
+                            'Advanced',
+                          ])
+                            SelectablePill(
+                              label: level,
+                              selected: _skill == level,
+                              onTap: () => setState(() => _skill = level),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
         return _StepSection(
           title: 'Player rules',
           child: CardBox(
@@ -2250,6 +2535,20 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
           ),
         );
     }
+  }
+
+  Future<void> _selectMeetingPoint() async {
+    final location = await Navigator.of(context).push<AppLocation>(
+      MaterialPageRoute(
+        builder: (_) => const LocationPickerScreen(selectForResult: true),
+      ),
+    );
+    if (!mounted || location == null) return;
+    setState(() {
+      _venueNote.text = location.label;
+      _activityLatitude = location.latitude;
+      _activityLongitude = location.longitude;
+    });
   }
 
   Future<void> _chooseStart() async {

@@ -46,8 +46,12 @@ workflows:
           # This app only requests foreground location; avoid linking Geolocator's
           # unused always-location APIs, which trigger Apple's missing-purpose warning.
           export BYPASS_PERMISSION_LOCATION_ALWAYS=1
+          IOS_BUILD_NUMBER="${PROJECT_BUILD_NUMBER:-1}"
+          if [ "$IOS_BUILD_NUMBER" -lt 64 ]; then
+            IOS_BUILD_NUMBER=$((IOS_BUILD_NUMBER + 63))
+          fi
           flutter build ipa --release \
-            --build-number=$PROJECT_BUILD_NUMBER \
+            --build-number="$IOS_BUILD_NUMBER" \
             --dart-define=APPLE_SIGN_IN_ENABLED=true \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:

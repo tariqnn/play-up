@@ -30,7 +30,7 @@ service cloud.firestore {
     function validSelfUpdate() {
       return request.resource.data.get('email', null) == request.auth.token.get('email', null)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-        'displayName', 'email', 'photoUrl', 'city', 'sports', 'skillLevels',
+        'displayName', 'email', 'photoUrl', 'city', 'bio', 'sports', 'skillLevels',
         'preferredTime', 'publicProfile', 'setupComplete', 'lastSeenAt',
         'fcmTokens', 'lastFcmTokenUpdatedAt', 'notificationPreferences',
         'privacyPreferences', 'mustChangePassword', 'passwordChangedAt',

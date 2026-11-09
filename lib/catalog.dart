@@ -423,9 +423,11 @@ class CatalogService {
     AppLocation? location, {
     String sport = 'All',
     String query = '',
-    double? radiusKm = 40,
+    double? radiusKm,
   }) {
-    final safeRadiusKm = radiusKm?.clamp(1, 40).toDouble();
+    final safeRadiusKm = radiusKm == null
+        ? null
+        : (radiusKm < 0 ? 0.0 : radiusKm);
     final needle = query.trim().toLowerCase();
     final result = source.where((court) {
       final sportMatches =
