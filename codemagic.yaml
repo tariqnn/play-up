@@ -6,7 +6,10 @@ workflows:
     integrations:
       app_store_connect: mine
     environment:
-      flutter: stable
+      # Keep CI aligned with the locally validated Flutter SDK. The newest
+      # stable channel promotes legacy Material/Cupertino import notices to
+      # analyzer issues, which fails this release workflow before building.
+      flutter: 3.44.6
       xcode: latest
       cocoapods: default
       ios_signing:
