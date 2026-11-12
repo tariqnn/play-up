@@ -3610,8 +3610,28 @@ class _MainShellState extends State<MainShell> {
               label: 'Explore',
             ),
             NavigationDestination(
-              icon: Icon(Icons.bolt_outlined),
-              selectedIcon: Icon(Icons.bolt_rounded),
+              icon: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Color(0xFF1DB954),
+                  shape: BoxShape.circle,
+                ),
+                child: SizedBox(
+                  width: 46,
+                  height: 46,
+                  child: Icon(Icons.bolt_rounded, color: Color(0xFF07110E)),
+                ),
+              ),
+              selectedIcon: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Color(0xFF1DB954),
+                  shape: BoxShape.circle,
+                ),
+                child: SizedBox(
+                  width: 46,
+                  height: 46,
+                  child: Icon(Icons.bolt_rounded, color: Color(0xFF07110E)),
+                ),
+              ),
               label: 'Play',
             ),
             NavigationDestination(
