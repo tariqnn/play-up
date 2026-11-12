@@ -190,6 +190,25 @@ Future<void> _saveFcmToken(String token) async {
   }
 }
 
+String _cleanCardCopy(String value) => value
+    .replaceAll('Â·', '·')
+    .replaceAll('â€¢', '·')
+    .replaceAll('â€™', '’')
+    .replaceAll('â€“', '–')
+    .replaceAll('â€”', '—')
+    .replaceAll(RegExp(r'[\[\]]'), '')
+    .replaceAll('?', '')
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim();
+
+bool _usableRating(String value) {
+  final text = _cleanCardCopy(value).toLowerCase();
+  return text.isNotEmpty &&
+      text != 'not rated' &&
+      text != 'unrated' &&
+      RegExp(r'^\d(?:\.\d)?(?:\s*\(\d+\))?$').hasMatch(text);
+}
+
 class AppColors {
   static const background = Color(0xFFF7F9F8);
   static const surface = Color(0xFFFFFFFF);
@@ -2068,7 +2087,7 @@ class Court {
     final value = km < 1
         ? '${(km * 1000).round()} m'
         : '${km.toStringAsFixed(1)} km';
-    return '~$value direct';
+    return value;
   }
 
   bool isOpenAt(DateTime localTime) =>
@@ -3549,8 +3568,8 @@ class _MainShellState extends State<MainShell> {
       HomeScreen(onTabChange: _selectTab),
       const BookScreen(),
       const PlayScreen(),
-      const MyBookingsScreen(embedded: true),
-      const ProfileScreen(),
+      const CommunityGroupsScreen(),
+      const ProfileOverviewScreen(),
     ];
     unawaited(DeepLinkService.consumePending());
   }
@@ -3591,14 +3610,14 @@ class _MainShellState extends State<MainShell> {
               label: 'Explore',
             ),
             NavigationDestination(
-              icon: Icon(Icons.groups_outlined),
-              selectedIcon: Icon(Icons.groups_rounded),
-              label: 'Community',
+              icon: Icon(Icons.bolt_outlined),
+              selectedIcon: Icon(Icons.bolt_rounded),
+              label: 'Play',
             ),
             NavigationDestination(
-              icon: Icon(Icons.event_outlined),
-              selectedIcon: Icon(Icons.event_rounded),
-              label: 'Bookings',
+              icon: Icon(Icons.groups_outlined),
+              selectedIcon: Icon(Icons.groups_rounded),
+              label: 'Squads',
             ),
             NavigationDestination(
               icon: Icon(Icons.person_outline_rounded),
@@ -3615,39 +3634,42 @@ class _MainShellState extends State<MainShell> {
             TickerMode(enabled: pageIndex == index, child: pages[pageIndex]),
       ),
     );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 760;
-        return Scaffold(
-          body: Row(
-            children: [
-              if (wide)
-                NavigationRail(
-                  selectedIndex: index,
-                  onDestinationSelected: _selectTab,
-                  labelType: NavigationRailLabelType.all,
-                  destinations: destinations
-                      .map(
-                        (d) => NavigationRailDestination(
-                          icon: d.icon,
-                          selectedIcon: d.selectedIcon,
-                          label: Text(d.label),
-                        ),
-                      )
-                      .toList(),
-                ),
-              Expanded(child: content),
-            ],
-          ),
-          bottomNavigationBar: wide
-              ? null
-              : NavigationBar(
-                  selectedIndex: index,
-                  onDestinationSelected: _selectTab,
-                  destinations: destinations,
-                ),
-        );
-      },
+    return Theme(
+      data: index == 4 ? playUpPlayerDarkTheme() : Theme.of(context),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 760;
+          return Scaffold(
+            body: Row(
+              children: [
+                if (wide)
+                  NavigationRail(
+                    selectedIndex: index,
+                    onDestinationSelected: _selectTab,
+                    labelType: NavigationRailLabelType.all,
+                    destinations: destinations
+                        .map(
+                          (d) => NavigationRailDestination(
+                            icon: d.icon,
+                            selectedIcon: d.selectedIcon,
+                            label: Text(d.label),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                Expanded(child: content),
+              ],
+            ),
+            bottomNavigationBar: wide
+                ? null
+                : NavigationBar(
+                    selectedIndex: index,
+                    onDestinationSelected: _selectTab,
+                    destinations: destinations,
+                  ),
+          );
+        },
+      ),
     );
   }
 }
@@ -3734,10 +3756,10 @@ class HomeScreen extends StatelessWidget {
                           ? 'Good morning'
                           : DateTime.now().hour < 18
                           ? 'Good afternoon'
-                          : 'Good evening'},\n$firstName',
+                          : 'Good evening'}, $firstName',
                   titleStyle: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontSize: 21,
-                    height: 1.08,
+                    fontSize: 18,
+                    height: 1.15,
                     fontWeight: FontWeight.w800,
                   ),
                   subtitle: location?.label ?? 'Choose your location',
@@ -3749,32 +3771,33 @@ class HomeScreen extends StatelessWidget {
                     );
                   },
                   trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      IconButton.filledTonal(
+                      IconButton(
+                        tooltip: 'Messages',
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const CommunityGroupsScreen(),
+                          ),
+                        ),
+                        icon: Badge(
+                          isLabelVisible:
+                              ((data['unreadMessages'] as num?)?.toInt() ?? 0) >
+                              0,
+                          label: Text(
+                            '${(data['unreadMessages'] as num?)?.toInt() ?? 0}',
+                          ),
+                          child: const Icon(CupertinoIcons.chat_bubble),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Notifications',
                         onPressed: () => Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => const NotificationsScreen(),
                           ),
                         ),
                         icon: const Icon(CupertinoIcons.bell),
-                      ),
-                      const SizedBox(width: 8),
-                      GestureDetector(
-                        onTap: () => onTabChange(4),
-                        child: Avatar(
-                          name: firstName.isEmpty
-                              ? 'A'
-                              : firstName.characters.first.toUpperCase(),
-                          size: 42,
-                          photoUrl:
-                              (data['photoUrl'] ??
-                                      FirebaseAuth
-                                          .instance
-                                          .currentUser
-                                          ?.photoURL ??
-                                      '')
-                                  .toString(),
-                        ),
                       ),
                     ],
                   ),
@@ -4685,7 +4708,7 @@ class AcademyHomeCard extends StatelessWidget {
                           children: [
                             Expanded(
                               child: Text(
-                                academy.name,
+                                _cleanCardCopy(academy.name),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -4714,7 +4737,7 @@ class AcademyHomeCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        academy.sports,
+                        _cleanCardCopy(academy.sports),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -4734,7 +4757,10 @@ class AcademyHomeCard extends StatelessWidget {
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
-                                packages.take(2).join('  ·  '),
+                                packages
+                                    .take(2)
+                                    .map(_cleanCardCopy)
+                                    .join(' · '),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -5614,6 +5640,801 @@ class ProfileScreen extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class ProfileOverviewScreen extends StatelessWidget {
+  const ProfileOverviewScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppScrollPage(
+      child: StreamBuilder<Map<String, dynamic>>(
+        stream: AppRepository.instance.currentUserDoc(),
+        builder: (context, snapshot) {
+          final theme = Theme.of(context);
+          final colors = theme.colorScheme;
+          final data = snapshot.data ?? const <String, dynamic>{};
+          final user = FirebaseAuth.instance.currentUser;
+          final name = (data['displayName'] ?? user?.displayName ?? 'Player')
+              .toString()
+              .trim();
+          final photoUrl = (data['photoUrl'] ?? user?.photoURL ?? '')
+              .toString()
+              .trim();
+          final city = (data['city'] ?? '').toString().trim();
+          final bio = (data['bio'] ?? '').toString().trim();
+          final rank = (data['rankTitle'] ?? 'Rookie Baller').toString();
+          final sports = List<String>.from(data['sports'] as List? ?? const []);
+          final matches = (data['matches'] as num?)?.toInt() ?? 0;
+          final winRate = (data['winRate'] as num?)?.toInt() ?? 0;
+          final ratingValue = (data['rating'] as num?)?.toDouble() ?? 0;
+          final rating = ratingValue <= 0
+              ? '—'
+              : ratingValue.toStringAsFixed(1);
+          final points = formatThousands(
+            (data['points'] as num?)?.toInt() ?? 0,
+          );
+
+          if (snapshot.hasError) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const _ProfileOverviewHeading(),
+                const SizedBox(height: 14),
+                const CardBox(
+                  child: Text(
+                    'Your profile could not load. Check your connection and try again.',
+                  ),
+                ),
+              ],
+            );
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _ProfileOverviewHeading(),
+              const SizedBox(height: 14),
+              CardBox(
+                radius: 24,
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Avatar(
+                              name: name.isEmpty
+                                  ? 'P'
+                                  : name.characters.first.toUpperCase(),
+                              size: 76,
+                              photoUrl: photoUrl,
+                            ),
+                            Positioned(
+                              right: 0,
+                              bottom: 0,
+                              child: Container(
+                                width: 30,
+                                height: 30,
+                                decoration: BoxDecoration(
+                                  color: colors.primary,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: colors.surface,
+                                    width: 2,
+                                  ),
+                                ),
+                                child: const Icon(
+                                  CupertinoIcons.camera_fill,
+                                  color: Colors.white,
+                                  size: 14,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name.isEmpty ? 'Player' : name,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 21,
+                                  height: 1.1,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                '• $rank',
+                                style: TextStyle(
+                                  color: colors.primary,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 7),
+                              Row(
+                                children: [
+                                  Icon(
+                                    CupertinoIcons.location_fill,
+                                    size: 14,
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Expanded(
+                                    child: Text(
+                                      city.isEmpty ? 'Add your location' : city,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: colors.onSurfaceVariant,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const EditProfileScreen(),
+                            ),
+                          ),
+                          child: const Text('Edit'),
+                        ),
+                      ],
+                    ),
+                    if (bio.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        bio,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colors.onSurfaceVariant,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    Text(
+                      matches == 0
+                          ? 'Your stats start with your first match.'
+                          : 'Your player stats update as you play.',
+                      style: TextStyle(
+                        color: colors.onSurfaceVariant,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _ProfileOverviewStat(
+                            value: '$matches',
+                            label: 'Matches',
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _ProfileOverviewStat(
+                            value: '$winRate%',
+                            label: 'Win rate',
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _ProfileOverviewStat(
+                            value: rating,
+                            label: 'Rating',
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _ProfileOverviewStat(
+                            value: points,
+                            label: 'Points',
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    _ProfileReliability(data: data),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 22),
+              _ProfileOverviewSection(
+                title: 'Player card',
+                subtitle: 'Stats, rank, sports and achievements',
+                icon: CupertinoIcons.person_crop_rectangle,
+                children: [
+                  _ProfileOverviewAction(
+                    icon: CupertinoIcons.chart_bar_alt_fill,
+                    title: 'Open Player Card',
+                    subtitle: 'Share your stats, badges and Baller level',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const PlayerCardScreen(),
+                      ),
+                    ),
+                  ),
+                  _ProfileOverviewAction(
+                    icon: Icons.trending_up_rounded,
+                    title: 'Level and rank',
+                    subtitle: 'Track progress to your next level',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const LevelDetailScreen(),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'My sports',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const SportsSelectionScreen(),
+                            ),
+                          ),
+                          child: const Text('Edit'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (sports.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                      child: CardBox(
+                        child: Text(
+                          'Choose the sports you play to personalize your experience.',
+                          style: TextStyle(color: colors.onSurfaceVariant),
+                        ),
+                      ),
+                    )
+                  else
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                      child: SizedBox(
+                        height: 106,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: sports.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 10),
+                          itemBuilder: (context, index) {
+                            final sport = sports[index];
+                            return SizedBox(
+                              width: 104,
+                              child: SportSquare(
+                                icon:
+                                    kSportOptions
+                                        .where(
+                                          (option) => option.label == sport,
+                                        )
+                                        .map((option) => option.icon)
+                                        .firstOrNull ??
+                                    CupertinoIcons.sportscourt,
+                                label: sport,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(12, 8, 12, 8),
+                    child: Text(
+                      'Your progress',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: ProgressSummaryCard(),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Recent achievements',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const AchievementsScreen(),
+                            ),
+                          ),
+                          child: const Text('See all'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    child: LiveAchievementBadges(),
+                  ),
+                ],
+              ),
+              _ProfileOverviewSection(
+                title: 'My bookings',
+                subtitle: 'Upcoming and past court bookings',
+                icon: CupertinoIcons.calendar,
+                children: [
+                  _ProfileOverviewAction(
+                    icon: Icons.event_available_rounded,
+                    title: 'View bookings',
+                    subtitle: 'Check booking details and status',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const MyBookingsScreen(),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              _ProfileOverviewSection(
+                title: 'Friends',
+                subtitle: 'Find players and manage requests',
+                icon: CupertinoIcons.person_2_fill,
+                children: [
+                  _ProfileOverviewAction(
+                    icon: CupertinoIcons.person_add,
+                    title: 'Manage friends',
+                    subtitle: 'Connect with players and respond to requests',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const FriendsScreen()),
+                    ),
+                  ),
+                ],
+              ),
+              _ProfileOverviewSection(
+                title: 'Wallet & rewards',
+                subtitle: 'Payments, points and available offers',
+                icon: CupertinoIcons.creditcard_fill,
+                children: [
+                  _ProfileOverviewAction(
+                    icon: CupertinoIcons.creditcard,
+                    title: 'Wallet',
+                    subtitle: 'View your balance and transactions',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const WalletScreen()),
+                    ),
+                  ),
+                  _ProfileOverviewAction(
+                    icon: CupertinoIcons.gift,
+                    title: 'Rewards and offers',
+                    subtitle: 'Use points and explore discounts',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const Scaffold(body: RewardsScreen()),
+                      ),
+                    ),
+                  ),
+                  _ProfileOverviewAction(
+                    icon: CupertinoIcons.creditcard,
+                    title: 'Payment methods',
+                    subtitle: 'Manage saved payment options',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const PaymentMethodsScreen(),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              _ProfileOverviewSection(
+                title: 'Leaderboard',
+                subtitle: 'Your standing across sports and cities',
+                icon: Icons.leaderboard_rounded,
+                children: [
+                  _ProfileOverviewAction(
+                    icon: CupertinoIcons.chart_bar,
+                    title: 'Open leaderboard',
+                    subtitle: 'Compare verified player rankings',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const LeaderboardScreen(),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              _ProfileOverviewSection(
+                title: 'Help & support',
+                subtitle: 'Bookings, payments and account help',
+                icon: CupertinoIcons.question_circle,
+                children: [
+                  _ProfileOverviewAction(
+                    icon: CupertinoIcons.book,
+                    title: 'Help center',
+                    subtitle: 'Browse help topics and common questions',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const HelpCenterScreen(),
+                      ),
+                    ),
+                  ),
+                  _ProfileOverviewAction(
+                    icon: CupertinoIcons.chat_bubble_text,
+                    title: 'Contact support',
+                    subtitle: 'Send a message to PlayUp support',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            const SupportScreen(category: 'Support ticket'),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              _ProfileOverviewSection(
+                title: 'Settings',
+                subtitle: 'Account, privacy, notifications and preferences',
+                icon: CupertinoIcons.gear_alt_fill,
+                children: [
+                  _ProfileOverviewAction(
+                    icon: CupertinoIcons.person_crop_circle,
+                    title: 'Edit profile',
+                    subtitle: 'Update your photo, name, city and bio',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const EditProfileScreen(),
+                      ),
+                    ),
+                  ),
+                  _ProfileOverviewAction(
+                    icon: CupertinoIcons.bell,
+                    title: 'Notifications',
+                    subtitle: 'Choose the updates you receive',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const NotificationSettingsScreen(),
+                      ),
+                    ),
+                  ),
+                  _ProfileOverviewAction(
+                    icon: CupertinoIcons.lock_shield,
+                    title: 'Privacy',
+                    subtitle: 'Manage your privacy preferences',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const PrivacySettingsScreen(),
+                      ),
+                    ),
+                  ),
+                  _ProfileOverviewAction(
+                    icon: Icons.tune_rounded,
+                    title: 'All settings',
+                    subtitle: 'Open account and app settings',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                height: 54,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    try {
+                      await SocialAuth.signOutEverywhere();
+                    } catch (_) {
+                      // Always return to the signed-out flow if a provider fails.
+                    }
+                    if (context.mounted) {
+                      Navigator.of(context).pushAndRemoveUntil(
+                        MaterialPageRoute(builder: (_) => const AuthGate()),
+                        (route) => false,
+                      );
+                    }
+                  },
+                  icon: const Icon(CupertinoIcons.square_arrow_left),
+                  label: const Text('Sign out'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: colors.error,
+                    side: BorderSide(
+                      color: colors.error.withValues(alpha: .65),
+                    ),
+                    backgroundColor: colors.errorContainer.withValues(
+                      alpha: .28,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    textStyle: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ProfileOverviewHeading extends StatelessWidget {
+  const _ProfileOverviewHeading();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Profile',
+          style: TextStyle(
+            color: colors.onSurface,
+            fontSize: 28,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -.4,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          'Your player profile and shortcuts',
+          style: TextStyle(color: colors.onSurfaceVariant, fontSize: 14),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProfileOverviewStat extends StatelessWidget {
+  const _ProfileOverviewStat({required this.value, required this.label});
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      constraints: const BoxConstraints(minHeight: 68),
+      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 10),
+      decoration: BoxDecoration(
+        color: colors.primary.withValues(alpha: .08),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: colors.onSurface,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: colors.onSurfaceVariant, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileReliability extends StatelessWidget {
+  const _ProfileReliability({required this.data});
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final reliability = (data['reliability'] as num?)?.toInt() ?? 100;
+    final high = reliability >= 90;
+    final good = reliability >= 70;
+    final color = high
+        ? const Color(0xFF22C55E)
+        : good
+        ? const Color(0xFFB8860B)
+        : Theme.of(context).colorScheme.error;
+    final status = high
+        ? 'High trust'
+        : good
+        ? 'Good standing'
+        : 'Needs improvement';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .12),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            high || good
+                ? CupertinoIcons.shield_lefthalf_fill
+                : CupertinoIcons.exclamationmark_shield_fill,
+            size: 18,
+            color: color,
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              'Player reliability',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Text(
+            '$reliability% · $status',
+            textAlign: TextAlign.end,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileOverviewSection extends StatelessWidget {
+  const _ProfileOverviewSection({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.children,
+  });
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final destination = switch (title) {
+      'Player card' => const PlayerCardScreen(),
+      'My bookings' => const MyBookingsScreen(),
+      'Friends' => const FriendsScreen(),
+      'Wallet & rewards' => const WalletScreen(),
+      'Leaderboard' => const LeaderboardScreen(),
+      'Help & support' => const HelpCenterScreen(),
+      'Settings' => const SettingsScreen(),
+      _ => const ProfileOverviewScreen(),
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () => Navigator.of(
+            context,
+          ).push(MaterialPageRoute<void>(builder: (_) => destination)),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 76),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: colors.outlineVariant),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: colors.primaryContainer,
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Icon(icon, color: colors.onPrimaryContainer, size: 22),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          color: colors.onSurface,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colors.onSurfaceVariant,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  CupertinoIcons.chevron_right,
+                  color: colors.onSurfaceVariant,
+                  size: 18,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileOverviewAction extends StatelessWidget {
+  const _ProfileOverviewAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: ListTile(
+        minTileHeight: 58,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+        leading: Icon(icon, color: colors.primary, size: 21),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        subtitle: Text(
+          subtitle,
+          style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12),
+        ),
+        trailing: Icon(
+          Icons.chevron_right_rounded,
+          color: colors.onSurfaceVariant,
+        ),
+        onTap: onTap,
       ),
     );
   }
@@ -7917,111 +8738,906 @@ class _PostMatchRatingScreenState extends State<PostMatchRatingScreen> {
   }
 }
 
-class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
+class _AccountSettingsRow extends StatelessWidget {
+  const _AccountSettingsRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ListTile(
+      minTileHeight: 68,
+      leading: Icon(icon, color: colors.primary),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+      subtitle: Text(
+        subtitle,
+        style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12),
+      ),
+      trailing:
+          trailing ??
+          Icon(
+            CupertinoIcons.chevron_right,
+            size: 16,
+            color: colors.onSurfaceVariant,
+          ),
+      onTap: onTap,
+    );
+  }
+}
+
+class SuggestVenueScreen extends StatefulWidget {
+  const SuggestVenueScreen({super.key});
+
+  @override
+  State<SuggestVenueScreen> createState() => _SuggestVenueScreenState();
+}
+
+class _SuggestVenueScreenState extends State<SuggestVenueScreen> {
+  final _venueName = TextEditingController();
+  final _venuePhone = TextEditingController();
+  final _contactName = TextEditingController();
+  final _mobile = TextEditingController();
+  final _area = TextEditingController();
+  final Set<String> _sports = {'Football'};
+  static const _cities = [
+    'Amman',
+    'Irbid',
+    'Zarqa',
+    'Aqaba',
+    'Madaba',
+    'Salt',
+    'Other',
+  ];
+  static const _sportIcons = <String, IconData>{
+    'Football': Icons.sports_soccer_rounded,
+    'Padel': Icons.sports_tennis_rounded,
+    'Padbol': Icons.sports_handball_rounded,
+  };
+  bool _isOwner = false;
+  bool _submitting = false;
+  int _ownerStep = 0;
+  String? _city;
+
+  @override
+  void dispose() {
+    _venueName.dispose();
+    _venuePhone.dispose();
+    _contactName.dispose();
+    _mobile.dispose();
+    _area.dispose();
+    super.dispose();
+  }
+
+  Future<void> _paste(TextEditingController controller) async {
+    final clip = await Clipboard.getData(Clipboard.kTextPlain);
+    final value = clip?.text?.trim();
+    if (value != null && value.isNotEmpty) {
+      controller.text = value;
+      controller.selection = TextSelection.collapsed(offset: value.length);
+    }
+  }
+
+  Future<void> _continueOwnerFlow() async {
+    if (_ownerStep == 0 &&
+        (_contactName.text.trim().isEmpty || _mobile.text.trim().isEmpty)) {
+      _showError(
+        'Enter your name and mobile number so the venue team can reach you.',
+      );
+      return;
+    }
+    if (_ownerStep == 1 &&
+        (_venueName.text.trim().isEmpty || _sports.isEmpty)) {
+      _showError('Add the venue name and choose at least one sport.');
+      return;
+    }
+    if (_ownerStep == 2 && (_city == null || _area.text.trim().isEmpty)) {
+      _showError('Choose a city and enter the venue area.');
+      return;
+    }
+    if (_ownerStep < 3) {
+      setState(() => _ownerStep++);
+      return;
+    }
+    await _submit(isCallback: true);
+  }
+
+  Future<void> _submitPlayerSuggestion() async {
+    if (_venueName.text.trim().isEmpty ||
+        _sports.isEmpty ||
+        _city == null ||
+        _area.text.trim().isEmpty) {
+      _showError(
+        'Add the venue name, at least one sport, and its city and area.',
+      );
+      return;
+    }
+    await _submit(isCallback: false);
+  }
+
+  Future<void> _submit({required bool isCallback}) async {
+    setState(() => _submitting = true);
+    final details = <String, String>{
+      'Venue': _venueName.text.trim(),
+      'Sports': _sports.join(', '),
+      'Venue phone': _venuePhone.text.trim().isEmpty
+          ? 'Not provided'
+          : _venuePhone.text.trim(),
+      'City': _city ?? '',
+      'Area': _area.text.trim(),
+      if (isCallback) 'Contact name': _contactName.text.trim(),
+      if (isCallback) 'Mobile': _mobile.text.trim(),
+    };
+    try {
+      await AppRepository.instance.submitSupportTicket(
+        isCallback ? 'Venue owner callback request' : 'Venue suggestion',
+        details.entries
+            .map((entry) => '${entry.key}: ${entry.value}')
+            .join('\n'),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isCallback ? 'Callback request sent.' : 'Venue suggestion sent.',
+          ),
+        ),
+      );
+      Navigator.of(context).pop();
+    } catch (error) {
+      _showError(
+        error.toString().replaceFirst('DomainValidationException: ', ''),
+      );
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Widget _phoneField({
+    required String label,
+    required TextEditingController controller,
+    required String hint,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    return TextField(
+      controller: controller,
+      keyboardType: TextInputType.phone,
+      textInputAction: TextInputAction.next,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: const Icon(CupertinoIcons.phone),
+        suffixIcon: TextButton(
+          onPressed: () => _paste(controller),
+          child: const Text('Paste'),
+        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: colors.outlineVariant),
+        ),
+      ),
+    );
+  }
+
+  Widget _textField({
+    required String label,
+    required TextEditingController controller,
+    required IconData icon,
+    String? hint,
+    TextInputType? keyboardType,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      textInputAction: TextInputAction.next,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: Icon(icon),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: colors.outlineVariant),
+        ),
+      ),
+    );
+  }
+
+  Widget _sportPicker() {
+    final colors = Theme.of(context).colorScheme;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final sport in _sportIcons.keys)
+          FilterChip(
+            avatar: Icon(
+              _sportIcons[sport],
+              size: 17,
+              color: _sports.contains(sport)
+                  ? colors.onPrimaryContainer
+                  : colors.onSurfaceVariant,
+            ),
+            label: Text(sport),
+            selected: _sports.contains(sport),
+            selectedColor: colors.primaryContainer,
+            onSelected: (selected) => setState(() {
+              if (selected) {
+                _sports.add(sport);
+              } else {
+                _sports.remove(sport);
+              }
+            }),
+          ),
+      ],
+    );
+  }
+
+  Widget _locationFields() {
+    final colors = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<String>(
+          initialValue: _city,
+          decoration: InputDecoration(
+            labelText: 'City',
+            prefixIcon: const Icon(CupertinoIcons.location),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: colors.outlineVariant),
+            ),
+          ),
+          items: [
+            for (final city in _cities)
+              DropdownMenuItem(value: city, child: Text(city)),
+          ],
+          onChanged: (value) => setState(() => _city = value),
+        ),
+        const SizedBox(height: 12),
+        _textField(
+          label: 'Area or neighborhood',
+          controller: _area,
+          icon: CupertinoIcons.map_pin_ellipse,
+          hint: 'e.g. Abdoun',
+        ),
+      ],
+    );
+  }
+
+  Widget _ownerStepContent() {
+    switch (_ownerStep) {
+      case 0:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Your contact details',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'We will use these details only to follow up about your venue.',
+            ),
+            const SizedBox(height: 16),
+            _textField(
+              label: 'Your name',
+              controller: _contactName,
+              icon: CupertinoIcons.person,
+              hint: 'Full name',
+            ),
+            const SizedBox(height: 12),
+            _phoneField(
+              label: 'Mobile number',
+              controller: _mobile,
+              hint: '+962 7X XXX XXXX',
+            ),
+            const SizedBox(height: 12),
+            _phoneField(
+              label: 'Venue phone (optional)',
+              controller: _venuePhone,
+              hint: 'Main line or mobile',
+            ),
+          ],
+        );
+      case 1:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Venue details',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 16),
+            _textField(
+              label: 'Venue name',
+              controller: _venueName,
+              icon: CupertinoIcons.sportscourt,
+              hint: 'e.g. Downtown Padel Club',
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Sports available',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            _sportPicker(),
+          ],
+        );
+      case 2:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Where is the venue?',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Choose a city and add the area so players can find it.',
+            ),
+            const SizedBox(height: 16),
+            _locationFields(),
+          ],
+        );
+      default:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Review your request',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 12),
+            CardBox(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _venueName.text.trim(),
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(_sports.join(' · ')),
+                  Text('${_area.text.trim()}, ${_city ?? ''}'),
+                  Text(
+                    'Contact: ${_contactName.text.trim()} · ${_mobile.text.trim()}',
+                  ),
+                  if (_venuePhone.text.trim().isNotEmpty)
+                    Text('Venue phone: ${_venuePhone.text.trim()}'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'The PlayUp team will contact you to discuss adding your venue.',
+            ),
+          ],
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return Scaffold(
       body: AppScrollPage(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             PageTopBar(
-              title: 'Settings',
+              title: 'Suggest a venue',
               onBack: () => Navigator.of(context).pop(),
             ),
-            const SizedBox(height: 18),
-            SettingsTile(
-              icon: CupertinoIcons.calendar,
-              title: 'My Bookings',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const MyBookingsScreen()),
-              ),
-            ),
-            SettingsTile(
-              icon: CupertinoIcons.person_crop_circle,
-              title: 'Edit Profile',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const EditProfileScreen()),
-              ),
-            ),
-            SettingsTile(
-              icon: CupertinoIcons.person_2,
-              title: 'Friends',
-              onTap: () => Navigator.of(
-                context,
-              ).push(MaterialPageRoute(builder: (_) => const FriendsScreen())),
-            ),
-            SettingsTile(
-              icon: CupertinoIcons.question_circle,
-              title: 'Help Center',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const HelpCenterScreen()),
-              ),
-            ),
-            SettingsTile(
-              icon: CupertinoIcons.bell,
-              title: 'Notification Settings',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const NotificationSettingsScreen(),
+            const SizedBox(height: 14),
+            CardBox(
+              padding: const EdgeInsets.all(6),
+              radius: 18,
+              child: RadioGroup<bool>(
+                groupValue: _isOwner,
+                onChanged: (value) => setState(() {
+                  _isOwner = value ?? false;
+                  _ownerStep = 0;
+                }),
+                child: const Column(
+                  children: [
+                    RadioListTile<bool>(
+                      value: false,
+                      activeColor: AppColors.green,
+                      title: Text("I'm a player"),
+                    ),
+                    RadioListTile<bool>(
+                      value: true,
+                      activeColor: AppColors.green,
+                      title: Text('I own or manage it'),
+                    ),
+                  ],
                 ),
               ),
             ),
-            SettingsTile(
-              icon: CupertinoIcons.lock_shield,
-              title: 'Privacy Settings',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const PrivacySettingsScreen(),
+            const SizedBox(height: 18),
+            if (_isOwner) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Step ${_ownerStep + 1} of 4',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  Text(
+                    '${((_ownerStep + 1) * 25)}%',
+                    style: TextStyle(
+                      color: colors.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: (_ownerStep + 1) / 4,
+                  minHeight: 6,
+                  color: colors.primary,
+                  backgroundColor: colors.surfaceContainerHighest,
                 ),
               ),
-            ),
-            const BiometricSettingsTile(),
-            const ThemeModeTile(),
-            SettingsTile(
-              icon: CupertinoIcons.doc_text,
-              title: 'Privacy Policy',
-              onTap: () => _openLegal(context, privacyPolicyUrl),
-            ),
-            SettingsTile(
-              icon: CupertinoIcons.checkmark_shield,
-              title: 'Terms of Service',
-              onTap: () => _openLegal(context, termsOfServiceUrl),
-            ),
-            SettingsTile(
-              icon: CupertinoIcons.creditcard,
-              title: 'Payment Methods',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PaymentMethodsScreen()),
+              const SizedBox(height: 18),
+              CardBox(radius: 20, child: _ownerStepContent()),
+            ] else ...[
+              CardBox(
+                radius: 20,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Tell us about the venue',
+                      style: TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Help us bring more places to play onto PlayUp.',
+                    ),
+                    const SizedBox(height: 16),
+                    _textField(
+                      label: 'Venue name',
+                      controller: _venueName,
+                      icon: CupertinoIcons.sportscourt,
+                      hint: 'e.g. Downtown Padel Club',
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Sports',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 8),
+                    _sportPicker(),
+                    const SizedBox(height: 14),
+                    _phoneField(
+                      label: 'Venue phone (optional)',
+                      controller: _venuePhone,
+                      hint: 'Main line or mobile',
+                    ),
+                    const SizedBox(height: 14),
+                    _locationFields(),
+                  ],
+                ),
               ),
-            ),
+            ],
             const SizedBox(height: 18),
-            SecondaryButton(
-              label: 'Sign Out',
-              onPressed: () => _signOut(context),
-            ),
-            const SizedBox(height: 10),
             SizedBox(
               width: double.infinity,
-              height: 56,
-              child: OutlinedButton(
-                onPressed: () => _confirmDelete(context),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.danger,
-                  side: const BorderSide(color: AppColors.danger),
+              height: 54,
+              child: FilledButton(
+                onPressed: _submitting
+                    ? null
+                    : _isOwner
+                    ? _continueOwnerFlow
+                    : _submitPlayerSuggestion,
+                style: FilledButton.styleFrom(
+                  backgroundColor: colors.primary,
+                  foregroundColor: colors.onPrimary,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
-                child: const Text(
-                  'Delete Account',
-                  style: TextStyle(fontWeight: FontWeight.w900),
-                ),
+                child: _submitting
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(
+                        _isOwner
+                            ? (_ownerStep == 3
+                                  ? 'Request a callback'
+                                  : 'Continue')
+                            : 'Send suggestion',
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  bool _soundsEnabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((prefs) {
+      if (mounted) {
+        setState(
+          () => _soundsEnabled = prefs.getBool('playup_sounds_enabled') ?? true,
+        );
+      }
+    });
+  }
+
+  Future<void> _setSounds(bool value) async {
+    setState(() => _soundsEnabled = value);
+    await (await SharedPreferences.getInstance()).setBool(
+      'playup_sounds_enabled',
+      value,
+    );
+  }
+
+  void _showLanguageInfo(BuildContext context) {
+    showAdaptiveMessage(
+      context,
+      title: 'Language',
+      message:
+          'PlayUp is currently available in English. Additional app languages are not enabled in this build.',
+    );
+  }
+
+  void _showAppTour(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'A quick tour',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 16),
+              for (final item in const [
+                (
+                  'Find a court',
+                  'Explore verified sports venues and contact them for current availability.',
+                ),
+                (
+                  'Play together',
+                  'Join community groups, find matches and connect with friends.',
+                ),
+                (
+                  'Track your game',
+                  'Review bookings, stats, rewards and progress from your profile.',
+                ),
+              ])
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.check_circle_outline_rounded,
+                    color: AppColors.green,
+                  ),
+                  title: Text(
+                    item.$1,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  subtitle: Text(item.$2),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _sendPasswordReset(BuildContext context) async {
+    final email = FirebaseAuth.instance.currentUser?.email;
+    if (email == null || email.isEmpty) {
+      await showAdaptiveMessage(
+        context,
+        title: 'Account security',
+        message:
+            'This account does not have an email address for password recovery.',
+      );
+      return;
+    }
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      if (context.mounted) {
+        await showAdaptiveMessage(
+          context,
+          title: 'Check your email',
+          message: 'We sent a password reset link to $email.',
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        await showAdaptiveMessage(
+          context,
+          title: 'Could not send reset link',
+          message: friendlyAuthError(error),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Theme(
+      data: playUpPlayerDarkTheme(),
+      child: Scaffold(
+        body: AppScrollPage(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              PageTopBar(
+                title: 'Account settings',
+                onBack: () => Navigator.of(context).pop(),
+              ),
+              const SizedBox(height: 18),
+              CardBox(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                radius: 22,
+                child: Column(
+                  children: [
+                    _AccountSettingsRow(
+                      icon: CupertinoIcons.person_crop_circle,
+                      title: 'Edit profile',
+                      subtitle: 'Name, photo and player details',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const EditProfileScreen(),
+                        ),
+                      ),
+                    ),
+                    _AccountSettingsRow(
+                      icon: CupertinoIcons.lock_shield,
+                      title: 'Account security',
+                      subtitle: 'Send a password reset link',
+                      onTap: () => _sendPasswordReset(context),
+                    ),
+                    _AccountSettingsRow(
+                      icon: CupertinoIcons.bell,
+                      title: 'Notifications',
+                      subtitle: 'Booking reminders and updates',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const NotificationSettingsScreen(),
+                        ),
+                      ),
+                    ),
+                    _AccountSettingsRow(
+                      icon: CupertinoIcons.globe,
+                      title: 'Language',
+                      subtitle: 'English',
+                      onTap: () => _showLanguageInfo(context),
+                      trailing: Icon(
+                        CupertinoIcons.chevron_right,
+                        size: 16,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                    SwitchListTile.adaptive(
+                      value: _soundsEnabled,
+                      activeThumbColor: colors.primary,
+                      secondary: Icon(
+                        CupertinoIcons.speaker_2,
+                        color: colors.primary,
+                      ),
+                      title: const Text(
+                        'Sounds',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      subtitle: Text(
+                        'Sound preference for this device',
+                        style: TextStyle(
+                          color: colors.onSurfaceVariant,
+                          fontSize: 12,
+                        ),
+                      ),
+                      onChanged: _setSounds,
+                    ),
+                    _AccountSettingsRow(
+                      icon: CupertinoIcons.creditcard,
+                      title: 'Payment methods',
+                      subtitle: 'Manage saved payment options',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const PaymentMethodsScreen(),
+                        ),
+                      ),
+                    ),
+                    _AccountSettingsRow(
+                      icon: CupertinoIcons.sportscourt,
+                      title: 'Suggest a venue',
+                      subtitle: 'Tell us about a court to add',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const SuggestVenueScreen(),
+                        ),
+                      ),
+                    ),
+                    _AccountSettingsRow(
+                      icon: CupertinoIcons.info_circle,
+                      title: 'App tour',
+                      subtitle: 'See what you can do in PlayUp',
+                      onTap: () => _showAppTour(context),
+                    ),
+                    _AccountSettingsRow(
+                      icon: CupertinoIcons.doc_text,
+                      title: 'Terms & privacy',
+                      subtitle: 'Read our policies',
+                      onTap: () => showModalBottomSheet<void>(
+                        context: context,
+                        showDragHandle: true,
+                        builder: (sheet) => SafeArea(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              ListTile(
+                                leading: const Icon(CupertinoIcons.doc_text),
+                                title: const Text('Privacy policy'),
+                                onTap: () {
+                                  Navigator.pop(sheet);
+                                  _openLegal(context, privacyPolicyUrl);
+                                },
+                              ),
+                              ListTile(
+                                leading: const Icon(
+                                  CupertinoIcons.checkmark_shield,
+                                ),
+                                title: const Text('Terms of service'),
+                                onTap: () {
+                                  Navigator.pop(sheet);
+                                  _openLegal(context, termsOfServiceUrl);
+                                },
+                              ),
+                              const SizedBox(height: 12),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    _AccountSettingsRow(
+                      icon: CupertinoIcons.moon_stars,
+                      title: 'Appearance',
+                      subtitle: 'Choose light, dark or device setting',
+                      onTap: () => showModalBottomSheet<void>(
+                        context: context,
+                        showDragHandle: true,
+                        builder: (_) => const SafeArea(
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(20, 8, 20, 24),
+                            child: ThemeModeTile(),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Account',
+                style: TextStyle(
+                  color: colors.onSurfaceVariant,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              CardBox(
+                color: colors.errorContainer.withValues(alpha: .14),
+                borderColor: colors.error.withValues(alpha: .38),
+                radius: 20,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(CupertinoIcons.trash, color: colors.error),
+                        const SizedBox(width: 10),
+                        Text(
+                          'Delete account',
+                          style: TextStyle(
+                            color: colors.error,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Permanently remove your PlayUp account and profile data.',
+                      style: TextStyle(
+                        color: colors.onSurfaceVariant,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: OutlinedButton(
+                        onPressed: () => _confirmDelete(context),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: colors.error,
+                          side: BorderSide(color: colors.error),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: const Text(
+                          'Delete account',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Center(
+                child: TextButton(
+                  onPressed: () => _signOut(context),
+                  child: const Text('Sign out'),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -8322,6 +9938,8 @@ class HeaderRow extends StatelessWidget {
           Expanded(
             child: Text(
               title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: titleStyle ?? Theme.of(context).textTheme.headlineSmall,
             ),
           ),
@@ -9209,24 +10827,46 @@ class CourtCarouselCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      court.name,
+                      _cleanCardCopy(court.name),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      '${court.rating}  •  $locationLabel',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 12,
-                      ),
+                    Row(
+                      children: [
+                        if (_usableRating(court.rating)) ...[
+                          const Icon(
+                            CupertinoIcons.star_fill,
+                            size: 12,
+                            color: AppColors.gold,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _cleanCardCopy(court.rating),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                        ],
+                        Expanded(
+                          child: Text(
+                            _cleanCardCopy(locationLabel),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      court.price,
+                      _cleanCardCopy(court.price),
                       style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
                   ],

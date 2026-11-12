@@ -1,6 +1,82 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 
+/// Fixed PlayUp player area theme. Academy discovery and academy-owned pages
+/// deliberately keep the light theme, regardless of the player's selection.
+ThemeData playUpPlayerDarkTheme() {
+  const background = Color(0xFF121212);
+  const surface = Color(0xFF1E1E1E);
+  const container = Color(0xFF242424);
+  const green = Color(0xFF1DB954);
+  const text = Color(0xFFF5F5F5);
+  const muted = Color(0xFFB3B3B3);
+  final scheme =
+      ColorScheme.fromSeed(
+        seedColor: green,
+        brightness: Brightness.dark,
+      ).copyWith(
+        primary: green,
+        onPrimary: Colors.white,
+        primaryContainer: const Color(0xFF123A22),
+        onPrimaryContainer: const Color(0xFFC9F4D6),
+        surface: surface,
+        surfaceContainer: container,
+        surfaceContainerHighest: const Color(0xFF2B2B2B),
+        onSurface: text,
+        onSurfaceVariant: muted,
+        outline: const Color(0xFF3A3A3A),
+        outlineVariant: const Color(0xFF303030),
+        error: const Color(0xFFFF6B6B),
+      );
+  final base = ThemeData(useMaterial3: true, colorScheme: scheme);
+  final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(16));
+  return base.copyWith(
+    scaffoldBackgroundColor: background,
+    canvasColor: surface,
+    cardTheme: CardThemeData(
+      color: surface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      shape: shape.copyWith(side: const BorderSide(color: Color(0xFF303030))),
+    ),
+    appBarTheme: const AppBarTheme(
+      backgroundColor: background,
+      foregroundColor: text,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: container,
+      hintStyle: const TextStyle(color: muted),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(16)),
+        borderSide: BorderSide(color: Color(0xFF3A3A3A)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(16)),
+        borderSide: BorderSide(color: Color(0xFF3A3A3A)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(16)),
+        borderSide: BorderSide(color: green, width: 1.5),
+      ),
+    ),
+    navigationBarTheme: const NavigationBarThemeData(
+      backgroundColor: background,
+      surfaceTintColor: Colors.transparent,
+      indicatorColor: Color(0xFF123A22),
+      elevation: 0,
+    ),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: surface,
+      modalBackgroundColor: surface,
+      surfaceTintColor: Colors.transparent,
+      showDragHandle: true,
+    ),
+  );
+}
+
 /// Shared controls and readable surfaces across player and academy journeys.
 ThemeData playUpTheme(Brightness brightness) {
   final dark = brightness == Brightness.dark;

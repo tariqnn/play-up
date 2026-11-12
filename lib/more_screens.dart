@@ -9,9 +9,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'catalog.dart';
+import 'design_system.dart';
 import 'leaderboard_domain.dart';
 import 'location_service.dart';
 import 'main.dart';
@@ -1224,6 +1228,735 @@ class AchievementsScreen extends StatelessWidget {
   }
 }
 
+class PlayerCardScreen extends StatelessWidget {
+  const PlayerCardScreen({super.key});
+
+  DateTime? _joinedAt(Map<String, dynamic> profile) {
+    final raw = profile['createdAt'] ?? profile['joinedAt'];
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is DateTime) return raw;
+    if (raw is String) return DateTime.tryParse(raw);
+    return FirebaseAuth.instance.currentUser?.metadata.creationTime;
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _completedBookings(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> rows,
+  ) {
+    final now = DateTime.now();
+    return rows.where((doc) {
+      final data = doc.data();
+      final status = (data['status'] ?? '').toString().toLowerCase();
+      final end = (data['endUtc'] as Timestamp?)?.toDate();
+      return status != 'cancelled' && end != null && end.isBefore(now);
+    }).toList();
+  }
+
+  double _playedHours(
+    Map<String, dynamic> profile,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> bookings,
+  ) {
+    final stored = profile['hoursPlayed'] ?? profile['hours'];
+    if (stored is num) return stored.toDouble();
+    return _completedBookings(bookings).fold<double>(0, (total, doc) {
+      final row = doc.data();
+      final start = (row['startUtc'] as Timestamp?)?.toDate();
+      final end = (row['endUtc'] as Timestamp?)?.toDate();
+      if (start == null || end == null || !end.isAfter(start)) return total;
+      return total + end.difference(start).inMinutes / 60;
+    });
+  }
+
+  int _venueCount(
+    Map<String, dynamic> profile,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> bookings,
+  ) {
+    final stored = profile['venuesVisited'];
+    if (stored is num) return stored.toInt();
+    return _completedBookings(bookings)
+        .map((doc) {
+          final row = doc.data();
+          return (row['academyId'] ?? row['courtId'] ?? '').toString();
+        })
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .length;
+  }
+
+  String _badgeCategory(Achievement badge) {
+    final text = '${badge.id} ${badge.title} ${badge.description}'
+        .toLowerCase();
+    if (text.contains('weekend') ||
+        text.contains('streak') ||
+        text.contains('regular')) {
+      return 'Consistency';
+    }
+    if (text.contains('reliab') ||
+        text.contains('cancel') ||
+        text.contains('dependable') ||
+        text.contains('on time')) {
+      return 'Reliability';
+    }
+    if (text.contains('academy') ||
+        text.contains('venue') ||
+        text.contains('nomad') ||
+        text.contains('court')) {
+      return 'Explorer';
+    }
+    if (text.contains('host') ||
+        text.contains('team') ||
+        text.contains('squad') ||
+        text.contains('friend')) {
+      return 'Squad & Social';
+    }
+    if (text.contains('rating') ||
+        text.contains('star') ||
+        text.contains('mvp') ||
+        text.contains('fair play') ||
+        text.contains('playmaker')) {
+      return 'Peer-voted';
+    }
+    if (text.contains('season') ||
+        text.contains('ramadan') ||
+        text.contains('world cup') ||
+        text.contains('founding')) {
+      return 'Seasonal';
+    }
+    return 'Milestones';
+  }
+
+  Future<void> _share(
+    BuildContext context, {
+    required String name,
+    required String rank,
+    required int matches,
+    required double hours,
+    required int venues,
+  }) async {
+    final text = [
+      '$name · PlayUp Player Card',
+      rank,
+      '$matches matches · ${hours.toStringAsFixed(1)} hours · $venues venues',
+      'Play together on PlayUp: https://play-up.fit',
+    ].join('\n');
+    try {
+      await SharePlus.instance.share(
+        ShareParams(text: text, subject: '$name’s PlayUp Player Card'),
+      );
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not share the player card: $error')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) {
+      return Scaffold(
+        body: AppScrollPage(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              PageTopBar(
+                title: 'Player Card',
+                onBack: () => Navigator.of(context).pop(),
+              ),
+              const SizedBox(height: 16),
+              const CardBox(
+                child: Text('Sign in to view and share your Player Card.'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return Scaffold(
+      body: AppScrollPage(
+        child: StreamBuilder<Map<String, dynamic>>(
+          stream: AppRepository.instance.currentUserDoc(),
+          builder: (context, profileSnapshot) {
+            final profile = profileSnapshot.data ?? const <String, dynamic>{};
+            final colors = Theme.of(context).colorScheme;
+            final name =
+                (profile['displayName'] ?? user.displayName ?? 'Player')
+                    .toString();
+            final photo = (profile['photoUrl'] ?? user.photoURL ?? '')
+                .toString();
+            final rank = (profile['rankTitle'] ?? 'Rookie Baller').toString();
+            final level = (profile['level'] as num?)?.toInt() ?? 1;
+            final xp = (profile['xp'] as num?)?.toInt() ?? 0;
+            final nextXp =
+                (profile['nextLevelXp'] as num?)?.toInt() ??
+                ((level + 1) * 500);
+            final levelProgress = nextXp <= 0
+                ? 0.0
+                : (xp / nextXp).clamp(0.0, 1.0);
+            final remainingXp = (nextXp - xp).clamp(0, nextXp);
+            final joinDate = _joinedAt(profile);
+            final dateLabel = joinDate == null
+                ? 'On Hagz since joining'
+                : 'On Hagz since ${DateFormat('MMM d').format(joinDate.toLocal())}';
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: AppRepository.instance.myBookings(),
+              builder: (context, bookingSnapshot) {
+                final bookings = bookingSnapshot.data?.docs ?? const [];
+                final completed = _completedBookings(bookings);
+                final hours = _playedHours(profile, bookings);
+                final venues = _venueCount(profile, bookings);
+                final completedMatchCount = (profile['matches'] as num?)
+                    ?.toInt();
+                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: AppRepository.instance.myMatches(),
+                  builder: (context, matchSnapshot) {
+                    final completedMatches =
+                        (matchSnapshot.data?.docs ?? const [])
+                            .where(
+                              (doc) => const {'completed', 'finished'}.contains(
+                                (doc.data()['status'] ?? '')
+                                    .toString()
+                                    .toLowerCase(),
+                              ),
+                            )
+                            .length;
+                    final matches = completedMatchCount ?? completedMatches;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            IconButton.outlined(
+                              tooltip: 'Back',
+                              onPressed: () => Navigator.of(context).pop(),
+                              icon: const Icon(Icons.arrow_back_rounded),
+                            ),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'Player Card',
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            IconButton.outlined(
+                              tooltip: 'Share player card',
+                              onPressed: () => _share(
+                                context,
+                                name: name,
+                                rank: rank,
+                                matches: matches,
+                                hours: hours,
+                                venues: venues,
+                              ),
+                              icon: const Icon(Icons.ios_share_rounded),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        CardBox(
+                          radius: 24,
+                          padding: const EdgeInsets.all(20),
+                          color: AppColors.dark,
+                          borderColor: const Color(0xFF153020),
+                          child: Column(
+                            children: [
+                              Row(
+                                children: [
+                                  Avatar(
+                                    name: name.isEmpty
+                                        ? 'P'
+                                        : name.characters.first.toUpperCase(),
+                                    size: 70,
+                                    photoUrl: photo,
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          name,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 21,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          dateLabel,
+                                          style: TextStyle(
+                                            color: Colors.white.withValues(
+                                              alpha: .7,
+                                            ),
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 7),
+                                        Row(
+                                          children: [
+                                            const Icon(
+                                              Icons.circle,
+                                              color: AppColors.green,
+                                              size: 9,
+                                            ),
+                                            const SizedBox(width: 7),
+                                            Expanded(
+                                              child: Text(
+                                                '• $rank',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 20),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _PlayerCardStat(
+                                      value: '$matches',
+                                      label: 'Matches',
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _PlayerCardStat(
+                                      value: hours.toStringAsFixed(1),
+                                      label: 'Hours',
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _PlayerCardStat(
+                                      value: '$venues',
+                                      label: 'Venues',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (profileSnapshot.connectionState ==
+                                      ConnectionState.waiting ||
+                                  bookingSnapshot.connectionState ==
+                                      ConnectionState.waiting)
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 12),
+                                  child: LinearProgressIndicator(minHeight: 2),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 22),
+                        const SectionHeader(title: 'Badges'),
+                        const SizedBox(height: 10),
+                        UserAchievementsBuilder(
+                          builder: (context, achievements) {
+                            const categories = [
+                              'Milestones',
+                              'Consistency',
+                              'Reliability',
+                              'Explorer',
+                              'Squad & Social',
+                              'Peer-voted',
+                              'Seasonal',
+                            ];
+                            final unlocked = achievements
+                                .where((badge) => badge.progress >= badge.goal)
+                                .length;
+                            return Column(
+                              children: [
+                                CardBox(
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        CupertinoIcons.rosette,
+                                        color: AppColors.green,
+                                        size: 30,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          '$unlocked of ${achievements.length} badges unlocked',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                if (achievements.isNotEmpty) ...[
+                                  SizedBox(
+                                    height: 112,
+                                    child: ListView.separated(
+                                      scrollDirection: Axis.horizontal,
+                                      itemCount: achievements.length,
+                                      separatorBuilder: (_, _) =>
+                                          const SizedBox(width: 8),
+                                      itemBuilder: (context, index) {
+                                        final badge = achievements[index];
+                                        final isUnlocked =
+                                            badge.progress >= badge.goal;
+                                        return Container(
+                                          width: 102,
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(
+                                            color: colors.surfaceContainer,
+                                            borderRadius: BorderRadius.circular(
+                                              16,
+                                            ),
+                                            border: Border.all(
+                                              color: colors.outlineVariant,
+                                            ),
+                                          ),
+                                          child: Column(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: [
+                                              AchievementBadge(
+                                                icon: badge.icon,
+                                                color: isUnlocked
+                                                    ? badge.color
+                                                    : colors.onSurfaceVariant,
+                                              ),
+                                              const SizedBox(height: 7),
+                                              Text(
+                                                badge.title,
+                                                maxLines: 2,
+                                                textAlign: TextAlign.center,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                              Text(
+                                                isUnlocked
+                                                    ? 'Unlocked'
+                                                    : 'Locked',
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  color: isUnlocked
+                                                      ? colors.primary
+                                                      : colors.onSurfaceVariant,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                ],
+                                for (final category in categories)
+                                  _PlayerCardBadgeCategory(
+                                    title: category,
+                                    badges: achievements
+                                        .where(
+                                          (badge) =>
+                                              _badgeCategory(badge) == category,
+                                        )
+                                        .toList(),
+                                  ),
+                              ],
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 22),
+                        const SectionHeader(title: 'Baller level'),
+                        const SizedBox(height: 10),
+                        CardBox(
+                          radius: 20,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  LevelBadge(text: '$level', size: 52),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          rank,
+                                          style: const TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                        Text(
+                                          'Level $level',
+                                          style: TextStyle(
+                                            color: colors.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 18),
+                              SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    for (final tier in const [
+                                      'Rookie',
+                                      'Bronze',
+                                      'Silver',
+                                      'Gold',
+                                      'Platinum',
+                                    ]) ...[
+                                      _PlayerCardTier(
+                                        label: tier,
+                                        current: rank.toLowerCase().contains(
+                                          tier.toLowerCase(),
+                                        ),
+                                      ),
+                                      if (tier != 'Platinum')
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                          ),
+                                          child: Icon(
+                                            Icons.chevron_right_rounded,
+                                            size: 18,
+                                            color: colors.onSurfaceVariant,
+                                          ),
+                                        ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              ProgressBar(value: levelProgress),
+                              const SizedBox(height: 8),
+                              Text(
+                                matches == 0 &&
+                                        rank.toLowerCase().contains('rookie')
+                                    ? '1 match to Bronze Baller'
+                                    : '$xp / $nextXp XP · $remainingXp XP to Level ${level + 1}',
+                                style: TextStyle(
+                                  color: colors.onSurfaceVariant,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (completed.isEmpty && bookings.isEmpty)
+                          const SizedBox(height: 8),
+                      ],
+                    );
+                  },
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _PlayerCardStat extends StatelessWidget {
+  const _PlayerCardStat({required this.value, required this.label});
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    constraints: const BoxConstraints(minHeight: 62),
+    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: .09),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: .7),
+            fontSize: 11,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _PlayerCardTier extends StatelessWidget {
+  const _PlayerCardTier({required this.label, required this.current});
+  final String label;
+  final bool current;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: current ? colors.primary : colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: current ? colors.onPrimary : colors.onSurfaceVariant,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _PlayerCardBadgeCategory extends StatelessWidget {
+  const _PlayerCardBadgeCategory({required this.title, required this.badges});
+  final String title;
+  final List<Achievement> badges;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final unlocked = badges
+        .where((badge) => badge.progress >= badge.goal)
+        .length;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: CardBox(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        radius: 16,
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+          childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+          shape: const Border(),
+          collapsedShape: const Border(),
+          leading: const Icon(
+            CupertinoIcons.rosette,
+            color: AppColors.green,
+            size: 21,
+          ),
+          title: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+          subtitle: Text(
+            badges.isEmpty
+                ? 'No badges in this category yet'
+                : '$unlocked of ${badges.length} unlocked',
+            style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12),
+          ),
+          children: badges.isEmpty
+              ? [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                    child: Text(
+                      'New ${title.toLowerCase()} badges will appear here as they are added to PlayUp.',
+                      style: TextStyle(color: colors.onSurfaceVariant),
+                    ),
+                  ),
+                ]
+              : [for (final badge in badges) _PlayerCardBadgeRow(badge: badge)],
+        ),
+      ),
+    );
+  }
+}
+
+class _PlayerCardBadgeRow extends StatelessWidget {
+  const _PlayerCardBadgeRow({required this.badge});
+  final Achievement badge;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final done = badge.progress >= badge.goal;
+    final remaining = (badge.goal - badge.progress).clamp(0, badge.goal);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: CardBox(
+        padding: const EdgeInsets.all(12),
+        radius: 14,
+        child: Row(
+          children: [
+            AchievementBadge(
+              icon: badge.icon,
+              color: done ? badge.color : colors.onSurfaceVariant,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    badge.title,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    done
+                        ? 'Unlocked'
+                        : remaining > 0
+                        ? '$remaining more to unlock'
+                        : 'Locked',
+                    style: TextStyle(
+                      color: done ? colors.primary : colors.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  ProgressBar(
+                    value: (badge.progress / badge.goal).clamp(0.0, 1.0),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${badge.progress}/${badge.goal}',
+                    style: TextStyle(
+                      color: colors.onSurfaceVariant,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _AchievementCard extends StatelessWidget {
   const _AchievementCard({required this.achievement});
 
@@ -1747,17 +2480,19 @@ class _AcademyCard extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(15, 12, 15, 14),
                 child: Row(
                   children: [
-                    const Icon(
-                      CupertinoIcons.star_fill,
-                      color: AppColors.gold,
-                      size: 15,
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      _cleanAcademyCopy(academy.rating),
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(width: 14),
+                    if (_academyRatingIsValid(academy.rating)) ...[
+                      const Icon(
+                        CupertinoIcons.star_fill,
+                        color: AppColors.gold,
+                        size: 15,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        _cleanAcademyRating(academy.rating),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(width: 14),
+                    ],
                     const Icon(
                       CupertinoIcons.location_solid,
                       color: AppColors.muted,
@@ -1806,6 +2541,23 @@ Widget _academyImageFallback(Academy academy) => DecoratedBox(
   ),
 );
 
+Widget _academyImage(String source, IconData fallback, {required BoxFit fit}) {
+  final image = source.startsWith('asset:')
+      ? Image.asset(
+          source.substring(6),
+          fit: fit,
+          errorBuilder: (_, _, _) =>
+              Icon(fallback, color: Colors.white54, size: 64),
+        )
+      : CachedNetworkImage(
+          imageUrl: source,
+          fit: fit,
+          errorWidget: (_, _, _) =>
+              Icon(fallback, color: Colors.white54, size: 64),
+        );
+  return SizedBox.expand(child: image);
+}
+
 String _cleanAcademyCopy(String value) => value
     .replaceAll('\u00e2\u20ac\u00a2', '\u2022')
     .replaceAll('\u00e2\u20ac\u201c', '\u2013')
@@ -1823,8 +2575,16 @@ String _cleanAcademyCopy(String value) => value
     .replaceAll('\uFFFD', '')
     .replaceAll(RegExp(r'[\u200B-\u200D\uFEFF]'), '')
     .replaceAll(RegExp(r'\s+([,.!?;:])'), r'$1')
+    .replaceAll(RegExp(r'[\[\]]'), '')
+    .replaceAll('?', '')
     .replaceAll(RegExp(r'\s+'), ' ')
     .trim();
+
+bool _academyRatingIsValid(String value) =>
+    RegExp(r'^\d(?:\.\d)?(?:\s*\(\d+\))?$').hasMatch(_cleanAcademyCopy(value));
+
+String _cleanAcademyRating(String value) =>
+    _academyRatingIsValid(value) ? _cleanAcademyCopy(value) : 'New';
 
 class AcademyProfileScreen extends StatefulWidget {
   const AcademyProfileScreen({super.key, required this.academy});
@@ -1840,493 +2600,548 @@ class _AcademyProfileScreenState extends State<AcademyProfileScreen> {
   bool _courtsExpanded = false;
   bool _eventsExpanded = false;
   late final PageController _packageController;
+  late final PageController _heroController;
   int _activePackagePage = 0;
+  int _activeHeroPage = 0;
 
   @override
   void initState() {
     super.initState();
     _packageController = PageController(viewportFraction: .88);
+    _heroController = PageController();
   }
 
   @override
   void dispose() {
     _packageController.dispose();
+    _heroController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final academy = widget.academy;
-    return Scaffold(
-      body: AppScrollPage(
-        topPadding: 0,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
+    final heroImages = <String>{
+      if (academy.imageUrl.trim().isNotEmpty) academy.imageUrl.trim(),
+      ...academy.imageUrls
+          .map((image) => image.trim())
+          .where((image) => image.isNotEmpty),
+    }.toList();
+    return Theme(
+      data: playUpTheme(Brightness.light),
+      child: Scaffold(
+        body: SafeArea(
+          top: true,
+          bottom: false,
+          child: AppScrollPage(
+            topPadding: 0,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  height: 216,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: academy.gradient,
-                    ),
-                    borderRadius: const BorderRadius.vertical(
-                      bottom: Radius.circular(28),
-                    ),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: const BorderRadius.vertical(
-                      bottom: Radius.circular(28),
-                    ),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        if (academy.imageUrl.startsWith('asset:'))
-                          Image.asset(
-                            academy.imageUrl.substring(6),
-                            fit: BoxFit.cover,
-                            alignment: const Alignment(0, 0.12),
-                            errorBuilder: (context, error, stackTrace) =>
-                                Center(
-                                  child: Icon(
-                                    academy.icon,
-                                    color: Colors.white54,
-                                    size: 72,
-                                  ),
+                Stack(
+                  children: [
+                    Container(
+                      height: 276,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: academy.gradient,
+                        ),
+                        borderRadius: const BorderRadius.vertical(
+                          bottom: Radius.circular(28),
+                        ),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: const BorderRadius.vertical(
+                          bottom: Radius.circular(28),
+                        ),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            if (heroImages.isNotEmpty)
+                              PageView.builder(
+                                controller: _heroController,
+                                itemCount: heroImages.length,
+                                onPageChanged: (index) =>
+                                    setState(() => _activeHeroPage = index),
+                                itemBuilder: (context, index) => _academyImage(
+                                  heroImages[index],
+                                  academy.icon,
+                                  fit: BoxFit.cover,
                                 ),
-                          )
-                        else if (academy.imageUrl.isNotEmpty)
-                          CachedNetworkImage(
-                            imageUrl: academy.imageUrl,
-                            fit: BoxFit.cover,
-                            alignment: const Alignment(0, 0.12),
-                            errorWidget: (context, url, error) => Center(
-                              child: Icon(
-                                academy.icon,
-                                color: Colors.white.withValues(alpha: .4),
-                                size: 72,
+                              )
+                            else
+                              Center(
+                                child: Icon(
+                                  academy.icon,
+                                  color: Colors.white54,
+                                  size: 72,
+                                ),
+                              ),
+                            const DecoratedBox(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.transparent,
+                                    Color(0x66000000),
+                                  ],
+                                ),
                               ),
                             ),
-                          )
-                        else
-                          Center(
-                            child: Icon(
-                              academy.icon,
-                              color: Colors.white.withValues(alpha: .4),
-                              size: 72,
-                            ),
-                          ),
-                        const DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [Colors.transparent, Color(0x66000000)],
-                            ),
-                          ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-                Positioned(
-                  top: 18,
-                  left: 10,
-                  child: SafeArea(
-                    child: CircleIconButton(
-                      icon: CupertinoIcons.arrow_left,
-                      dark: true,
-                      onTap: () => Navigator.of(context).pop(),
+                    Positioned(
+                      top: 8,
+                      left: 10,
+                      child: SafeArea(
+                        child: CircleIconButton(
+                          icon: CupertinoIcons.arrow_left,
+                          dark: true,
+                          onTap: () => Navigator.of(context).pop(),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                Positioned(
-                  left: 18,
-                  right: 18,
-                  bottom: 16,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                    Positioned(
+                      left: 18,
+                      right: 18,
+                      bottom: 16,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(
-                            CupertinoIcons.checkmark_seal_fill,
-                            color: Color(0xFF91F0B7),
-                            size: 15,
+                          Row(
+                            children: [
+                              const Icon(
+                                CupertinoIcons.checkmark_seal_fill,
+                                color: Color(0xFF91F0B7),
+                                size: 15,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                academy.featured
+                                    ? 'FEATURED ACADEMY'
+                                    : 'SPORTS ACADEMY',
+                                style: const TextStyle(
+                                  color: Color(0xFFBDF7D0),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 1.1,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 6),
+                          const SizedBox(height: 7),
                           Text(
-                            academy.featured
-                                ? 'FEATURED ACADEMY'
-                                : 'SPORTS ACADEMY',
+                            _cleanAcademyCopy(academy.name),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              color: Color(0xFFBDF7D0),
-                              fontSize: 10,
+                              color: Colors.white,
+                              fontSize: 24,
+                              height: 1.05,
                               fontWeight: FontWeight.w900,
-                              letterSpacing: 1.1,
+                              shadows: [
+                                Shadow(color: Colors.black54, blurRadius: 8),
+                              ],
+                            ),
+                          ),
+                          if (academy.address.isNotEmpty) ...[
+                            const SizedBox(height: 5),
+                            Text(
+                              _cleanAcademyCopy(academy.address),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    Positioned(
+                      top: 8,
+                      right: 10,
+                      child: SafeArea(
+                        child: CircleIconButton(
+                          icon: _following
+                              ? CupertinoIcons.heart_fill
+                              : CupertinoIcons.heart,
+                          dark: true,
+                          onTap: () => setState(() => _following = !_following),
+                        ),
+                      ),
+                    ),
+                    if (heroImages.length > 1)
+                      Positioned(
+                        bottom: 9,
+                        left: 0,
+                        right: 0,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            for (
+                              var index = 0;
+                              index < heroImages.length;
+                              index++
+                            )
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 220),
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 3,
+                                ),
+                                width: index == _activeHeroPage ? 18 : 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(
+                                    alpha: index == _activeHeroPage ? .95 : .55,
+                                  ),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 7,
+                        children: [
+                          if (_academyRatingIsValid(academy.rating))
+                            _AcademyFactChip(
+                              icon: CupertinoIcons.star_fill,
+                              label: _cleanAcademyRating(academy.rating),
+                              accent: AppColors.gold,
+                            ),
+                          _AcademyFactChip(
+                            icon: CupertinoIcons.location_solid,
+                            label: _cleanAcademyCopy(
+                              academy.distanceFrom(
+                                LocationService.instance.current.value,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 7),
-                      Text(
-                        _cleanAcademyCopy(academy.name),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 24,
-                          height: 1.05,
-                          fontWeight: FontWeight.w900,
-                          shadows: [
-                            Shadow(color: Colors.black54, blurRadius: 8),
-                          ],
-                        ),
-                      ),
-                      if (academy.address.isNotEmpty) ...[
-                        const SizedBox(height: 5),
-                        Text(
-                          _cleanAcademyCopy(academy.address),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                    ),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      height: 48,
+                      child: FilledButton(
+                        onPressed: () =>
+                            setState(() => _following = !_following),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _following
+                              ? AppColors.line
+                              : AppColors.purple,
+                          foregroundColor: _following
+                              ? AppColors.ink
+                              : Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                      ],
-                    ],
-                  ),
-                ),
-                Positioned(
-                  top: 18,
-                  right: 10,
-                  child: SafeArea(
-                    child: CircleIconButton(
-                      icon: _following
-                          ? CupertinoIcons.heart_fill
-                          : CupertinoIcons.heart,
-                      dark: true,
-                      onTap: () => setState(() => _following = !_following),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            if (academy.imageUrls.isNotEmpty) ...[
-              SizedBox(
-                height: 112,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: academy.imageUrls.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 10),
-                  itemBuilder: (context, index) {
-                    final imageUrl = academy.imageUrls[index];
-                    final fallback = Container(
-                      width: 156,
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerHighest,
-                      alignment: Alignment.center,
-                      child: Icon(
-                        CupertinoIcons.photo,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        child: Text(
+                          _following ? 'Following' : 'Follow',
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
                       ),
-                    );
-                    final image = imageUrl.startsWith('asset:')
-                        ? Image.asset(
-                            imageUrl.substring(6),
-                            width: 156,
-                            height: 112,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) => fallback,
-                          )
-                        : CachedNetworkImage(
-                            imageUrl: imageUrl,
-                            width: 156,
-                            height: 112,
-                            fit: BoxFit.cover,
-                            errorWidget: (_, _, _) => fallback,
-                          );
-                    return ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: image,
-                    );
-                  },
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 16),
-            ],
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 7,
+                if (academy.packages.isNotEmpty ||
+                    academy.trainingPackages.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      _AcademyFactChip(
-                        icon: CupertinoIcons.star_fill,
-                        label: _cleanAcademyCopy(academy.rating),
-                        accent: AppColors.gold,
-                      ),
-                      _AcademyFactChip(
-                        icon: CupertinoIcons.location_solid,
-                        label: _cleanAcademyCopy(
-                          academy.distanceFrom(
-                            LocationService.instance.current.value,
-                          ),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'TRAIN WITH PURPOSE',
+                              style: TextStyle(
+                                color: AppColors.green,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1.05,
+                              ),
+                            ),
+                            SizedBox(height: 3),
+                            Text(
+                              'Training programs',
+                              style: TextStyle(
+                                fontSize: 20,
+                                height: 1.12,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
+                      if ((academy.packages.isNotEmpty
+                              ? academy.packages.length
+                              : academy.trainingPackages.length) >
+                          1)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: Text(
+                            '${(_activePackagePage + 1).toString().padLeft(2, '0')} / '
+                            '${(academy.packages.isNotEmpty ? academy.packages.length : academy.trainingPackages.length).toString().padLeft(2, '0')}',
+                            style: TextStyle(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
                     ],
                   ),
-                ),
-                const SizedBox(width: 10),
-                SizedBox(
-                  height: 48,
-                  child: FilledButton(
-                    onPressed: () => setState(() => _following = !_following),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: _following
-                          ? AppColors.line
-                          : AppColors.purple,
-                      foregroundColor: _following
-                          ? AppColors.ink
-                          : Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    child: Text(
-                      _following ? 'Following' : 'Follow',
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (academy.packages.isNotEmpty ||
-                academy.trainingPackages.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'TRAIN WITH PURPOSE',
-                          style: TextStyle(
-                            color: AppColors.green,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1.05,
-                          ),
-                        ),
-                        SizedBox(height: 3),
-                        Text(
-                          'Training programs',
-                          style: TextStyle(
-                            fontSize: 20,
-                            height: 1.12,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if ((academy.packages.isNotEmpty
+                  const SizedBox(height: 9),
+                  SizedBox(
+                    height: 318,
+                    child: PageView.builder(
+                      controller: _packageController,
+                      itemCount: academy.packages.isNotEmpty
                           ? academy.packages.length
-                          : academy.trainingPackages.length) >
-                      1)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 2),
-                      child: Text(
-                        '${(_activePackagePage + 1).toString().padLeft(2, '0')} / '
-                        '${(academy.packages.isNotEmpty ? academy.packages.length : academy.trainingPackages.length).toString().padLeft(2, '0')}',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
+                          : academy.trainingPackages.length,
+                      onPageChanged: (index) =>
+                          setState(() => _activePackagePage = index),
+                      itemBuilder: (context, index) {
+                        final isStructured = academy.packages.isNotEmpty;
+                        final fallbackImage = _academyPackageImage(
+                          academy,
+                          programTitle: isStructured
+                              ? academy.packages[index].title
+                              : academy.trainingPackages[index],
+                        );
+                        final legacy = isStructured
+                            ? null
+                            : _LegacyAcademyProgram.parse(
+                                academy.trainingPackages[index],
+                              );
+                        final package = isStructured
+                            ? academy.packages[index]
+                            : null;
+                        final title = package?.title ?? legacy!.title;
+                        final description =
+                            package?.description ?? legacy!.description;
+                        final price = package?.price ?? legacy!.price;
+                        final duration = package?.duration ?? legacy!.duration;
+                        final sport = package == null
+                            ? legacy!.sport
+                            : RegExp(
+                                    r'\b(Basketball|Football|Soccer|Volleyball|Padel|Tennis|Running|Cycling)\b',
+                                    caseSensitive: false,
+                                  ).firstMatch(package.title)?.group(0) ??
+                                  'Academy program';
+                        final image = package?.imageUrl.isNotEmpty == true
+                            ? package!.imageUrl
+                            : fallbackImage;
+                        final gallery = <String>{
+                          ...(package?.imageUrls ?? const <String>[]),
+                          if (package?.imageUrl.isNotEmpty == true)
+                            package!.imageUrl
+                          else
+                            fallbackImage,
+                          ...academy.imageUrls,
+                        }.where((value) => value.trim().isNotEmpty).toList();
+                        final packageCard = _PackageCardLayout(
+                          title: _cleanAcademyCopy(title),
+                          imageUrl: image,
+                          description: _cleanAcademyCopy(description),
+                          sport: sport,
+                          price: _cleanAcademyCopy(price),
+                          duration: _cleanAcademyCopy(duration),
+                          age: package == null ? legacy!.age : '',
+                        );
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 10, bottom: 3),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(20),
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => _AcademyProgramDetailsScreen(
+                                  academy: academy,
+                                  title: _cleanAcademyCopy(title),
+                                  sport: sport,
+                                  description: _cleanAcademyCopy(description),
+                                  price: _cleanAcademyCopy(price),
+                                  duration: _cleanAcademyCopy(duration),
+                                  age: package == null ? legacy!.age : '',
+                                  images: gallery,
+                                ),
+                              ),
+                            ),
+                            child: packageCard,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                const Text(
+                  'About',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  academy.description.isEmpty
+                      ? 'Contact ${_cleanAcademyCopy(academy.name)} to learn about its courts, coaching, and current programs.'
+                      : _cleanAcademyCopy(academy.description),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppColors.muted, height: 1.4),
+                ),
+                if (academy.address.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _cleanAcademyCopy(academy.address),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: PrimaryButton(
+                        label: 'Contact us',
+                        icon: CupertinoIcons.phone_fill,
+                        onPressed: () => _contactAcademy(academy),
                       ),
                     ),
-                ],
-              ),
-              const SizedBox(height: 9),
-              SizedBox(
-                height: 226,
-                child: PageView.builder(
-                  controller: _packageController,
-                  itemCount: academy.packages.isNotEmpty
-                      ? academy.packages.length
-                      : academy.trainingPackages.length,
-                  onPageChanged: (index) =>
-                      setState(() => _activePackagePage = index),
-                  itemBuilder: (context, index) {
-                    final packageCard = academy.packages.isNotEmpty
-                        ? _AcademyPackageCard(
-                            package: academy.packages[index],
-                            fallbackImage: _academyPackageImage(
-                              academy,
-                              programTitle: academy.packages[index].title,
+                    const SizedBox(width: 10),
+                    if (academy.email.isNotEmpty)
+                      Expanded(
+                        child: SecondaryButton(
+                          label: 'Email',
+                          onPressed: () => launchUrl(
+                            Uri(
+                              scheme: 'mailto',
+                              path: academy.email,
+                              queryParameters: {'subject': 'PlayUp enquiry'},
                             ),
-                          )
-                        : _TrainingPackageCard(
-                            title: academy.trainingPackages[index],
-                            imageUrl: _academyPackageImage(
-                              academy,
-                              programTitle: academy.trainingPackages[index],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                StreamBuilder<List<Court>>(
+                  stream: CatalogService.instance.courts(),
+                  builder: (context, snapshot) {
+                    final list = (snapshot.data ?? const <Court>[])
+                        .where((court) => court.academyId == academy.id)
+                        .toList();
+                    return _AcademyExpandablePanel(
+                      title: 'Courts and facilities',
+                      subtitle:
+                          snapshot.connectionState == ConnectionState.waiting
+                          ? 'Finding academy courts…'
+                          : '${list.length} ${list.length == 1 ? 'court' : 'courts'}',
+                      icon: CupertinoIcons.sportscourt,
+                      expanded: _courtsExpanded,
+                      onToggle: () =>
+                          setState(() => _courtsExpanded = !_courtsExpanded),
+                      child: snapshot.connectionState == ConnectionState.waiting
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 20),
+                              child: Center(child: CircularProgressIndicator()),
+                            )
+                          : snapshot.hasError
+                          ? const _AcademyEmptyMessage(
+                              text:
+                                  'Courts could not load. Check your connection and try again.',
+                            )
+                          : list.isEmpty
+                          ? const _AcademyEmptyMessage(
+                              text:
+                                  'No courts are listed for this academy yet.',
+                            )
+                          : Column(
+                              children: [
+                                for (
+                                  var index = 0;
+                                  index < list.length;
+                                  index++
+                                )
+                                  _AcademyCourtRow(
+                                    court: list[index],
+                                    last: index == list.length - 1,
+                                  ),
+                              ],
                             ),
-                          );
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 10, bottom: 3),
-                      child: packageCard,
                     );
                   },
                 ),
-              ),
-            ],
-            const SizedBox(height: 16),
-            const Text(
-              'About',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              academy.description.isEmpty
-                  ? 'Contact ${_cleanAcademyCopy(academy.name)} to learn about its courts, coaching, and current programs.'
-                  : _cleanAcademyCopy(academy.description),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: AppColors.muted, height: 1.4),
-            ),
-            if (academy.address.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                _cleanAcademyCopy(academy.address),
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ],
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: PrimaryButton(
-                    label: 'Contact us',
-                    icon: CupertinoIcons.phone_fill,
-                    onPressed: () => _contactAcademy(academy),
-                  ),
+                const SizedBox(height: 8),
+                StreamBuilder<List<EventItem>>(
+                  stream: CatalogService.instance.events(),
+                  builder: (context, snapshot) {
+                    final list = (snapshot.data ?? const <EventItem>[])
+                        .where((event) => event.academyId == academy.id)
+                        .toList();
+                    return _AcademyExpandablePanel(
+                      title: 'Upcoming events',
+                      subtitle:
+                          snapshot.connectionState == ConnectionState.waiting
+                          ? 'Checking the academy calendar…'
+                          : '${list.length} ${list.length == 1 ? 'event' : 'events'}',
+                      icon: CupertinoIcons.calendar,
+                      expanded: _eventsExpanded,
+                      onToggle: () =>
+                          setState(() => _eventsExpanded = !_eventsExpanded),
+                      child: snapshot.connectionState == ConnectionState.waiting
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 20),
+                              child: Center(child: CircularProgressIndicator()),
+                            )
+                          : snapshot.hasError
+                          ? const _AcademyEmptyMessage(
+                              text:
+                                  'Events could not load. Check your connection and try again.',
+                            )
+                          : list.isEmpty
+                          ? const _AcademyEmptyMessage(
+                              text: 'No upcoming events are listed.',
+                            )
+                          : Column(
+                              children: [
+                                for (
+                                  var index = 0;
+                                  index < list.length;
+                                  index++
+                                )
+                                  Padding(
+                                    padding: EdgeInsets.only(
+                                      bottom: index == list.length - 1 ? 0 : 10,
+                                    ),
+                                    child: _EventCard(event: list[index]),
+                                  ),
+                              ],
+                            ),
+                    );
+                  },
                 ),
-                const SizedBox(width: 10),
-                if (academy.email.isNotEmpty)
-                  Expanded(
-                    child: SecondaryButton(
-                      label: 'Email',
-                      onPressed: () => launchUrl(
-                        Uri(
-                          scheme: 'mailto',
-                          path: academy.email,
-                          queryParameters: {'subject': 'PlayUp enquiry'},
-                        ),
-                      ),
-                    ),
-                  ),
               ],
             ),
-            const SizedBox(height: 12),
-            StreamBuilder<List<Court>>(
-              stream: CatalogService.instance.courts(),
-              builder: (context, snapshot) {
-                final list = (snapshot.data ?? const <Court>[])
-                    .where((court) => court.academyId == academy.id)
-                    .toList();
-                return _AcademyExpandablePanel(
-                  title: 'Courts and facilities',
-                  subtitle: snapshot.connectionState == ConnectionState.waiting
-                      ? 'Finding academy courts…'
-                      : '${list.length} ${list.length == 1 ? 'court' : 'courts'}',
-                  icon: CupertinoIcons.sportscourt,
-                  expanded: _courtsExpanded,
-                  onToggle: () =>
-                      setState(() => _courtsExpanded = !_courtsExpanded),
-                  child: snapshot.connectionState == ConnectionState.waiting
-                      ? const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 20),
-                          child: Center(child: CircularProgressIndicator()),
-                        )
-                      : snapshot.hasError
-                      ? const _AcademyEmptyMessage(
-                          text:
-                              'Courts could not load. Check your connection and try again.',
-                        )
-                      : list.isEmpty
-                      ? const _AcademyEmptyMessage(
-                          text: 'No courts are listed for this academy yet.',
-                        )
-                      : Column(
-                          children: [
-                            for (var index = 0; index < list.length; index++)
-                              _AcademyCourtRow(
-                                court: list[index],
-                                last: index == list.length - 1,
-                              ),
-                          ],
-                        ),
-                );
-              },
-            ),
-            const SizedBox(height: 8),
-            StreamBuilder<List<EventItem>>(
-              stream: CatalogService.instance.events(),
-              builder: (context, snapshot) {
-                final list = (snapshot.data ?? const <EventItem>[])
-                    .where((event) => event.academyId == academy.id)
-                    .toList();
-                return _AcademyExpandablePanel(
-                  title: 'Upcoming events',
-                  subtitle: snapshot.connectionState == ConnectionState.waiting
-                      ? 'Checking the academy calendar…'
-                      : '${list.length} ${list.length == 1 ? 'event' : 'events'}',
-                  icon: CupertinoIcons.calendar,
-                  expanded: _eventsExpanded,
-                  onToggle: () =>
-                      setState(() => _eventsExpanded = !_eventsExpanded),
-                  child: snapshot.connectionState == ConnectionState.waiting
-                      ? const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 20),
-                          child: Center(child: CircularProgressIndicator()),
-                        )
-                      : snapshot.hasError
-                      ? const _AcademyEmptyMessage(
-                          text:
-                              'Events could not load. Check your connection and try again.',
-                        )
-                      : list.isEmpty
-                      ? const _AcademyEmptyMessage(
-                          text: 'No upcoming events are listed.',
-                        )
-                      : Column(
-                          children: [
-                            for (var index = 0; index < list.length; index++)
-                              Padding(
-                                padding: EdgeInsets.only(
-                                  bottom: index == list.length - 1 ? 0 : 10,
-                                ),
-                                child: _EventCard(event: list[index]),
-                              ),
-                          ],
-                        ),
-                );
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -2391,25 +3206,234 @@ String _academyPackageImage(Academy academy, {String programTitle = ''}) {
   return 'asset:assets/images/sports/basketball_court_ball.png';
 }
 
-class _TrainingPackageCard extends StatelessWidget {
-  const _TrainingPackageCard({required this.title, required this.imageUrl});
+class _AcademyProgramDetailsScreen extends StatefulWidget {
+  const _AcademyProgramDetailsScreen({
+    required this.academy,
+    required this.title,
+    required this.sport,
+    required this.description,
+    required this.price,
+    required this.duration,
+    required this.age,
+    required this.images,
+  });
 
+  final Academy academy;
   final String title;
-  final String imageUrl;
+  final String sport;
+  final String description;
+  final String price;
+  final String duration;
+  final String age;
+  final List<String> images;
 
   @override
-  Widget build(BuildContext context) {
-    final program = _LegacyAcademyProgram.parse(title);
-    return _PackageCardLayout(
-      title: program.title,
-      imageUrl: imageUrl,
-      sport: program.sport,
-      description: program.description,
-      price: program.price,
-      duration: program.duration,
-      age: program.age,
-    );
+  State<_AcademyProgramDetailsScreen> createState() =>
+      _AcademyProgramDetailsScreenState();
+}
+
+class _AcademyProgramDetailsScreenState
+    extends State<_AcademyProgramDetailsScreen> {
+  late final PageController _controller;
+  int _active = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = PageController();
   }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _contact() async {
+    final academy = widget.academy;
+    if (academy.phone.isEmpty) {
+      await showAdaptiveMessage(
+        context,
+        title: 'Contact unavailable',
+        message: 'This academy has not published a phone number yet.',
+      );
+      return;
+    }
+    final launched = await launchUrl(Uri(scheme: 'tel', path: academy.phone));
+    if (!launched && mounted) {
+      await showAdaptiveMessage(
+        context,
+        title: 'Could not open phone',
+        message: 'Call ${academy.phone} to ask about this program.',
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Theme(
+    data: playUpTheme(Brightness.light),
+    child: Scaffold(
+      body: SafeArea(
+        child: AppScrollPage(
+          topPadding: 0,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              PageTopBar(
+                title: 'Program details',
+                onBack: () => Navigator.of(context).pop(),
+              ),
+              const SizedBox(height: 14),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: SizedBox(
+                  height: 250,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      PageView.builder(
+                        controller: _controller,
+                        itemCount: widget.images.isEmpty
+                            ? 1
+                            : widget.images.length,
+                        onPageChanged: (value) =>
+                            setState(() => _active = value),
+                        itemBuilder: (context, index) => _academyImage(
+                          widget.images.isEmpty
+                              ? widget.academy.imageUrl
+                              : widget.images[index],
+                          widget.academy.icon,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      if (widget.images.length > 1)
+                        Positioned(
+                          bottom: 12,
+                          left: 0,
+                          right: 0,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              for (var i = 0; i < widget.images.length; i++)
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  margin: const EdgeInsets.symmetric(
+                                    horizontal: 3,
+                                  ),
+                                  width: _active == i ? 18 : 6,
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(
+                                      alpha: _active == i ? .95 : .55,
+                                    ),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                widget.sport.toUpperCase(),
+                style: const TextStyle(
+                  color: AppColors.green,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: .8,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                widget.title,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _cleanAcademyCopy(widget.academy.name),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 16),
+              CardBox(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.description.isEmpty
+                          ? 'Contact the academy for current schedule and availability.'
+                          : widget.description,
+                      style: const TextStyle(height: 1.45),
+                    ),
+                    if (widget.duration.isNotEmpty ||
+                        widget.age.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (widget.duration.isNotEmpty)
+                            _PackageDetailPill(
+                              icon: CupertinoIcons.clock,
+                              label: widget.duration,
+                            ),
+                          if (widget.age.isNotEmpty)
+                            _PackageDetailPill(
+                              icon: CupertinoIcons.person_2,
+                              label: widget.age,
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              CardBox(
+                child: Row(
+                  children: [
+                    const Icon(
+                      CupertinoIcons.money_dollar_circle,
+                      color: AppColors.green,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        widget.price.isEmpty
+                            ? 'Ask for current pricing'
+                            : widget.price,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ),
+                    const Text(
+                      'Program price',
+                      style: TextStyle(color: AppColors.muted, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              PrimaryButton(
+                label: 'Contact to book',
+                icon: CupertinoIcons.phone_fill,
+                onPressed: _contact,
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _LegacyAcademyProgram {
@@ -2601,41 +3625,6 @@ class _EventCard extends StatelessWidget {
   }
 }
 
-class _AcademyPackageCard extends StatelessWidget {
-  const _AcademyPackageCard({
-    required this.package,
-    required this.fallbackImage,
-  });
-
-  final AcademyPackage package;
-  final String fallbackImage;
-
-  @override
-  Widget build(BuildContext context) {
-    final image = package.imageUrl.isNotEmpty
-        ? package.imageUrl
-        : fallbackImage;
-    final description = _cleanAcademyCopy(package.description).isNotEmpty
-        ? _cleanAcademyCopy(package.description)
-        : (package.price.trim().isEmpty && package.duration.trim().isEmpty
-              ? 'Contact the academy for schedule and current availability.'
-              : '');
-    return _PackageCardLayout(
-      title: _cleanAcademyCopy(package.title),
-      imageUrl: image,
-      description: description,
-      price: _cleanAcademyCopy(package.price),
-      duration: _cleanAcademyCopy(package.duration),
-      sport:
-          RegExp(
-            r'\b(Basketball|Football|Soccer|Volleyball|Padel|Tennis|Running|Cycling)\b',
-            caseSensitive: false,
-          ).firstMatch(package.title)?.group(0) ??
-          'Academy program',
-    );
-  }
-}
-
 class _PackageCardLayout extends StatelessWidget {
   const _PackageCardLayout({
     required this.title,
@@ -2662,16 +3651,17 @@ class _PackageCardLayout extends StatelessWidget {
       padding: EdgeInsets.zero,
       radius: 20,
       child: SizedBox(
-        height: 208,
-        child: Row(
+        height: 318,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: const BorderRadius.horizontal(
-                left: Radius.circular(20),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
               ),
               child: SizedBox(
-                width: 108,
-                height: double.infinity,
+                width: double.infinity,
+                height: 154,
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
@@ -2737,7 +3727,7 @@ class _PackageCardLayout extends StatelessWidget {
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(13, 12, 12, 12),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 13),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -4102,143 +5092,454 @@ class FriendsScreen extends StatefulWidget {
 
 class _FriendsScreenState extends State<FriendsScreen> {
   int _tab = 0;
+  final _search = TextEditingController();
   final Set<String> _sendingRequests = <String>{};
   final Set<String> _sentRequestIds = <String>{};
   static const _tabs = ['Friends', 'Requests', 'Suggested'];
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: AppScrollPage(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            PageTopBar(
-              title: 'Friends',
-              onBack: () => Navigator.of(context).pop(),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                for (var i = 0; i < _tabs.length; i++) ...[
-                  SelectablePill(
-                    label: _tabs[i],
-                    selected: _tab == i,
-                    onTap: () => setState(() => _tab = i),
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  String get _inviteCode {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? 'PLAYUP';
+    final compact = uid.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
+    return 'PLAY-${compact.substring(0, math.min(6, compact.length))}';
+  }
+
+  Future<void> _showInvite() async {
+    final code = _inviteCode;
+    final inviteUrl = 'https://play-up.fit/?ref=$code';
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          8,
+          20,
+          20 + MediaQuery.viewInsetsOf(sheetContext).bottom,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Invite friends',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                   ),
-                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: () => Navigator.pop(sheetContext),
+                    icon: const Icon(CupertinoIcons.xmark),
+                  ),
                 ],
-              ],
-            ),
-            const SizedBox(height: 18),
-            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: AppRepository.instance.friendships(),
-              builder: (context, friendshipSnapshot) {
-                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: AppRepository.instance.publicPlayers(),
-                  builder: (context, playerSnapshot) {
-                    if (friendshipSnapshot.connectionState ==
-                            ConnectionState.waiting ||
-                        playerSnapshot.connectionState ==
-                            ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    final uid = FirebaseAuth.instance.currentUser?.uid;
-                    final friendships =
-                        friendshipSnapshot.data?.docs ?? const [];
-                    final profiles = {
-                      for (final doc in playerSnapshot.data?.docs ?? const [])
-                        doc.id: doc.data(),
-                    };
-                    final connectedIds = <String>{
-                      for (final doc in friendships)
-                        ...List<String>.from(
-                          doc.data()['members'] as List? ?? const [],
-                        ),
-                    };
-                    final rows = <Widget>[];
-                    if (_tab == 0) {
-                      for (final doc in friendships.where(
-                        (doc) => doc.data()['status'] == 'accepted',
-                      )) {
-                        final members = List<String>.from(
-                          doc.data()['members'] as List? ?? const [],
-                        );
-                        final playerId = members.firstWhere(
-                          (id) => id != uid,
-                          orElse: () => '',
-                        );
-                        rows.add(
-                          _friendRow(
-                            profiles[playerId] ?? const {},
-                            label: 'Invite',
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const CreateMatchScreen(),
-                              ),
+              ),
+              const Text(
+                'Share your code and invite someone to play.',
+                style: TextStyle(color: AppColors.muted),
+              ),
+              const SizedBox(height: 16),
+              CardBox(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'YOUR INVITE CODE',
+                            style: TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: .8,
                             ),
                           ),
-                        );
-                      }
-                    } else if (_tab == 1) {
-                      for (final doc in friendships.where(
-                        (doc) =>
-                            doc.data()['status'] == 'pending' &&
-                            doc.data()['requestedTo'] == uid,
-                      )) {
-                        final requester =
-                            doc.data()['requestedBy']?.toString() ?? '';
-                        rows.add(
-                          _friendRow(
-                            profiles[requester] ??
-                                {'displayName': doc.data()['requesterName']},
-                            label: 'Accept',
-                            onTap: () => _respond(doc.id, true),
+                          const SizedBox(height: 4),
+                          Text(
+                            code,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.2,
+                            ),
                           ),
-                        );
-                      }
-                    } else {
-                      for (final entry in profiles.entries.where(
-                        (entry) =>
-                            entry.key != uid &&
-                            !connectedIds.contains(entry.key) &&
-                            !_sentRequestIds.contains(entry.key),
-                      )) {
-                        rows.add(
-                          _friendRow(
-                            entry.value,
-                            label: 'Add',
-                            busy: _sendingRequests.contains(entry.key),
-                            onTap: () => _send(entry.key),
+                        ],
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: code));
+                        if (sheetContext.mounted) {
+                          ScaffoldMessenger.of(sheetContext).showSnackBar(
+                            const SnackBar(
+                              content: Text('Invite code copied.'),
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(CupertinoIcons.doc_on_doc),
+                      label: const Text('Copy'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: const Color(0xFF343434)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'YALLA HAGZ',
+                            style: TextStyle(
+                              color: Color(0xFF1DB954),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.3,
+                            ),
                           ),
-                        );
-                      }
-                    }
-                    if (rows.isEmpty) {
-                      return CardBox(
-                        child: Text(
-                          _tab == 0
-                              ? 'Friends you connect with will appear here.'
-                              : _tab == 1
-                              ? 'You have no pending friend requests.'
-                              : 'No new player suggestions are available.',
-                        ),
-                      );
-                    }
-                    return Column(
+                          const SizedBox(height: 8),
+                          Text(
+                            code,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 21,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.1,
+                            ),
+                          ),
+                          const SizedBox(height: 9),
+                          Text(
+                            'Play with ${FirebaseAuth.instance.currentUser?.displayName?.split(' ').first ?? 'me'}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Venues, kickoffs and a squad near you',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              height: 1.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        for (final row in rows)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: row,
+                        Container(
+                          padding: const EdgeInsets.all(7),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
                           ),
+                          child: QrImageView(
+                            data: inviteUrl,
+                            size: 84,
+                            padding: EdgeInsets.zero,
+                            backgroundColor: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        const Text(
+                          'Scan to open',
+                          style: TextStyle(color: Colors.white70, fontSize: 10),
+                        ),
                       ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () async {
+                    await SharePlus.instance.share(
+                      ShareParams(
+                        text:
+                            'Join me on PlayUp for venues, kickoffs and a squad near you. Use my invite code $code: $inviteUrl',
+                        subject: 'Play with me on PlayUp',
+                      ),
                     );
                   },
-                );
-              },
-            ),
-          ],
+                  icon: const Icon(CupertinoIcons.paperplane_fill),
+                  label: const Text('Share on WhatsApp'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF1DB954),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Theme(
+      data: playUpPlayerDarkTheme(),
+      child: Scaffold(
+        body: AppScrollPage(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(CupertinoIcons.back),
+                  ),
+                  const Expanded(
+                    child: Text(
+                      'Friends',
+                      style: TextStyle(
+                        fontSize: 23,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _showInvite,
+                    child: const Text(
+                      '+ Invite · earn 50',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: _search,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(CupertinoIcons.search),
+                  hintText: 'Name or username',
+                ),
+              ),
+              const SizedBox(height: 10),
+              CardBox(
+                padding: EdgeInsets.zero,
+                child: ListTile(
+                  leading: const Icon(CupertinoIcons.person_2),
+                  title: const Text(
+                    'Friend requests',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  trailing: const Icon(CupertinoIcons.chevron_right),
+                  onTap: () => setState(() => _tab = 1),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  for (var i = 0; i < _tabs.length; i++) ...[
+                    SelectablePill(
+                      label: _tabs[i],
+                      selected: _tab == i,
+                      onTap: () => setState(() => _tab = i),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 18),
+              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: AppRepository.instance.friendships(),
+                builder: (context, friendshipSnapshot) {
+                  return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: AppRepository.instance.publicPlayers(),
+                    builder: (context, playerSnapshot) {
+                      if (friendshipSnapshot.connectionState ==
+                              ConnectionState.waiting ||
+                          playerSnapshot.connectionState ==
+                              ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      final uid = FirebaseAuth.instance.currentUser?.uid;
+                      final friendships =
+                          friendshipSnapshot.data?.docs ?? const [];
+                      final profiles =
+                          {
+                            for (final doc
+                                in playerSnapshot.data?.docs ?? const [])
+                              doc.id: doc.data(),
+                          }..removeWhere((_, profile) {
+                            final query = _search.text.trim().toLowerCase();
+                            if (query.isEmpty) return false;
+                            return !'${profile['displayName'] ?? ''} ${profile['username'] ?? ''}'
+                                .toLowerCase()
+                                .contains(query);
+                          });
+                      final connectedIds = <String>{
+                        for (final doc in friendships)
+                          ...List<String>.from(
+                            doc.data()['members'] as List? ?? const [],
+                          ),
+                      };
+                      final rows = <Widget>[];
+                      if (_tab == 0) {
+                        for (final doc in friendships.where(
+                          (doc) => doc.data()['status'] == 'accepted',
+                        )) {
+                          final members = List<String>.from(
+                            doc.data()['members'] as List? ?? const [],
+                          );
+                          final playerId = members.firstWhere(
+                            (id) => id != uid,
+                            orElse: () => '',
+                          );
+                          rows.add(
+                            _friendRow(
+                              profiles[playerId] ?? const {},
+                              label: 'Invite',
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const CreateMatchScreen(),
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+                      } else if (_tab == 1) {
+                        for (final doc in friendships.where(
+                          (doc) =>
+                              doc.data()['status'] == 'pending' &&
+                              doc.data()['requestedTo'] == uid,
+                        )) {
+                          final requester =
+                              doc.data()['requestedBy']?.toString() ?? '';
+                          rows.add(
+                            _friendRow(
+                              profiles[requester] ??
+                                  {'displayName': doc.data()['requesterName']},
+                              label: 'Accept',
+                              onTap: () => _respond(doc.id, true),
+                            ),
+                          );
+                        }
+                      } else {
+                        for (final entry in profiles.entries.where(
+                          (entry) =>
+                              entry.key != uid &&
+                              !connectedIds.contains(entry.key) &&
+                              !_sentRequestIds.contains(entry.key),
+                        )) {
+                          rows.add(
+                            _friendRow(
+                              entry.value,
+                              label: 'Add',
+                              busy: _sendingRequests.contains(entry.key),
+                              onTap: () => _send(entry.key),
+                            ),
+                          );
+                        }
+                      }
+                      if (rows.isEmpty && _tab == 0) {
+                        return Column(
+                          children: [
+                            const SizedBox(height: 24),
+                            Container(
+                              width: 120,
+                              height: 120,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E1E1E),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: const Color(0xFF333333),
+                                ),
+                              ),
+                              child: const Icon(
+                                CupertinoIcons.person_2,
+                                size: 48,
+                                color: Color(0xFF1DB954),
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+                            const Text(
+                              'No friends yet',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Invite friends — you both earn 50 EGP.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: AppColors.muted),
+                            ),
+                            const SizedBox(height: 16),
+                            FilledButton.icon(
+                              onPressed: _showInvite,
+                              icon: const Icon(CupertinoIcons.person_add),
+                              label: const Text('Invite friends'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF1DB954),
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+                      if (rows.isEmpty) {
+                        return CardBox(
+                          child: Text(
+                            _tab == 0
+                                ? 'Friends you connect with will appear here.'
+                                : _tab == 1
+                                ? 'You have no pending friend requests.'
+                                : 'No new player suggestions are available.',
+                          ),
+                        );
+                      }
+                      return Column(
+                        children: [
+                          for (final row in rows)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: row,
+                            ),
+                        ],
+                      );
+                    },
+                  );
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );

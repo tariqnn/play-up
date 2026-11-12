@@ -91,6 +91,7 @@ class AcademyPackage {
     this.price = '',
     this.duration = '',
     this.imageUrl = '',
+    this.imageUrls = const [],
   });
 
   final String title;
@@ -98,6 +99,7 @@ class AcademyPackage {
   final String price;
   final String duration;
   final String imageUrl;
+  final List<String> imageUrls;
 }
 
 // ---------------------------------------------------------------------------
@@ -341,6 +343,7 @@ Academy _academyFrom(String id, Map<String, dynamic> d) => Academy(
               price: (row['price'] ?? '').toString(),
               duration: (row['duration'] ?? '').toString(),
               imageUrl: (row['imageUrl'] ?? '').toString(),
+              imageUrls: academyImageList(row['imageUrls']),
             ),
           )
           .toList(),

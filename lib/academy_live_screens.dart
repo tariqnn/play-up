@@ -852,6 +852,7 @@ class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
       text: original['duration']?.toString(),
     );
     var imageUrl = original['imageUrl']?.toString() ?? '';
+    var packageImageUrls = academyImageList(original['imageUrls']);
     var uploading = false;
     await showDialog<void>(
       context: context,
@@ -936,6 +937,20 @@ class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
                       ),
                     ),
                   ),
+                  _AcademyImageGalleryEditor(
+                    title: 'Program photos',
+                    emptyMessage:
+                        'Add photos specific to this training program.',
+                    imageUrls: packageImageUrls,
+                    onChanged: (images) =>
+                        setDialogState(() => packageImageUrls = images),
+                    onUpload: (bytes, fileName, assetName) =>
+                        AcademyService.instance.uploadAcademyImage(
+                          bytes: bytes,
+                          fileName: fileName,
+                          assetName: 'program-$assetName',
+                        ),
+                  ),
                   TextField(
                     controller: title,
                     textCapitalization: TextCapitalization.words,
@@ -989,6 +1004,7 @@ class _AcademyProfileEditorState extends State<_AcademyProfileEditor> {
                         'price': price.text.trim(),
                         'duration': duration.text.trim(),
                         'imageUrl': imageUrl,
+                        'imageUrls': packageImageUrls,
                       };
                       setState(() {
                         if (index == null) {
@@ -1429,9 +1445,13 @@ class _AcademyImageGalleryEditor extends StatefulWidget {
     required this.imageUrls,
     required this.onChanged,
     required this.onUpload,
+    this.title = 'Academy photos',
+    this.emptyMessage = 'Add photos of your training, facilities or community.',
   });
 
   final List<String> imageUrls;
+  final String title;
+  final String emptyMessage;
   final ValueChanged<List<String>> onChanged;
   final Future<String> Function(
     Uint8List bytes,
@@ -1500,13 +1520,13 @@ class _AcademyImageGalleryEditorState
           children: [
             Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Academy photos',
-                        style: TextStyle(fontWeight: FontWeight.w800),
+                        widget.title,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                       SizedBox(height: 3),
                       Text('Show players more of your space.'),
@@ -1535,10 +1555,7 @@ class _AcademyImageGalleryEditorState
                   color: colors.surfaceContainerHighest.withValues(alpha: .55),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Text(
-                  'Add photos of your training, facilities or community.',
-                  textAlign: TextAlign.center,
-                ),
+                child: Text(widget.emptyMessage, textAlign: TextAlign.center),
               )
             else
               SizedBox(
